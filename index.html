@@ -17,12 +17,12 @@
     --bg-info: #1a2332;
     --bg-error: #2a1618;
     --bg-input: #14181f;
-    --bg-modal: var(--bg-modal);
+    --bg-modal: rgba(0,0,0,0.6);
     --overlay: rgba(5,7,10,0.72);
-    --bg-elevated-1: var(--bg-elevated-1);
-    --bg-elevated-2: var(--bg-elevated-2);
-    --bg-elevated-3: var(--bg-elevated-3);
-    --bg-elevated-4: var(--bg-elevated-4);
+    --bg-elevated-1: rgba(255,255,255,0.03);
+    --bg-elevated-2: rgba(255,255,255,0.04);
+    --bg-elevated-3: rgba(255,255,255,0.06);
+    --bg-elevated-4: rgba(255,255,255,0.08);
 
     --text-primary: #e6e9ef;
     --text-secondary: #a7b0be;
@@ -33,12 +33,12 @@
     --text-success: #70c070;
     --text-warning: #ffc000;
 
-    --border: var(--border);
+    --border: #2a303c;
     --border-hover: #3b4453;
     --border-focus: #5b9bd5;
 
     --accent: #5b9bd5;
-    --accent-bg: var(--accent-bg);
+    --accent-bg: rgba(91,155,213,0.15);
     --accent-bg-strong: rgba(74,158,255,0.18);
 
     --scrollbar: #2b323d;
@@ -46,7 +46,7 @@
 
     --code-bg: #14181f;
     --code-border: var(--border);
-    --shadow: var(--bg-modal);
+    --shadow: rgba(0,0,0,0.4);
   }
   /* 浅色主题覆盖 */
   body.theme-light {
@@ -95,6 +95,15 @@
   body.theme-light .send-btn { background: var(--accent); color: var(--text-inverse); border: none; }
   body.theme-light .send-btn:hover { background: var(--accent); opacity: 0.9; }
   body.theme-light .send-btn:disabled { background: var(--border); color: var(--text-muted); border: none; }
+  /* 浅色模式：输入框/卡片用浅灰底，与白色 modal/页面形成层次 */
+  body.theme-light .field input,
+  body.theme-light .field textarea,
+  body.theme-light .field select,
+  body.theme-light .composer textarea,
+  body.theme-light .welcome-input-wrap textarea,
+  body.theme-light .tool-switch-item,
+  body.theme-light .profile-row,
+  body.theme-light .tool-calls-container .tool-card { background: var(--bg-card); }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
@@ -292,6 +301,26 @@
     background: var(--bg-hover); padding: 1px 5px; border-radius: 4px; font-size: 12.5px;
   }
   .msg .bubble pre code { background: none; padding: 0; }
+  /* 代码块粘性行 */
+  .code-block { position: relative; margin: 8px 0; border: 1px solid var(--bg-hover); border-radius: 8px; overflow: hidden; }
+  .code-header {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 12px; background: var(--bg-deep);
+    border-bottom: 1px solid var(--bg-hover);
+  }
+  .code-header .code-lang {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .code-copy-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
+    padding: 2px 10px; border-radius: 5px; font-size: 11px; cursor: pointer;
+    font-family: inherit; transition: all 0.15s;
+  }
+  .code-copy-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .code-copy-btn.copied { background: var(--bg-active); color: var(--text-link); border-color: var(--accent); }
+  .code-block pre { margin: 0; border: none; border-radius: 0; background: var(--bg-deep); }
 
   .tool-card { min-width: 0; }
   .chart-msg .bubble { background: transparent; padding: 0; }
@@ -500,7 +529,12 @@
     border-radius: 8px; padding: 9px 11px; font-size: 13px; outline: none;
     font-family: inherit;
   }
-  .field input:focus, .field textarea:focus { border-color: var(--bg-active); }
+  .field select {
+    width: 100%; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary);
+    border-radius: 8px; padding: 9px 11px; font-size: 13px; outline: none;
+    font-family: inherit; cursor: pointer;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg-strong); }
   .field textarea { resize: vertical; min-height: 120px; line-height: 1.6; }
   .row2 { display: flex; gap: 12px; }
   .row2 .field { flex: 1; }
@@ -752,6 +786,14 @@
         <label>API Key</label>
         <input id="cfgApiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
       </div>
+      <div class="field">
+        <label>主密码（用于加密存储密钥，留空=明文存储）</label>
+        <div style="display:flex;gap:6px">
+          <input id="cfgMasterPassword" type="password" placeholder="设置主密码…" autocomplete="new-password" style="flex:1">
+          <button type="button" class="ghost-btn" id="btnSetMasterPw" style="flex:0 0 auto">应用</button>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;line-height:1.6">设置后，API Key / Token 等 6 项密钥将用 AES-256 加密后存入 localStorage。每次打开页面需输入主密码解密。主密码本身不存储，忘记无法恢复。</div>
+      </div>
       <div class="row2">
         <div class="field">
           <label>模型</label>
@@ -766,10 +808,12 @@
       <div class="field">
         <label>推理强度（reasoning_effort，仅支持的模型生效）</label>
         <select id="cfgReasonEffort">
-          <option value="">默认（不传）</option>
+          <option value="">默认（high，思考模式开启）</option>
           <option value="low">低（快速）</option>
-          <option value="medium">中</option>
+          <option value="medium">中（实际映射到 high）</option>
           <option value="high">高（深度思考）</option>
+          <option value="max">最大（最强推理）</option>
+          <option value="disabled">关闭思考模式</option>
         </select>
       </div>
       <div class="field">
@@ -821,7 +865,7 @@
     <div class="settings-pane" data-pane="cloud">
       <div class="field">
         <label style="color:#9ec3ff">☁ 云端后端</label>
-        <select id="cfgCloudBackend" style="width:100%;background:var(--bg-main);border:1px solid var(--border);color:var(--text-primary);border-radius:8px;padding:9px 11px;font-size:13px;outline:none">
+        <select id="cfgCloudBackend">
           <option value="gitee">Gitee 码云（国内，推荐）</option>
           <option value="webdav">坚果云 WebDAV（国内）</option>
           <option value="gist">GitHub Gist（需代理）</option>
@@ -921,7 +965,7 @@
     <div class="settings-pane" data-pane="ui">
       <div class="field">
         <label>界面主题</label>
-        <select id="cfgTheme" style="width:100%;background:var(--bg-main);border:1px solid var(--border);color:var(--text-primary);border-radius:8px;padding:9px 11px;font-size:13px;outline:none">
+        <select id="cfgTheme">
           <option value="dark">深色（默认）</option>
           <option value="light">浅色</option>
         </select>
@@ -938,7 +982,7 @@
       </div>
       <div class="field">
         <label>长时间 Toast 进度条位置</label>
-        <select id="cfgToastProgressPos" style="width:100%;background:var(--bg-main);border:1px solid var(--border);color:var(--text-primary);border-radius:8px;padding:9px 11px;font-size:13px;outline:none">
+        <select id="cfgToastProgressPos">
           <option value="background">占满背景（淡色填充）</option>
           <option value="bottom">底部细条</option>
           <option value="top">顶部细条</option>
@@ -983,7 +1027,7 @@
       <div class="field">
         <label>外部知识库写权限（读操作内置只读令牌，无需配置）</label>
         <div style="display:flex;gap:8px;margin-bottom:8px">
-          <select id="cfgKbPlatform" style="flex:0 0 100px;background:var(--bg-main);border:1px solid var(--border);color:var(--text-primary);border-radius:8px;padding:9px;font-size:13px;outline:none">
+          <select id="cfgKbPlatform" style="flex:0 0 100px">
             <option value="github">GitHub</option>
             <option value="gitee">Gitee</option>
           </select>
@@ -1274,11 +1318,24 @@ function mdTable(rows) {
   }
   return h + '</table>';
 }
+function copyCodeBlock(btn) {
+  const block = btn.closest('.code-block');
+  if (!block) return;
+  const code = block.querySelector('code');
+  if (!code) return;
+  navigator.clipboard.writeText(code.textContent).then(() => {
+    btn.textContent = '已复制'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '复制'; btn.classList.remove('copied'); }, 1500);
+  }).catch(() => {
+    btn.textContent = '失败'; setTimeout(() => btn.textContent = '复制', 1500);
+  });
+}
 function mdToHtml(text) {
   const blocks = [];
   let s = escapeHtml(text == null ? '' : text);
   s = s.replace(/```([a-zA-Z0-9_+-]*)[ \t]*\n?([\s\S]*?)```/g, (m, lang, code) => {
-    blocks.push('<pre><code>' + (lang ? '<span class="code-lang">' + lang + '</span>' : '') + code.replace(/\n$/, '') + '</code></pre>');
+    const langTag = lang ? '<span class="code-lang">' + lang + '</span>' : '<span class="code-lang">text</span>';
+    blocks.push('<div class="code-block"><div class="code-header">' + langTag + '<button class="code-copy-btn" onclick="copyCodeBlock(this)">复制</button></div><pre><code>' + code.replace(/\n$/, '') + '</code></pre></div>');
     return '\u0000' + (blocks.length - 1) + '\u0000';
   });
   s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
@@ -3155,15 +3212,89 @@ const CFG_KEY = 'agent_cfg_v2';
 const DEFAULT_SYSTEM = `你是一个运行在浏览器中的 AI Agent，拥有一个虚拟文件系统，可以通过工具调用来管理文件。你的名字是小匣。**不要自称 Claude、GPT、ChatGPT、Kimi、豆包或任何其他模型名称**——你就是小匣，由用户在设置中配置的模型驱动。\n\n## 工作原则\n1. 每轮新任务开始前，先 read_file /knowledge/INDEX.md 了解你是谁、能做什么、有什么坑，再按需阅读其中列出的文件；涉及身份/能力/环境限制/危险操作/密钥的问题，以该目录为准。\n2. 开始任务前，如果不清楚当前结构，先用 list_files 查看目录。\n3. 修改已有文件前，先用 read_file 读取原内容，避免覆盖丢失信息。\n4. 使用绝对路径，以 / 开头，例如 /notes/todo.md。\n5. 不要臆造文件内容，一切以工具返回结果为准。\n6. 一轮可以同时调用多个工具（并行执行），无依赖关系的操作尽量合并到一轮发出，缩短总耗时。\n7. 复杂任务先调用 todo_add 拆成可追踪的子步骤，完成后用 todo_done 标记。\n8. 工具执行失败时，仔细阅读错误信息、修正参数后重试，不要轻易放弃。\n9. 删除文件/目录、覆盖写入已有文件、移动文件等危险操作系统会弹窗请用户确认。\n10. 完成任务后，用中文简洁地总结你做了什么、产生了哪些文件；重大成果可用 deliver 工具生成交付卡片。\n11. 每轮对话结束后会自动把对话消息保存到 /conversations/ 目录，需要回顾历史对话时可以列出并 read_file 该目录下的文件查看记录。`;
 
 let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, vfsOrigins: '', allowAllOrigins: false, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0 };
+/* ---------- 密钥加密（主密码 + PBKDF2 + AES-GCM） ---------- */
+const SECRET_FIELDS = ['apiKey', 'giteeToken', 'wdPass', 'gistToken', 'kbToken', 'searchApiKey'];
+let masterPassword = '';  // 运行时主密码，不存储
+
+async function deriveKey(password, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: enc.encode(salt), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+  );
+}
+async function encryptString(plaintext, password) {
+  const salt = Math.random().toString(36).slice(2, 10);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(password, salt);
+  const enc = new TextEncoder();
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(plaintext));
+  const ctArr = Array.from(new Uint8Array(ct));
+  const ivArr = Array.from(iv);
+  return salt + ':' + btoa(String.fromCharCode(...ivArr)) + ':' + btoa(String.fromCharCode(...ctArr));
+}
+async function decryptString(encoded, password) {
+  const [salt, ivB64, ctB64] = encoded.split(':');
+  const iv = Uint8Array.from(atob(ivB64), c => c.charCodeAt(0));
+  const ct = Uint8Array.from(atob(ctB64), c => c.charCodeAt(0));
+  const key = await deriveKey(password, salt);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+  return new TextDecoder().decode(pt);
+}
+function hasEncryptedSecrets(obj) {
+  return SECRET_FIELDS.some(f => obj[f] && typeof obj[f] === 'string' && obj[f].startsWith('enc:'));
+}
+async function decryptAllSecrets(password) {
+  let ok = 0, fail = 0;
+  for (const f of SECRET_FIELDS) {
+    if (cfg[f] && typeof cfg[f] === 'string' && cfg[f].startsWith('enc:')) {
+      try {
+        cfg[f] = await decryptString(cfg[f].slice(4), password);
+        ok++;
+      } catch (e) { fail++; }
+    }
+  }
+  if (fail > 0) toast('部分密钥解密失败（主密码可能错误）', 'err');
+  else if (ok > 0) toast('已解密 ' + ok + ' 个密钥', 'ok');
+  masterPassword = password;
+  updateModelTag();
+}
+function promptMasterPassword(msg) {
+  return new Promise((resolve) => {
+    const pw = prompt(msg || '请输入主密码：');
+    resolve(pw || '');
+  });
+}
 function loadCfg() {
   try { const raw = localStorage.getItem(CFG_KEY); if (raw) Object.assign(cfg, JSON.parse(raw)); } catch (e) {}
   if (!cfg.systemPrompt) cfg.systemPrompt = DEFAULT_SYSTEM;
   // 兼容旧版：giteePath 曾是单文件路径（如 vfs-backup.json），新版本是目录，迁移为空
   if (/\.json$/i.test(String(cfg.giteePath))) cfg.giteePath = '';
+  // 检测加密字段，需要主密码解密
+  if (hasEncryptedSecrets(cfg)) {
+    promptMasterPassword('检测到加密的密钥，请输入主密码解密：').then(pw => {
+      if (pw) decryptAllSecrets(pw);
+    });
+  }
   updateModelTag();
   setupAutoSync();
 }
-function saveCfg() { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) { toast('配置保存失败', 'err'); } updateModelTag(); }
+async function saveCfg() {
+  try {
+    const toSave = { ...cfg };
+    // 如果设置了主密码，加密敏感字段
+    if (masterPassword) {
+      for (const f of SECRET_FIELDS) {
+        if (toSave[f] && typeof toSave[f] === 'string' && !toSave[f].startsWith('enc:')) {
+          toSave[f] = 'enc:' + await encryptString(toSave[f], masterPassword);
+        }
+      }
+    }
+    localStorage.setItem(CFG_KEY, JSON.stringify(toSave));
+  } catch (e) { toast('配置保存失败', 'err'); }
+  updateModelTag();
+}
 function updateModelTag() { const el = $('modelTag'); if (el) el.textContent = cfg.apiKey ? cfg.model : '未配置 API Key'; }
 
 /* ---------- AI 预设（多组 API 存 VFS /config/ai-profiles.json） ---------- */
@@ -5294,6 +5425,12 @@ function createDsmlFilter() {
 }
 
 async function streamChat() {
+  // 密钥仍为加密状态时，提示输入主密码
+  if (cfg.apiKey && typeof cfg.apiKey === 'string' && cfg.apiKey.startsWith('enc:')) {
+    const pw = prompt('密钥已加密，请输入主密码解密后再发送：');
+    if (pw) await decryptAllSecrets(pw);
+    if (!cfg.apiKey || cfg.apiKey.startsWith('enc:')) { appendMsg('assistant', '主密码错误或未输入，无法发送请求。请在设置中重新输入主密码。'); return; }
+  }
   const bubble = appendMsg('assistant');
   const msgEl = bubble.parentElement;
   let text = '';
@@ -5374,12 +5511,19 @@ async function streamChat() {
   if (agentThisRound) {
     sysPrompt += '\n\n## Agent 工作模式\n- 复杂任务先调用 todo_add 拆成可追踪的子步骤，完成后用 todo_done 标记。\n- 一轮可以同时调用多个工具（并行执行），无依赖关系的操作尽量合并到一轮发出。\n- 工具执行失败时，仔细阅读错误信息、修正参数后重试，不要轻易放弃。\n- 删除文件/目录、覆盖写入已有文件、移动文件等危险操作系统会弹窗请用户确认；需要用户决策时用 ask_user 工具。';
   }
-  const payload = { model: cfg.model, messages: [{ role: 'system', content: sysPrompt }, ...trimConversation(conversation)], stream: true, stream_options: { include_usage: true }, temperature: Number(cfg.temperature) || 0 };
+  const payload = { model: cfg.model, messages: [{ role: 'system', content: sysPrompt }, ...trimConversation(conversation)], stream: true, stream_options: { include_usage: true } };
+  // 思考模式下 temperature/presence_penalty/frequency_penalty 不生效，只在非思考模式传 temperature
+  if (!cfg.reasoningEffort || cfg.reasoningEffort === 'disabled') payload.temperature = Number(cfg.temperature) || 0;
   if (agentThisRound) {
     let availTools = (cfg.disabledTools && cfg.disabledTools.length) ? TOOLS.filter(t => !cfg.disabledTools.includes((t.function && t.function.name) || t.name)) : TOOLS;
     payload.tools = availTools; payload.tool_choice = 'auto';
   }   // 任务模式才带工具定义（纯聊天省 Token），过滤用户禁用的工具
-  if (cfg.reasoningEffort) payload.reasoning_effort = cfg.reasoningEffort;
+  if (cfg.reasoningEffort === 'disabled') {
+    payload.thinking = { type: 'disabled' };
+  } else if (cfg.reasoningEffort) {
+    payload.reasoning_effort = cfg.reasoningEffort;
+    payload.thinking = { type: 'enabled' };
+  }   // 思考模式显式开关；不传则默认 high
 
   let resp;
   const fetchCtrl = new AbortController();
@@ -5770,7 +5914,10 @@ function getModelPricing(model) {
   if (m.includes('glm-4.7-flash') || m.includes('glm-4-flash') || m.includes('glm-4.5-air')) return { in: 0, out: 0 };
   if (m.includes('glm-4-air')) return { in: 0.001, out: 0.001 };
   if (m.includes('glm') || m.includes('chatglm')) return { in: 0.6, out: 2.2 };
-  // DeepSeek（V4 系列，人民币定价换算美元，约7.2汇率，高峰时段）
+  // DeepSeek V4 系列（人民币定价换算美元，汇率约7.2，取高峰时段+缓存未命中的保守估算）
+  // flash:  输入缓存未命中 2元/M → $0.28,  输出 8元/M → $1.11
+  // v4-pro: 输入缓存未命中 9元/M → $1.25,  输出 27元/M → $3.75
+  // （缓存命中价格低一个量级，空闲时段约为高峰的一半，预算估算统一取最坏情况）
   if (m.includes('deepseek') && m.includes('v4-pro')) return { in: 1.25, out: 3.75 };
   if (m.includes('deepseek') && m.includes('reasoner')) return { in: 0.28, out: 2.22 };
   if (m.includes('deepseek') && (m.includes('chat') || m.includes('v3'))) return { in: 0.14, out: 0.56 };
@@ -6230,6 +6377,7 @@ function openSettings() {
     renderProfileList();
     updateCloudFields();
     switchSettingsTab('ai');
+    const mpw = $('cfgMasterPassword'); if (mpw) mpw.value = '';  // 主密码不存储，每次清空
     $('settingsModal').classList.add('open');
   } catch (e) { console.error('打开设置失败', e); toast('打开设置失败：' + e.message, 'err'); }
 }
@@ -6428,7 +6576,28 @@ function bindEvents() {
     applyProfile(profiles[activeProfile], false);
   });
   on('btnCfgCancel', 'click', closeSettings);
-  on('btnCfgSave', 'click', () => {
+  on('btnSetMasterPw', 'click', async () => {
+    const pw = $('cfgMasterPassword').value || '';
+    if (!pw) {
+      // 清除主密码：解密所有密钥为明文
+      if (masterPassword) {
+        for (const f of SECRET_FIELDS) {
+          if (cfg[f] && typeof cfg[f] === 'string' && cfg[f].startsWith('enc:')) {
+            try { cfg[f] = await decryptString(cfg[f].slice(4), masterPassword); } catch (e) {}
+          }
+        }
+      }
+      masterPassword = '';
+      await saveCfg();
+      toast('已关闭加密，密钥以明文存储', 'ok');
+    } else {
+      masterPassword = pw;
+      await saveCfg();  // saveCfg 会自动加密所有密钥
+      $('cfgMasterPassword').value = '';
+      toast('主密码已设置，密钥已加密存储', 'ok');
+    }
+  });
+  on('btnCfgSave', 'click', async () => {
     cfg.baseUrl = $('cfgBaseUrl').value.trim() || 'https://api.openai.com/v1';
     cfg.apiKey = $('cfgApiKey').value.trim(); cfg.model = $('cfgModel').value.trim() || 'gpt-4o-mini';
     cfg.temperature = parseFloat($('cfgTemp').value) || 0; cfg.reasoningEffort = $('cfgReasonEffort').value || ''; cfg.maxLoops = Math.max(1, parseInt($('cfgLoops').value) || 20); cfg.maxToolCalls = Math.max(0, parseInt($('cfgMaxToolCalls').value) || 0); cfg.maxWallTime = Math.max(0, parseInt($('cfgMaxWallTime').value) || 0); cfg.maxInputTokens = Math.max(0, parseInt($('cfgMaxInputTokens').value) || 0); cfg.maxOutputTokens = Math.max(0, parseInt($('cfgMaxOutputTokens').value) || 0); cfg.maxCost = Math.max(0, parseFloat($('cfgMaxCost').value) || 0); cfg.corsProxy = ($('cfgCorsProxy').value || '').trim(); cfg.kbPlatform = $('cfgKbPlatform').value || 'github'; cfg.kbRepo = ($('cfgKbRepo').value || '').trim(); cfg.kbToken = ($('cfgKbToken').value || '').trim(); cfg.kbBranch = ($('cfgKbBranch').value || '').trim() || 'master'; cfg.searchApiKey = ($('cfgSearchApiKey').value || '').trim();
@@ -6465,7 +6634,10 @@ function bindEvents() {
       profiles[activeProfile].temperature = cfg.temperature;
       saveProfiles();
     }
-    saveCfg(); closeSettings(); setupAutoSync(); applyTheme(); applyPreviewVisibility(); applySidebarVisibility(); toast('设置已保存');
+    // 主密码处理：如果输入了新密码则设置，留空保持原密码
+    const mpw = $('cfgMasterPassword').value || '';
+    if (mpw) { masterPassword = mpw; $('cfgMasterPassword').value = ''; }
+    await saveCfg(); closeSettings(); setupAutoSync(); applyTheme(); applyPreviewVisibility(); applySidebarVisibility(); toast('设置已保存');
   });
   const modal = $('settingsModal'); if (modal) { modal.addEventListener('click', (e) => { if (e.target === modal) closeSettings(); }); }
   on('btnNewChat', 'click', () => { newSession(); toast('已新建对话'); });
@@ -6501,6 +6673,8 @@ function bindEvents() {
   });
   on('btnExport', 'click', async () => {
     await requireVfs();
+    const hasSecrets = cfg.apiKey || cfg.giteeToken || cfg.wdPass || cfg.gistToken || cfg.kbToken || cfg.searchApiKey;
+    if (hasSecrets && !confirm('导出的备份包含 API Key / Token 等敏感信息（/config/ai-profiles.json 和配置），请妥善保管，不要分享给他人或上传到公开仓库。\n\n确认导出？')) return;
     try {
       const z = await exportZipBackup();
       if (z.ok) { toast(z.msg); return; }
