@@ -5409,7 +5409,7 @@ function getChatBudget() {
   else if (m.includes('16k')) ctx = 16000;
   else if (m.includes('8k')) ctx = 8000;
   else if (m.includes('128k') || m.includes('deepseek') || m.includes('glm') || m.includes('qwen') || m.includes('gpt-4o') || m.includes('kimi')) ctx = 128000;
-  return Math.floor(ctx * 0.6 * 2);  // 字符≈2倍token（中文为主），再留 40% 余量
+  return Math.floor(ctx * 0.6 * 1.5);  // 中文约 1.5 字符/token（第一批）
 }
 /* 判断当前模型是否原生支持视觉输入（图片直接塞进 message content 数组） */
 function modelSupportsVision() {
@@ -5444,7 +5444,7 @@ function trimConversation(msgs) {
   }
   const dropped = msgs.length - kept.length;
   if (dropped > 0) {
-    kept.unshift({ role: 'system', content: '【较早的 ' + dropped + ' 条消息因过长已被省略。如需早期信息，可用 read_file 查看 /conversations/ 目录下的对话记录。】' });
+    kept.unshift({ role: 'system', content: '【较早的消息因过长已被省略。如需早期信息，可用 read_file 查看 /conversations/ 目录下的对话记录。】' });
   }
   // 序列修复：tool 消息必须紧跟在带对应 tool_call_id 的 assistant(tool_calls) 之后；
   // 多工具并行时连续的 tool 响应块只要第一条合法就全部保留
@@ -5466,7 +5466,19 @@ function trimConversation(msgs) {
   // DeepSeek 等推理模型要求多轮对话时 assistant 消息必须带 reasoning_content 字段（即使为空字符串），
   // 否则报 400 "The reasoning_content in the thinking mode must be passed back to the API"。
   // 老对话/云端恢复的消息可能缺这个字段，这里补全。
-  return fixed.map(m => (m.role === 'assistant' && m.reasoning_content == null) ? { ...m, reasoning_content: '' } : m);
+  const normalized = fixed.map(m => (m.role === 'assistant' && m.reasoning_content == null) ? { ...m, reasoning_content: '' } : m);
+  // 只保留最近 3 轮的 reasoning_content，更早的清空（DeepSeek 多轮对话允许空字符串）
+  const KEEP_REASONING_ROUNDS = 3;
+  let assistantCount = 0;
+  for (let i = normalized.length - 1; i >= 0; i--) {
+    if (normalized[i].role === 'assistant') {
+      assistantCount++;
+      if (assistantCount > KEEP_REASONING_ROUNDS) {
+        normalized[i] = { ...normalized[i], reasoning_content: '' };
+      }
+    }
+  }
+  return normalized;
 }
 
 /* ---------- DeepSeek DSML 工具调用解析（跨 chunk 流式状态机） ----------
