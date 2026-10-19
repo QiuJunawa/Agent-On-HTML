@@ -1884,42 +1884,108 @@ const VFS = {
  *  3. Agent 工具定义 (保持 AI 对话能力)
  * ========================================================= */
 const TOOLS = [
-  { type: 'function', function: { name: 'list_files', description: '列出虚拟文件系统中指定目录下的所有文件和子目录。', parameters: { type: 'object', properties: { path: { type: 'string', description: '目录的绝对路径，如 "/" 或 "/notes"。默认为 "/"' } } } } },
-  { type: 'function', function: { name: 'read_file', description: '读取指定文件的内容。可指定行范围（start_line/end_line，1-based，包含两端），不传则读全文。大文件建议先 list_files 看大小，再按行范围分段读。', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件的绝对路径，如 "/notes/plan.md"' }, start_line: { type: 'integer', description: '起始行号（1-based），不传从第1行开始' }, end_line: { type: 'integer', description: '结束行号（包含），不传读到文件末尾' } }, required: ['path'] } } },
-  { type: 'function', function: { name: 'write_file', description: '创建或写入文件。不传 start_line/end_line 时整文件覆盖；传 start_line（可配 end_line）时按行范围替换（1-based，包含两端），start_line 超出文件末尾则追加。父目录自动创建。', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件的绝对路径' }, content: { type: 'string', description: '要写入的内容（整写时为全文，行级替换时为新行内容）' }, start_line: { type: 'integer', description: '起始行号（1-based），不传则整写' }, end_line: { type: 'integer', description: '结束行号（包含），不传则只替换 start_line 那一行' } }, required: ['path', 'content'] } } },
-  { type: 'function', function: { name: 'append_file', description: '在文件末尾追加内容。文件不存在时自动创建。', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件的绝对路径' }, content: { type: 'string', description: '要追加的内容' } }, required: ['path', 'content'] } } },
-  { type: 'function', function: { name: 'delete_path', description: '删除文件或目录（目录会递归删除）。', parameters: { type: 'object', properties: { path: { type: 'string', description: '要删除的路径' } }, required: ['path'] } } },
-  { type: 'function', function: { name: 'move_path', description: '移动或重命名文件/目录。', parameters: { type: 'object', properties: { from: { type: 'string', description: '源路径' }, to: { type: 'string', description: '目标路径' } }, required: ['from', 'to'] } } },
-  { type: 'function', function: { name: 'create_dir', description: '创建一个目录（父目录会自动创建）。', parameters: { type: 'object', properties: { path: { type: 'string', description: '目录的绝对路径' } }, required: ['path'] } } },
-  { type: 'function', function: { name: 'search_files', description: '按文件名或文件内容搜索文件。', parameters: { type: 'object', properties: { query: { type: 'string', description: '搜索关键词' }, in_content: { type: 'boolean', description: '是否同时搜索文件内容，默认 true' } }, required: ['query'] } } },
-  { type: 'function', function: { name: 'fetch_url', description: '抓取指定 URL（网页或 API）的文本内容返回给 AI 阅读。访问前会弹窗请用户确认。', parameters: { type: 'object', properties: { url: { type: 'string', description: '完整 URL，如 https://example.com/page' } }, required: ['url'] } } },
-  { type: 'function', function: { name: 'download_url', description: '从 URL 下载文件内容并保存到虚拟文件系统指定路径。访问前会弹窗请用户确认。', parameters: { type: 'object', properties: { url: { type: 'string', description: '文件完整 URL' }, path: { type: 'string', description: '保存到 VFS 的目标路径，如 /downloads/report.pdf' } }, required: ['url', 'path'] } } },
-  { type: 'function', function: { name: 'route_ai', description: '把一个问题转交给另一个已配置的 AI 预设（不同模型/API）处理，支持流式实时输出并返回它的回答。你可以通过 profile 参数自主指定目标 AI（传预设名称或序号），不填则自动选第一个非当前预设。会弹窗请用户确认，可在设置中关闭此功能。', parameters: { type: 'object', properties: { query: { type: 'string', description: '要转交的问题' }, profile: { type: 'string', description: '目标 AI 预设的名称或序号（建议指定，避免转错模型）。可用预设见输入框旁的下拉列表；传名称如 DeepSeek-Flash，或传序号如 1（从 0 开始）。不填则自动选第一个非当前预设。' } }, required: ['query'] } } },
-  { type: 'function', function: { name: 'check_code', description: '校验一段代码或 VFS 中某个文件的语法/格式：json/js/html 用真实解析器，mjs 按 ESM 模块语义校验，py 为基础结构检查。建议传 path；只传 code 时会自动识别语言，也可用 language 参数指定。返回错误类型与行号。写完代码后建议调用自查。', parameters: { type: 'object', properties: { path: { type: 'string', description: '要校验的 VFS 文件路径，如 /notes/app.js（优先；与 code 二选一）' }, code: { type: 'string', description: '直接传入要校验的代码文本（与 path 二选一）' }, language: { type: 'string', description: '语言类型，仅在只传 code 时使用：json / js / mjs / html / py；不传则自动识别' } } } } },
-  { type: 'function', function: { name: 'todo_add', description: '添加一条待办事项（TODO），用户可在侧栏 TODO 面板看到并勾选完成。适合把大任务拆成可追踪的子步骤。', parameters: { type: 'object', properties: { text: { type: 'string', description: '待办内容，简洁明确' } }, required: ['text'] } } },
-  { type: 'function', function: { name: 'todo_done', description: '把一条待办标记为已完成（或取消完成）。', parameters: { type: 'object', properties: { id: { type: 'integer', description: '待办序号（从 1 开始，对应 todo_list 里的编号）' }, done: { type: 'boolean', description: 'true=标记完成，false=取消完成；默认 true' } }, required: ['id'] } } },
-  { type: 'function', function: { name: 'todo_remove', description: '删除一条待办事项。', parameters: { type: 'object', properties: { id: { type: 'integer', description: '待办序号（从 1 开始）' } }, required: ['id'] } } },
-  { type: 'function', function: { name: 'todo_list', description: '列出所有待办事项及其完成状态。', parameters: { type: 'object', properties: {} } } },
-  { type: 'function', function: { name: 'describe_image', description: '让 AI 模型（需支持视觉输入）查看并描述 VFS 中的一张图片。图片为二进制，read_file 无法读取内容，必须用本工具理解图片。', parameters: { type: 'object', properties: { path: { type: 'string', description: '图片文件的绝对路径，如 /assets/screenshot.png' }, prompt: { type: 'string', description: '可选，自定义提问，如"图中有几个按钮？"；默认"详细描述这张图片"' } }, required: ['path'] } } },
-  { type: 'function', function: { name: 'calculator', description: '安全的数学表达式计算器。支持加减乘除、括号、百分号，以及 sin/cos/tan/sqrt/abs/floor/ceil/round/min/max/pow/log/exp/PI/E 等常见函数。需要精确计算或复杂运算时使用，不要心算。', parameters: { type: 'object', properties: { expression: { type: 'string', description: '数学表达式，如 (3+5)*2/3、sqrt(144)、sin(PI/6)' } }, required: ['expression'] } } },
-  { type: 'function', function: { name: 'statistics', description: '统计分析。传入 numbers 做数字统计（计数/求和/均值/中位数/众数/方差/标准差/最值/极差）；传入 text 做文本统计（字符数/行数/词数/段落数/高频词/平均词长等）。', parameters: { type: 'object', properties: { numbers: { type: 'array', items: { type: 'number' }, description: '数字数组，如 [85,92,78]。与 text 二选一。' }, text: { type: 'string', description: '要统计的文本。与 numbers 二选一。' }, operation: { type: 'string', description: '可选，指定单个统计量；默认 all 返回全部。数字统计可选 count/sum/mean/median/mode/variance/stddev/min/max/range；文本统计可选 chars/chars_no_space/lines/words/paragraphs/top_words/avg_word_length/longest_line' } }, required: [] } } },
-  { type: 'function', function: { name: 'run_js', description: '在受限环境中执行 JavaScript 代码。可用 Math/JSON/Date/Array/Object 等标准对象，console.log 会被捕获并返回。不可访问 DOM/网络/存储（window/document/fetch/localStorage 均不可用）。最后一条表达式的值作为返回值。', parameters: { type: 'object', properties: { code: { type: 'string', description: '要执行的 JS 代码，如 const a=[1,2,3]; a.map(x=>x*2)' } }, required: ['code'] } } },
-  { type: 'function', function: { name: 'run_py', description: '在浏览器端 Pyodide（Python WASM）沙箱中执行 Python 代码。支持标准库（math/json/random/re/itertools 等），print 输出会被捕获返回。首次调用需下载约 10MB 运行时，之后秒开。不可访问网络/本地文件/DOM。执行超时 15 秒。最后一条表达式的值作为返回值。', parameters: { type: 'object', properties: { code: { type: 'string', description: '要执行的 Python 代码，如 print(sum(range(100)))' } }, required: ['code'] } } },
-  { type: 'function', function: { name: 'render_chart', description: '在对话中渲染可视化图表。支持柱状图(bar)、折线图(line)、饼图(pie)、环形图(doughnut)。图表直接显示在对话中，用户可直观看到数据分布。', parameters: { type: 'object', properties: { type: { type: 'string', description: '图表类型：bar / line / pie / doughnut' }, title: { type: 'string', description: '图表标题' }, labels: { type: 'array', items: { type: 'string' }, description: 'X轴标签或饼图分类名' }, datasets: { type: 'array', description: '数据系列，每项含 label 和 data(数字数组)。饼图只需一个系列', items: { type: 'object', properties: { label: { type: 'string' }, data: { type: 'array', items: { type: 'number' } } } } } }, required: ['type', 'labels', 'datasets'] } } },
-  { type: 'function', function: { name: 'wait', description: '等待指定秒数后继续。用于避免请求过快被限流、等待异步操作完成、或主动休息。', parameters: { type: 'object', properties: { seconds: { type: 'number', description: '等待秒数，最大 60 秒' } }, required: ['seconds'] } } },
-  { type: 'function', function: { name: 'web_search', description: '通过 DeepSeek Search API 联网搜索网页，返回标题、URL、长摘要、相关度评分。需在设置中配置 DeepSeek API Key。不受浏览器 CORS 限制。注意：API 每秒最多 5 次请求，并行搜索不要超过 5 个。支持搜索语法：site:、-排除、"精确短语"、lang:、after:/before:。', parameters: { type: 'object', properties: { query: { type: 'string', description: '搜索关键词，1-128 字符，支持 site:/lang:/after:/before: 等语法' }, count: { type: 'integer', description: '返回结果数，1-50，默认 10' }, need_content: { type: 'boolean', description: '是否返回网页正文全文，默认 false' } }, required: ['query'] } } },
-  { type: 'function', function: { name: 'web_fetch', description: '通过 DeepSeek Fetch API 抓取单个网页，返回 Markdown 格式的标题和正文。不受浏览器 CORS 限制，可抓取 fetch_url 因 CORS 无法访问的站点。每秒最多 5 次请求。', parameters: { type: 'object', properties: { url: { type: 'string', description: '要抓取的网页 URL，最长 8192 字符' } }, required: ['url'] } } },
-  { type: 'function', function: { name: 'kb_write', description: '把内容写入外部知识库远程仓库（暂存模式）。默认禁用，需工具开关页开启 + 写权限令牌。支持行级替换。注意：写入不会立即推送，而是暂存到本地，最后调用 kb_commit 统一批量推送，避免连续写入的竞态问题。', parameters: { type: 'object', properties: { path: { type: 'string', description: '仓库内相对路径' }, content: { type: 'string', description: '要写入的完整文件内容，或行级替换时的新内容' }, message: { type: 'string', description: '可选，提交说明（暂存模式下此字段保留但不立即生效，最终提交信息由 kb_commit 决定）' }, start_line: { type: 'integer', description: '可选，行级替换起始行（1-based）；不传则整文件覆盖' }, end_line: { type: 'integer', description: '可选，行级替换结束行（包含）；不传则到文件末尾' } }, required: ['path', 'content'] } } },
-  { type: 'function', function: { name: 'kb_read', description: '从外部知识库远程仓库读取文件内容。始终可用，内置只读令牌。支持按行范围读取，大文件建议分段读。必须用本工具，禁止用 run_js 或 fetch_url 手写请求。', parameters: { type: 'object', properties: { path: { type: 'string', description: '仓库内相对路径，如 "mcmodding/fabric/items/Custom-Item.md"' }, start_line: { type: 'integer', description: '可选，起始行（1-based）' }, end_line: { type: 'integer', description: '可选，结束行（包含）' } }, required: ['path'] } } },
-  { type: 'function', function: { name: 'kb_delete', description: '删除外部知识库远程仓库中的文件（暂存模式）。默认禁用，需工具开关页开启 + 写权限令牌。删除不会立即执行，而是暂存到本地，最后调用 kb_commit 统一批量推送。', parameters: { type: 'object', properties: { path: { type: 'string', description: '仓库内相对路径' }, message: { type: 'string', description: '可选，提交说明（暂存模式下保留）' } }, required: ['path'] } } },
-  { type: 'function', function: { name: 'kb_commit', description: '把所有暂存的 kb_write/kb_delete 操作打包成一次 Gitee commit 批量推送。调用后暂存区清空。这是知识库写入的最后一步，所有文件改动在一次 API 请求中提交，彻底避免连续写入的竞态问题。仅支持 Gitee 平台。', parameters: { type: 'object', properties: { message: { type: 'string', description: '可选，提交说明；默认自动生成"批量提交 N 项改动"' } }, required: [] } } },
-  { type: 'function', function: { name: 'kb_list', description: '列出外部知识库远程仓库中指定目录的文件和子目录。始终可用，内置只读令牌。必须用本工具，禁止用 run_js 或 fetch_url 手写请求。', parameters: { type: 'object', properties: { path: { type: 'string', description: '可选，仓库内目录相对路径，如 "mcmodding/fabric"；不传则列根目录' } }, required: [] } } },
-  { type: 'function', function: { name: 'kb_search', description: '光速检索外部知识库中的文件：按关键词匹配文件路径/文件名，一次性获取全量文件树后本地过滤，无需逐目录翻找。始终可用，内置只读令牌。返回匹配的文件路径列表，按相关度排序。建议先读 /SEARCH_INDEX.md 了解各目录主题，再用本工具精确定位文件。', parameters: { type: 'object', properties: { query: { type: 'string', description: '搜索关键词，支持空格分隔多词（AND 逻辑，全部命中才匹配），如 "minecraft fabric item"、"agent rag"、"docker ci"' }, in_path: { type: 'string', description: '可选，限制搜索范围在某个子目录下，如 "mcmodding/fabric"；不传则搜全库' }, limit: { type: 'integer', description: '可选，最多返回多少条结果，默认 20' } }, required: ['query'] } } },
-  { type: 'function', function: { name: 'deliver', description: '生成交付卡片，展示本次任务的最终成果。包含标题、描述和产出的文件列表，用户可直接点击打开文件或复制路径。任务完成时调用，让成果一目了然。', parameters: { type: 'object', properties: { title: { type: 'string', description: '交付标题，如 "项目计划已完成"' }, description: { type: 'string', description: '简要描述交付内容' }, files: { type: 'array', items: { type: 'string' }, description: '产出的 VFS 文件路径列表，如 ["/notes/plan.md", "/src/main.js"]' } }, required: ['title'] } } },
-  { type: 'function', function: { name: 'ask_user', description: '在对话中向用户提问或请求确认，渲染带按钮的交互卡片。用户点击按钮后，选择结果会返回给你，你再基于用户的选择继续回复。需要用户做决策、确认操作或提供选项时使用。', parameters: { type: 'object', properties: { question: { type: 'string', description: '要问用户的问题' }, options: { type: 'array', items: { type: 'string' }, description: '可选的选项按钮列表，如 ["是","否","稍后再说"]；不传则默认显示"确认/取消"' } }, required: ['question'] } } },
+  { type: 'function', function: { name: 'list_files', description: '列出目录内容', parameters: { type: 'object', properties: { path: { type: 'string', description: '目录，默认 /' } } } } },
+  { type: 'function', function: { name: 'read_file', description: '读文件（可搜关键词）', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, query: { type: 'string', description: '可选，关键词定位' }, regex: { type: 'boolean', description: '可选，正则' }, context_lines: { type: 'integer', description: '可选，上下行数，默认 3' }, ignore_case: { type: 'boolean', description: '可选，默认 true' }, start_line: { type: 'integer', description: '可选，起始行' }, end_line: { type: 'integer', description: '可选，结束行' } }, required: ['path'] } } },
+  { type: 'function', function: { name: 'edit_file', description: '按原文替换，无需行号', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, old_string: { type: 'string', description: '原文，须唯一匹配' }, new_string: { type: 'string', description: '新内容' } }, required: ['path', 'old_string', 'new_string'] } } },
+  { type: 'function', function: { name: 'write_file', description: '整文件写入覆盖', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '完整内容' }, start_line: { type: 'integer', description: '可选，行级替换起始行' }, end_line: { type: 'integer', description: '可选，行级替换结束行' } }, required: ['path', 'content'] } } },
+  { type: 'function', function: { name: 'append_file', description: '末尾追加内容', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '追加内容' } }, required: ['path', 'content'] } } },
+  { type: 'function', function: { name: 'delete_path', description: '删除文件/目录（不可撤销）', parameters: { type: 'object', properties: { path: { type: 'string', description: '路径' } }, required: ['path'] } } },
+  { type: 'function', function: { name: 'move_path', description: '移动或重命名', parameters: { type: 'object', properties: { from: { type: 'string', description: '源路径' }, to: { type: 'string', description: '目标路径' } }, required: ['from', 'to'] } } },
+  { type: 'function', function: { name: 'create_dir', description: '创建目录', parameters: { type: 'object', properties: { path: { type: 'string', description: '目录路径' } }, required: ['path'] } } },
+  { type: 'function', function: { name: 'search_files', description: '按名/内容搜索，带行号', parameters: { type: 'object', properties: { query: { type: 'string', description: '关键词' }, in_path: { type: 'string', description: '可选，限定目录' }, in_content: { type: 'boolean', description: '可选，搜内容，默认 true' }, limit: { type: 'integer', description: '可选，默认 30' } }, required: ['query'] } } },
+  { type: 'function', function: { name: 'fetch_url', description: '抓 URL 文本（需确认）', parameters: { type: 'object', properties: { url: { type: 'string', description: '完整 URL' } }, required: ['url'] } } },
+  { type: 'function', function: { name: 'download_url', description: '下载 URL 到 VFS', parameters: { type: 'object', properties: { url: { type: 'string', description: '文件 URL' }, path: { type: 'string', description: '保存路径' } }, required: ['url', 'path'] } } },
+  { type: 'function', function: { name: 'route_ai', description: '转交另一个 AI 预设', parameters: { type: 'object', properties: { query: { type: 'string', description: '要转交的问题' }, profile: { type: 'string', description: '可选，预设名或序号' } }, required: ['query'] } } },
+  { type: 'function', function: { name: 'check_code', description: '校验代码语法', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径（优先）' }, code: { type: 'string', description: '代码文本（与 path 二选一）' }, language: { type: 'string', description: 'json/js/mjs/html/py' } } } } },
+  { type: 'function', function: { name: 'todo_add', description: '添加待办', parameters: { type: 'object', properties: { text: { type: 'string', description: '待办内容' } }, required: ['text'] } } },
+  { type: 'function', function: { name: 'todo_done', description: '标记待办完成', parameters: { type: 'object', properties: { id: { type: 'integer', description: '序号，从 1 开始' }, done: { type: 'boolean', description: 'true=完成' } }, required: ['id'] } } },
+  { type: 'function', function: { name: 'todo_remove', description: '删除待办', parameters: { type: 'object', properties: { id: { type: 'integer', description: '序号' } }, required: ['id'] } } },
+  { type: 'function', function: { name: 'todo_list', description: '列出待办', parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'describe_image', description: '视觉模型描述图片', parameters: { type: 'object', properties: { path: { type: 'string', description: '图片路径' }, prompt: { type: 'string', description: '可选，提问' } }, required: ['path'] } } },
+  { type: 'function', function: { name: 'calculator', description: '数学表达式计算', parameters: { type: 'object', properties: { expression: { type: 'string', description: '表达式，如 sqrt(144)' } }, required: ['expression'] } } },
+  { type: 'function', function: { name: 'statistics', description: '数字/文本统计', parameters: { type: 'object', properties: { numbers: { type: 'array', items: { type: 'number' }, description: '数字数组' }, text: { type: 'string', description: '文本' }, operation: { type: 'string', description: '可选，单项统计量' } }, required: [] } } },
+  { type: 'function', function: { name: 'run_js', description: '沙箱执行 JS', parameters: { type: 'object', properties: { code: { type: 'string', description: '代码' } }, required: ['code'] } } },
+  { type: 'function', function: { name: 'run_py', description: '沙箱执行 Python（15 秒）', parameters: { type: 'object', properties: { code: { type: 'string', description: '代码' } }, required: ['code'] } } },
+  { type: 'function', function: { name: 'render_chart', description: '渲染图表', parameters: { type: 'object', properties: { type: { type: 'string', description: 'bar/line/pie/doughnut' }, title: { type: 'string', description: '标题' }, labels: { type: 'array', items: { type: 'string' }, description: 'X 轴标签' }, datasets: { type: 'array', description: '数据系列', items: { type: 'object', properties: { label: { type: 'string' }, data: { type: 'array', items: { type: 'number' } } } } } }, required: ['type', 'labels', 'datasets'] } } },
+  { type: 'function', function: { name: 'wait', description: '等待指定秒数', parameters: { type: 'object', properties: { seconds: { type: 'number', description: '秒，最大 60' } }, required: ['seconds'] } } },
+  { type: 'function', function: { name: 'web_search', description: '联网搜索（DeepSeek）', parameters: { type: 'object', properties: { query: { type: 'string', description: '关键词，≤128 字符' }, count: { type: 'integer', description: '可选，1-50，默认 10' }, need_content: { type: 'boolean', description: '可选，返回正文' } }, required: ['query'] } } },
+  { type: 'function', function: { name: 'web_fetch', description: '抓网页为 Markdown', parameters: { type: 'object', properties: { url: { type: 'string', description: '网页 URL' } }, required: ['url'] } } },
+  { type: 'function', function: { name: 'kb_write', description: '写知识库（暂存）', parameters: { type: 'object', properties: { path: { type: 'string', description: '仓库内相对路径' }, content: { type: 'string', description: '内容' }, message: { type: 'string', description: '可选，说明' }, start_line: { type: 'integer', description: '可选，替换起始行' }, end_line: { type: 'integer', description: '可选，替换结束行' } }, required: ['path', 'content'] } } },
+  { type: 'function', function: { name: 'kb_read', description: '读知识库文件', parameters: { type: 'object', properties: { path: { type: 'string', description: '仓库内相对路径' }, start_line: { type: 'integer', description: '可选，起始行' }, end_line: { type: 'integer', description: '可选，结束行' } }, required: ['path'] } } },
+  { type: 'function', function: { name: 'kb_delete', description: '删知识库文件（暂存）', parameters: { type: 'object', properties: { path: { type: 'string', description: '仓库内相对路径' }, message: { type: 'string', description: '可选，说明' } }, required: ['path'] } } },
+  { type: 'function', function: { name: 'kb_commit', description: '推送暂存到 Gitee', parameters: { type: 'object', properties: { message: { type: 'string', description: '可选，提交说明' } }, required: [] } } },
+  { type: 'function', function: { name: 'kb_list', description: '列知识库目录', parameters: { type: 'object', properties: { path: { type: 'string', description: '可选，目录相对路径' } }, required: [] } } },
+  { type: 'function', function: { name: 'kb_search', description: '检索知识库路径', parameters: { type: 'object', properties: { query: { type: 'string', description: '关键词，空格=AND' }, in_path: { type: 'string', description: '可选，限定子目录' }, limit: { type: 'integer', description: '可选，默认 20' } }, required: ['query'] } } },
+  { type: 'function', function: { name: 'deliver', description: '展示交付卡片', parameters: { type: 'object', properties: { title: { type: 'string', description: '标题' }, description: { type: 'string', description: '简述' }, files: { type: 'array', items: { type: 'string' }, description: '文件路径列表' } }, required: ['title'] } } },
+  { type: 'function', function: { name: 'ask_user', description: '向用户提问/确认', parameters: { type: 'object', properties: { question: { type: 'string', description: '问题' }, options: { type: 'array', items: { type: 'string' }, description: '可选，按钮选项' } }, required: ['question'] } } },
 ];
 
 const MAX_READ = 30000;
+
+// 大文件结果裁剪：存 VFS，回填结构 + 前 2000 字
+async function trimLargeFileResult(p, content, lines) {
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const savePath = '/tmp/read_' + ts + '.txt';
+  try {
+    await VFS.writeFile(savePath, content);
+  } catch (e) { /* 存失败不阻断 */ }
+  // 提取结构（标题 / 函数/类定义）
+  const outline = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^#{1,4}\s+/.test(l) || /^\s*(export\s+)?(async\s+)?function\s+\w+/.test(l) || /^\s*(export\s+)?(class|interface|type)\s+\w+/.test(l) || /^\s*def\s+\w+/.test(l)) {
+      outline.push(`  ${i + 1}: ${l.trim().slice(0, 100)}`);
+      if (outline.length >= 30) { outline.push('  ...'); break; }
+    }
+  }
+  const preview = content.slice(0, 2000);
+  return `文件：${p}（${lines.length} 行，${content.length} 字符）\n\n## 结构\n${outline.join('\n') || '（未提取到标题/函数定义）'}\n\n## 前 2000 字符\n\`\`\`\n${preview}\n\`\`\`\n\n[完整内容已存 ${savePath}。建议：用 read_file(path="${p}", query="关键词") 定位具体段落；或用 start_line/end_line 分段读]`;
+}
+
+// 文件内搜索：返回匹配行±上下文
+function searchInFile(path, content, query, opts) {
+  const lines = content.split('\n');
+  const ctx = opts.contextLines;
+  let test = null;
+  if (opts.regex) {
+    try {
+      test = new RegExp(query, opts.ignoreCase ? 'i' : '');
+    } catch (e) {
+      // 正则无效，降级为字面量
+      opts.regex = false;
+    }
+  }
+  const qLow = String(query).toLowerCase();
+  const hits = [];
+  for (let i = 0; i < lines.length; i++) {
+    const ok = test ? test.test(lines[i]) : (opts.ignoreCase ? lines[i].toLowerCase().includes(qLow) : lines[i].includes(query));
+    if (ok) hits.push(i);
+  }
+  if (!hits.length) {
+    return `未在 ${path} 找到 "${query}"（文件共 ${lines.length} 行）。\n\n前 500 字预览：\n\`\`\`\n${content.slice(0, 500)}\n\`\`\`\n\n[建议：确认关键词拼写；或用 search_files 全库搜；或 read_file(path, start_line=1, end_line=50) 读开头]`;
+  }
+  // 合并重叠区间
+  const ranges = [];
+  for (const i of hits) {
+    const s = Math.max(0, i - ctx), e = Math.min(lines.length - 1, i + ctx);
+    if (ranges.length && s <= ranges[ranges.length - 1][1] + 1) {
+      ranges[ranges.length - 1][1] = Math.max(ranges[ranges.length - 1][1], e);
+    } else {
+      ranges.push([s, e]);
+    }
+  }
+  const hitSet = new Set(hits);
+  let out = `在 ${path} 找到 ${hits.length} 处匹配（行号：${hits.slice(0, 20).map(i => i + 1).join(', ')}${hits.length > 20 ? ' …' : ''}）：\n\n`;
+  for (const [s, e] of ranges) {
+    out += `--- 第 ${s + 1}-${e + 1} 行 ---\n`;
+    for (let i = s; i <= e; i++) {
+      out += `${hitSet.has(i) ? '>' : ' '} ${i + 1}: ${lines[i]}\n`;
+    }
+    out += '\n';
+  }
+  out += `[可直接用 edit_file(path="${path}", old_string=匹配行原文, new_string=新内容) 修改；或用 read_file(start_line/end_line) 读更大范围]`;
+  return out;
+}
 
 async function executeTool(name, args, onChunk) {
   args = args || {};
@@ -1946,7 +2012,7 @@ async function executeTool(name, args, onChunk) {
       case 'read_file': {
         const p = VFS.norm(args.path || '');
         const node = VFS.stat(p);
-        if (!node) return `错误：文件不存在 -> ${p}`;
+        if (!node) return `错误：文件不存在 -> ${p}\n建议：先用 list_files 看目录结构`;
         if (node.type === 'dir') return `错误：${p} 是一个目录，请用 list_files。`;
         if (isImagePath(p)) {
           return `图片文件：${p}\n格式：${extOf(p).slice(1).toUpperCase()}\n大小：${fmtSize(node.size)}\n（图片为二进制，read_file 不返回内容。如需理解图片内容，请调用 describe_image 工具；用户可在右侧预览区直接查看。）`;
@@ -1956,20 +2022,79 @@ async function executeTool(name, args, onChunk) {
         let content = rawContent || '';
         const allLines = content.split('\n');
         const totalLines = allLines.length;
+
+        // 有 query：只返回匹配行±上下文
+        if (args.query) {
+          return searchInFile(p, content, String(args.query), {
+            regex: !!args.regex,
+            contextLines: Math.max(0, parseInt(args.context_lines) || 3),
+            ignoreCase: args.ignore_case !== false
+          });
+        }
+
+        // 行范围读取
         const sl = args.start_line ? Math.max(1, parseInt(args.start_line) || 1) : 1;
         const el = args.end_line ? Math.min(totalLines, parseInt(args.end_line) || totalLines) : totalLines;
         let lineInfo = '';
         if (args.start_line || args.end_line) {
-          if (sl > totalLines) return `错误：start_line=${sl} 超出文件总行数 ${totalLines}。`;
+          if (sl > totalLines) return `错误：start_line=${sl} 超出文件总行数 ${totalLines}。\n建议：文件共 ${totalLines} 行，用 start_line=1 从头读，或用 query 搜关键词`;
           content = allLines.slice(sl - 1, el).join('\n');
           lineInfo = `（第 ${sl}-${el} 行，共 ${totalLines} 行）`;
         }
+
+        // 大文件裁剪：>3000 字符存 VFS，只回填前 2000 字 + 结构 + 路径
+        if (content.length > 3000 && !args.start_line && !args.end_line) {
+          return await trimLargeFileResult(p, content, allLines);
+        }
+
         let truncated = '';
         if (content.length > MAX_READ) {
-          truncated = `\n\n[内容已截断，本段 ${content.length} 字符，超出 ${MAX_READ} 限制]`;
+          truncated = `\n\n[内容已截断，本段 ${content.length} 字符，超出 ${MAX_READ} 限制]\n[建议：用 start_line/end_line 分段读，或用 query 定位关键词]`;
           content = content.slice(0, MAX_READ);
         }
         return `文件：${p}${lineInfo}\n\`\`\`\n${content}\n\`\`\`${truncated}`;
+      }
+      case 'edit_file': {
+        const p = VFS.norm(args.path || '');
+        if (!p || p === '/') return '错误：path 无效';
+        const oldStr = String(args.old_string ?? '');
+        const newStr = String(args.new_string ?? '');
+        if (!oldStr) return '错误：old_string 不能为空';
+        if (oldStr === newStr) return '错误：old_string 与 new_string 相同，无需编辑';
+        const node = VFS.stat(p);
+        if (!node) return `错误：文件不存在 -> ${p}\n建议：先用 list_files 看目录结构确认路径`;
+        if (node.type === 'dir') return `错误：${p} 是目录`;
+        const oldRaw = await VFS.getContent(p);
+        if (oldRaw === undefined) return `错误：${p} 内容不可用（云端拉取失败）`;
+        const content = oldRaw || '';
+        // 唯一性校验
+        const first = content.indexOf(oldStr);
+        if (first === -1) {
+          const lines = content.split('\n');
+          const probe = oldStr.slice(0, Math.min(30, oldStr.length)).trim();
+          const hintIdx = lines.findIndex(l => l.includes(probe));
+          let hint = '';
+          if (hintIdx >= 0) hint = `\n相似内容在第 ${hintIdx + 1} 行：\n${lines[hintIdx]}`;
+          return `错误：old_string 未在 ${p} 中找到。${hint}\n\n[文件共 ${lines.length} 行。建议：用 read_file(path, query=...) 重新定位原文，或用 read_file(path, start_line, end_line) 读全文]`;
+        }
+        const second = content.indexOf(oldStr, first + 1);
+        if (second !== -1) {
+          // 统计出现次数
+          let count = 0, idx = -1;
+          while ((idx = content.indexOf(oldStr, idx + 1)) !== -1) count++;
+          const lineNo = content.slice(0, first).split('\n').length;
+          return `错误：old_string 在 ${p} 中出现 ${count} 次，不唯一（首次在第 ${lineNo} 行）。\n建议：在 old_string 中加更多上下文使其唯一，或改用 write_file 整文件重写。`;
+        }
+        // 执行替换
+        const finalContent = content.slice(0, first) + newStr + content.slice(first + oldStr.length);
+        await VFS.writeFile(p, finalContent);
+        await refreshFS();
+        // 计算改动位置
+        const startLine = content.slice(0, first).split('\n').length;
+        const oldLines = oldStr.split('\n').length;
+        const newLines = newStr.split('\n').length;
+        const finalLines = finalContent.split('\n').length;
+        return `✅ 已编辑 ${p}（第 ${startLine} 行，${oldLines} 行 → ${newLines} 行，文件共 ${finalLines} 行）\n[如需校验语法请调用 check_code；如需继续改同一文件，继续用 edit_file]`;
       }
       case 'write_file': {
         const p = VFS.norm(args.path || '');
@@ -2047,11 +2172,47 @@ async function executeTool(name, args, onChunk) {
         return created ? `✅ 已创建目录 ${p}` : `目录 ${p} 已存在。`;
       }
       case 'search_files': {
-        const results = await VFS.searchAsync(args.query || '', args.in_content !== false);
-        if (!results.length) return `没有找到匹配 "${args.query}" 的文件。`;
-        return `找到 ${results.length} 个结果：\n` + results.map(r =>
-          `- ${r.path} (${fmtSize(r.size)})${r.snippet ? '\n  片段：…' + r.snippet + '…' : ''}`
-        ).join('\n');
+        const q = String(args.query || '');
+        if (!q) return '错误：query 不能为空';
+        const inPath = args.in_path ? VFS.norm(args.in_path) : '';
+        const limit = Math.max(1, Math.min(100, parseInt(args.limit) || 30));
+        const qLow = q.toLowerCase();
+        const results = [];
+        const MAX_FILE_SIZE = 200 * 1024;  // 单文件超 200KB 跳过内容搜索
+        for (const [path, m] of Object.entries(VFS.meta)) {
+          if (m.type !== 'file') continue;
+          if (inPath && !path.startsWith(inPath)) continue;
+          // 文件名命中
+          if (path.toLowerCase().includes(qLow)) {
+            results.push({ path, line: 0, content: '(文件名匹配)', size: m.size });
+            if (results.length >= limit) break;
+            continue;
+          }
+          // 内容命中（限制文件大小）
+          if (args.in_content !== false && (m.size || 0) <= MAX_FILE_SIZE) {
+            const c = await VFS.getContent(path);
+            if (!c || typeof c !== 'string') continue;
+            const lines = c.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].toLowerCase().includes(qLow)) {
+                const s = Math.max(0, i - 2), e = Math.min(lines.length - 1, i + 2);
+                const snippet = [];
+                for (let j = s; j <= e; j++) snippet.push(`${j === i ? '>' : ' '} ${j + 1}: ${lines[j]}`);
+                results.push({ path, line: i + 1, content: snippet.join('\n'), size: m.size });
+                if (results.length >= limit) break;
+              }
+            }
+          }
+          if (results.length >= limit) break;
+        }
+        if (!results.length) return `未找到 "${q}"${inPath ? ' in ' + inPath : ''}。\n建议：换更短关键词；或用 list_files 浏览目录结构；或 read_file 指定文件后加 query 参数。`;
+        let out = `找到 ${results.length} 个结果${results.length >= limit ? '（已达上限，可加 in_path 缩小范围）' : ''}：\n\n`;
+        for (const r of results) {
+          if (r.line === 0) out += `📄 ${r.path} (${fmtSize(r.size)}) — 文件名匹配\n`;
+          else out += `📄 ${r.path}:${r.line} (${fmtSize(r.size)})\n${r.content}\n`;
+        }
+        out += `\n[可直接用 edit_file(path, old_string=匹配行原文, new_string=新内容) 修改，无需再 read_file]`;
+        return out;
       }
       case 'fetch_url': return await toolFetchUrl(args);
       case 'download_url': return await toolDownloadUrl(args);
@@ -2277,6 +2438,11 @@ async function toolWebFetch(args) {
       } catch (e) {
         return output.slice(0, 8000) + '\n...[已截断]';
       }
+    }
+    if (output.length > 3000) {
+      const savePath = '/tmp/fetch_' + Date.now() + '.md';
+      try { await VFS.writeFile(savePath, output); } catch (e) {}
+      return `抓取成功（共 ${output.length} 字符）\n\n前 2000 字符预览：\n\`\`\`\n${output.slice(0, 2000)}\n\`\`\`\n\n[完整内容已存 ${savePath}，用 read_file(path="${savePath}", query="关键词") 定位，或分段读]`;
     }
     return '抓取成功：\n\n' + output;
   } catch (e) {
@@ -2860,6 +3026,11 @@ async function kbRead(relPath, startLine, endLine) {
       const slice = lines.slice(from, to).join('\n');
       return slice + '\n（第 ' + (from + 1) + '-' + to + ' 行 / 共 ' + lines.length + ' 行）';
     }
+    if (text.length > 3000) {
+      const savePath = '/tmp/kb_' + Date.now() + '.md';
+      try { await VFS.writeFile(savePath, text); } catch (e) {}
+      return `知识库文件 ${relPath}（${text.length} 字符）\n\n前 2000 字符：\n\`\`\`\n${text.slice(0, 2000)}\n\`\`\`\n\n[完整内容已存 ${savePath}，用 read_file(path="${savePath}", query="关键词") 定位]`;
+    }
     return text;
   }
   if (Array.isArray(r.data)) return '错误：该路径是目录，用 kb_list 查看';
@@ -3209,7 +3380,17 @@ async function describeImage(path, prompt) {
  *  4. 配置与 UI 渲染
  * ========================================================= */
 const CFG_KEY = 'agent_cfg_v2';
-const DEFAULT_SYSTEM = `你是一个运行在浏览器中的 AI Agent，拥有一个虚拟文件系统，可以通过工具调用来管理文件。你的名字是小匣。**不要自称 Claude、GPT、ChatGPT、Kimi、豆包或任何其他模型名称**——你就是小匣，由用户在设置中配置的模型驱动。\n\n## 工作原则\n1. 每轮新任务开始前，先 read_file /knowledge/INDEX.md 了解你是谁、能做什么、有什么坑，再按需阅读其中列出的文件；涉及身份/能力/环境限制/危险操作/密钥的问题，以该目录为准。\n2. 开始任务前，如果不清楚当前结构，先用 list_files 查看目录。\n3. 修改已有文件前，先用 read_file 读取原内容，避免覆盖丢失信息。\n4. 使用绝对路径，以 / 开头，例如 /notes/todo.md。\n5. 不要臆造文件内容，一切以工具返回结果为准。\n6. 一轮可以同时调用多个工具（并行执行），无依赖关系的操作尽量合并到一轮发出，缩短总耗时。\n7. 复杂任务先调用 todo_add 拆成可追踪的子步骤，完成后用 todo_done 标记。\n8. 工具执行失败时，仔细阅读错误信息、修正参数后重试，不要轻易放弃。\n9. 删除文件/目录、覆盖写入已有文件、移动文件等危险操作系统会弹窗请用户确认。\n10. 完成任务后，用中文简洁地总结你做了什么、产生了哪些文件；重大成果可用 deliver 工具生成交付卡片。\n11. 每轮对话结束后会自动把对话消息保存到 /conversations/ 目录，需要回顾历史对话时可以列出并 read_file 该目录下的文件查看记录。`;
+const DEFAULT_SYSTEM = `你是一个运行在浏览器中的 AI Agent，拥有一个虚拟文件系统（VFS），通过工具调用管理文件。你的名字是小匣。不要自称 Claude、GPT、Kimi、豆包或任何其他模型名称。
+
+## 工作原则
+1. 每轮新任务开始前，先 read_file /knowledge/INDEX.md 了解自己的能力与限制，再按需读其他知识文件。
+2. 使用绝对路径，以 / 开头，例如 /notes/todo.md。
+3. 不要臆造文件内容，一切以工具返回结果为准。
+4. 修改代码优先用 edit_file（字符串替换），不要用 write_file 行号替换；定位代码用 read_file(path, query="关键词") 或 search_files，不要先读全文。
+5. 一轮可以同时调用多个工具（并行执行），无依赖的操作尽量合并到一轮发出。
+6. 删除/覆盖/移动等危险操作系统会弹窗确认；需要用户决策时用 ask_user。
+7. 不要为了显得忙而空转调用工具，每次调用都花用户的钱。
+8. 完成任务后用中文简洁总结；重大成果可用 deliver 生成交付卡片。`;
 
 let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, vfsOrigins: '', allowAllOrigins: false, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0 };
 /* ---------- 密钥加密（主密码 + PBKDF2 + AES-GCM） ---------- */
@@ -4828,6 +5009,7 @@ let agentThisRound = true; // 本轮是否任务模式（带工具列表，可�
 // auto 模式启发式：命中这些关键词/路径/图片才启用任务模式，否则纯聊天省 Token
 const NEED_TOOL_RE = /(搜索|查找|查询|查|打开|读取|查看|保存|创建|新建|写入|写文件|上传|下载|删除|移动|复制|重命名|计算|统计|画图|图表|图形|绘图|运行|执行|代码|网页|抓取|抓|路由|转交|调用|发送|todo|任务|检查|测试|分析|生成|表格|批量|备份|同步|推送|拉取|天气|维基|翻译|总结|文件|目录|文件夹|路径|图片|粘贴|附件|预览|邮件|通知)/i;
 const NEED_TOOL_PATH_RE = /(?:\/[a-zA-Z0-9_\u4e00-\u9fff\-.]+)+/;
+let planningHint = '';
 function memOpen() {
   return new Promise((resolve) => {
     if (memDB) return resolve(memDB);
@@ -5496,22 +5678,35 @@ async function streamChat() {
   status('正在连接…');
   const headers = { 'Content-Type': 'application/json' };
   if (cfg.apiKey) headers['Authorization'] = 'Bearer ' + cfg.apiKey;
-  // 动态告知 AI 当前模型的视觉能力与身份，避免模型自称其他模型（如 deepseek 自称 claude）
-  let sysPrompt = cfg.systemPrompt + '\n\n## 身份\n你当前运行的模型是「' + cfg.model + '」。请以该模型身份回答，不要自称 Claude、GPT、Gemini 或其他任何模型。';
-  if (sessionFile) sysPrompt += '\n\n## 当前对话文件\n本次对话记录保存在 VFS 的 `' + sessionFile + '`（Markdown 格式）。需要回顾历史时可以用 read_file 读取该文件；对话结束后会自动更新。';
-  // 长期记忆：把检索到的相关历史记忆注入，帮助跨会话回忆
+  // ===== 前缀稳定化：system 只放静态内容，动态上下文追加到最后一条 user 消息 =====
+  // 这样 system + tools + 历史前缀在整个会话内逐字节稳定，DeepSeek 缓存可命中
+  const STATIC_SYSTEM = cfg.systemPrompt;  // 不要在这里拼任何运行时变量
+
+  // 动态上下文（每次请求可能不同，但位于 messages 数组末尾，不影响前缀缓存）
+  const dynamicParts = [];
+  dynamicParts.push('当前运行模型：' + cfg.model + '（请以此身份回答，不要自称其他模型）');
+  if (sessionFile) dynamicParts.push('当前对话文件：' + sessionFile + '（需要回顾历史时用 read_file 读取）');
   if (pendingMemHits && pendingMemHits.length) {
-    sysPrompt += '\n\n## 相关历史记忆\n以下是从长期记忆库检索到的历史内容（可能有噪音，仅供参考）：\n' + pendingMemHits.map((h, i) => (i + 1) + '. ' + h.m.text).join('\n');
+    dynamicParts.push('相关历史记忆（可能有噪音，仅供参考）：\n' + pendingMemHits.map((h, i) => (i + 1) + '. ' + h.m.text).join('\n'));
   }
   if (modelSupportsVision()) {
-    sysPrompt += '\n\n## 视觉能力\n当前模型原生支持图片输入。如果用户消息包含图片（以 image_url 块形式出现在 content 数组中），你可以直接理解图片内容并回答，不需要调用 describe_image 工具。图片同时已存到 VFS 的 /pastes/ 目录，路径在消息文本中有标记。';
+    dynamicParts.push('当前模型原生支持图片输入，可直接理解 content 数组中的 image_url 块，不需要调用 describe_image。图片同时存于 /pastes/ 目录。');
   } else {
-    sysPrompt += '\n\n## 图片处理\n当前模型不原生支持视觉输入。用户粘贴的图片会存到 VFS 的 /pastes/ 目录，并以路径标记形式出现在消息中。如需理解图片内容，请调用 describe_image 工具；也可用 route_ai 转交给支持视觉的模型处理。';
+    dynamicParts.push('当前模型不原生支持视觉输入。图片存于 /pastes/ 目录，需要理解图片内容时请调用 describe_image，或用 route_ai 转交支持视觉的模型。');
   }
   if (agentThisRound) {
-    sysPrompt += '\n\n## Agent 工作模式\n- 复杂任务先调用 todo_add 拆成可追踪的子步骤，完成后用 todo_done 标记。\n- 一轮可以同时调用多个工具（并行执行），无依赖关系的操作尽量合并到一轮发出。\n- 工具执行失败时，仔细阅读错误信息、修正参数后重试，不要轻易放弃。\n- 删除文件/目录、覆盖写入已有文件、移动文件等危险操作系统会弹窗请用户确认；需要用户决策时用 ask_user 工具。';
+    dynamicParts.push('Agent 模式：复杂任务先 todo_add 列出 3-8 步再执行；无依赖的工具调用可并行；删除/覆盖/移动前系统会弹窗确认；需要用户决策时用 ask_user。');
   }
-  const payload = { model: cfg.model, messages: [{ role: 'system', content: sysPrompt }, ...trimConversation(conversation)], stream: true, stream_options: { include_usage: true } };
+  if (planningHint) dynamicParts.push(planningHint);
+
+  // 消息组装：system（静态）+ 裁剪后历史 + 动态上下文（末尾 user）
+  const trimedConvo = trimConversation(conversation);
+  const messages = [{ role: 'system', content: STATIC_SYSTEM }, ...trimedConvo];
+  if (dynamicParts.length) {
+    messages.push({ role: 'user', content: '[运行时上下文，仅本次请求有效]\n' + dynamicParts.join('\n') });
+  }
+
+  const payload = { model: cfg.model, messages, stream: true, stream_options: { include_usage: true } };
   // 思考模式下 temperature/presence_penalty/frequency_penalty 不生效，只在非思考模式传 temperature
   if (!cfg.reasoningEffort || cfg.reasoningEffort === 'disabled') payload.temperature = Number(cfg.temperature) || 0;
   if (agentThisRound) {
@@ -6194,6 +6389,9 @@ async function sendMessage() {
   clearQuote();
   // 对话模式判定：off=纯聊天；on=始终任务；auto=按内容启发式
   agentThisRound = cfg.agentMode !== 'off' && (cfg.agentMode === 'on' || hasImages || NEED_TOOL_RE.test(fullText) || NEED_TOOL_PATH_RE.test(fullText));
+  planningHint = (agentThisRound && isFirstRound && (NEED_TOOL_RE.test(fullText) || NEED_TOOL_PATH_RE.test(fullText)))
+    ? '[规划提示] 本任务较复杂，请先调用 todo_add 列出 3-8 步计划，再逐步执行，不要边想边做。'
+    : '';
   // 长期记忆检索：把与本次提问最相关的历史记忆注入给 AI
   if (cfg.memoryOn !== false) {
     try { pendingMemHits = await memSearch(fullText, 4); } catch (e) { pendingMemHits = []; }
@@ -6208,6 +6406,7 @@ async function sendMessage() {
   finally {
     isRunning = false; $('btnSend').disabled = false; $('btnSend').textContent = '发送';
     setStopBtn(false); chatAbort = null;
+    planningHint = '';
     // 显示本轮回复用时
     try {
       const elapsed = ((Date.now() - sendStartTime) / 1000).toFixed(1);
@@ -6428,14 +6627,18 @@ function updateTokenBar() {
   if (ti) ti.textContent = '输入 ' + estimateTokens(inputText) + ' tokens';
   if (tc) {
     if (lastUsage) {
-      tc.textContent = '上轮 ' + (lastUsage.prompt_tokens || 0) + '+' + (lastUsage.completion_tokens || 0) + '=' + (lastUsage.total_tokens || 0) + ' tokens';
+      const hit = lastUsage.prompt_cache_hit_tokens || 0;
+      const miss = lastUsage.prompt_cache_miss_tokens || (lastUsage.prompt_tokens ? lastUsage.prompt_tokens - hit : 0);
+      const total = hit + miss;
+      const rate = total ? (hit / total * 100).toFixed(1) : '0';
+      const out = lastUsage.completion_tokens || 0;
+      tc.textContent = `缓存 ${rate}% | 命中 ${hit} 未命中 ${miss} | 输出 ${out}`;
     } else {
       const ctxText = conversation.map(m => contentToText(m.content)).join('\n');
       tc.textContent = '对话 ~' + estimateTokens(ctxText) + ' tokens';
     }
   }
 }
-
 function updateCloudFields() {
   const be = ($('cfgCloudBackend') || {}).value || cfg.cloudBackend || 'gitee';
   const show = (cls, on) => { const els = document.querySelectorAll('.' + cls); els.forEach(el => { el.style.display = on ? '' : 'none'; }); };
