@@ -3383,7 +3383,7 @@ const CFG_KEY = 'agent_cfg_v2';
 const DEFAULT_SYSTEM = `你是一个运行在浏览器中的 AI Agent，拥有一个虚拟文件系统（VFS），通过工具调用管理文件。你的名字是小匣。不要自称 Claude、GPT、Kimi、豆包或任何其他模型名称。
 
 ## 工作原则
-1. 每轮新任务开始前，先 read_file /knowledge/INDEX.md 了解自己的能力与限制，再按需读其他知识文件。
+1. 知识库只在“确实需要查具体用法/环境限制”时按需读，不要为“了解身份”而预读；系统提示词已包含核心原则。
 2. 使用绝对路径，以 / 开头，例如 /notes/todo.md。
 3. 不要臆造文件内容，一切以工具返回结果为准。
 4. 修改代码优先用 edit_file（字符串替换），不要用 write_file 行号替换；定位代码用 read_file(path, query="关键词") 或 search_files，不要先读全文。
@@ -5091,13 +5091,34 @@ async function memTrim() {
 async function memRemember(userText, aiText) {
   try {
     if (cfg.memoryOn === false) return;
-    const q = String(userText || '').trim(), a = String(aiText || '').trim();
+    const q = String(userText || '').trim();
     if (!q) return;
-    const record = 'Q: ' + q.slice(0, 200) + (a ? '\nA: ' + a.slice(0, 500) : '');
-    // 去重：与已有记忆高度相似（>0.85）则跳过
-    const hits = await memSearch(record, 1);
+    // 1. 头尾各 40 字，用于 tokenize 和检索（保住开头背景 + 结尾结论）
+    const head = q.slice(0, 40).replace(/\s+/g, ' ').trim();
+    const tail = q.length > 80 ? q.slice(-40).replace(/\s+/g, ' ').trim() : '';
+    const topic = tail ? (head + '…' + tail) : head;
+    // 2. 简化版：去掉代码块、压缩空白，取前 80 字，存 text 字段给 UI/扩展用
+    const simplified = q
+      .replace(/```[\s\S]*?```/g, '[代码]')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80);
+    // 3. 指针：当前对话文件路径（saveConversation 已执行，sessionFile 有值）
+    const pointer = sessionFile || '';
+    // 去重
+    const hits = await memSearch(topic, 1);
     if (hits.length && hits[0].score > 0.85) return;
-    await memAdd(record, 'chat');
+    const db = await memOpen();
+    if (!db) return;
+    const tx = db.transaction(MEM_STORE, 'readwrite');
+    tx.objectStore(MEM_STORE).add({
+      text: simplified,
+      topic: topic,
+      tokens: memTokenize(topic),
+      pointer: pointer,
+      time: Date.now(),
+      source: 'chat'
+    });
     await memTrim();
   } catch (e) {}
 }
@@ -5699,7 +5720,15 @@ async function streamChat() {
   dynamicParts.push('当前运行模型：' + cfg.model + '（请以此身份回答，不要自称其他模型）');
   if (sessionFile) dynamicParts.push('当前对话文件：' + sessionFile + '（需要回顾历史时用 read_file 读取）');
   if (pendingMemHits && pendingMemHits.length) {
-    dynamicParts.push('相关历史记忆（可能有噪音，仅供参考）：\n' + pendingMemHits.map((h, i) => (i + 1) + '. ' + h.m.text).join('\n'));
+    const lines = pendingMemHits.map((h, i) => {
+      const m = h.m || {};
+      // 新数据有 topic/pointer，旧数据 fallback 到 text 前 80 字
+      const topic = m.topic || (m.text ? m.text.slice(0, 80) : '(无内容)');
+      const date = m.time ? new Date(m.time).toLocaleDateString() : '';
+      const ptr = m.pointer ? ' → 完整对话：' + m.pointer : '';
+      return (i + 1) + '. ' + topic + (date ? '（' + date + '）' : '') + ptr;
+    });
+    dynamicParts.push('相关历史记忆（仅话题指针，详情需用户确认后用 read_file 读 /conversations/）：\n' + lines.join('\n'));
   }
   if (modelSupportsVision()) {
     dynamicParts.push('当前模型原生支持图片输入，可直接理解 content 数组中的 image_url 块，不需要调用 describe_image。图片同时存于 /pastes/ 目录。');
@@ -5711,11 +5740,29 @@ async function streamChat() {
   }
   if (planningHint) dynamicParts.push(planningHint);
 
-  // 消息组装：system（静态）+ 裁剪后历史 + 动态上下文（末尾 user）
+  // 消息组装：system（静态）+ 裁剪后历史 + 动态上下文（合并进最后一条 user，避免连续两条 user）
   const trimedConvo = trimConversation(conversation);
   const messages = [{ role: 'system', content: STATIC_SYSTEM }, ...trimedConvo];
   if (dynamicParts.length) {
-    messages.push({ role: 'user', content: '[运行时上下文，仅本次请求有效]\n' + dynamicParts.join('\n') });
+    // 用 XML 标签包起来，明确区分“用户发言”和“系统注入的上下文”
+    const dynText = '<runtime_context>\n' + dynamicParts.join('\n') + '\n</runtime_context>';
+    const lastIdx = messages.length - 1;
+    const lastMsg = messages[lastIdx];
+    if (lastMsg && lastMsg.role === 'user') {
+      // 最后一条是 user：动态上下文作为后缀合并进去
+      if (typeof lastMsg.content === 'string') {
+        messages[lastIdx] = { role: 'user', content: lastMsg.content + '\n\n' + dynText };
+      } else if (Array.isArray(lastMsg.content)) {
+        // 图文混合：追加一个 text 块
+        messages[lastIdx] = { role: 'user', content: [...lastMsg.content, { type: 'text', text: '\n\n' + dynText }] };
+      } else {
+        // content 异常，退化为独立 user
+        messages.push({ role: 'user', content: dynText });
+      }
+    } else {
+      // 最后一条不是 user（首轮或历史被裁空），作为独立 user 追加
+      messages.push({ role: 'user', content: dynText });
+    }
   }
 
   const payload = { model: cfg.model, messages, stream: true, stream_options: { include_usage: true } };
