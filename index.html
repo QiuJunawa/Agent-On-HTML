@@ -1680,11 +1680,12 @@ const VFS = {
   },
   _cacheDel(p) { this.cache.delete(p); },
 
-  async getContent(p) {
+  async getContent(p, opts) {
     const path = this.norm(p);
     const m = this.meta[path];
     if (!m || m.type !== 'file') return null;
-    if (this.cache.has(path)) {
+    const bypassCache = opts && opts.bypassCache;
+    if (!bypassCache && this.cache.has(path)) {
       const c = this.cache.get(path);
       this.cache.delete(path);
       this.cache.set(path, c);
@@ -1884,10 +1885,10 @@ const VFS = {
  *  3. Agent 工具定义 (保持 AI 对话能力)
  * ========================================================= */
 const TOOLS = [
-  { type: 'function', function: { name: 'list_files', description: '列出目录内容', parameters: { type: 'object', properties: { path: { type: 'string', description: '目录，默认 /' } } } } },
+  { type: 'function', function: { name: 'list_files', description: '列出目录内容', parameters: { type: 'object', properties: { path: { type: 'string', description: '目录，默认 /' }, limit: { type: 'integer', description: '可选，最多返回多少条，默认 100' } } } } },
   { type: 'function', function: { name: 'read_file', description: '读文件（可搜关键词）', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, query: { type: 'string', description: '可选，关键词定位' }, regex: { type: 'boolean', description: '可选，正则' }, context_lines: { type: 'integer', description: '可选，上下行数，默认 3' }, ignore_case: { type: 'boolean', description: '可选，默认 true' }, start_line: { type: 'integer', description: '可选，起始行' }, end_line: { type: 'integer', description: '可选，结束行' } }, required: ['path'] } } },
-  { type: 'function', function: { name: 'edit_file', description: '按原文替换，无需行号', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, old_string: { type: 'string', description: '原文，须唯一匹配' }, new_string: { type: 'string', description: '新内容' } }, required: ['path', 'old_string', 'new_string'] } } },
-  { type: 'function', function: { name: 'write_file', description: '整文件写入覆盖', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '完整内容' }, start_line: { type: 'integer', description: '可选，行级替换起始行' }, end_line: { type: 'integer', description: '可选，行级替换结束行' } }, required: ['path', 'content'] } } },
+  { type: 'function', function: { name: 'edit_file', description: '按原文替换，无需行号（old_string 不要带 read_file 返回的行号前缀）', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, old_string: { type: 'string', description: '原文，须唯一匹配' }, new_string: { type: 'string', description: '新内容' } }, required: ['path', 'old_string', 'new_string'] } } },
+  { type: 'function', function: { name: 'write_file', description: '整文件写入覆盖（content 不要带 "42| " 行号前缀）；改局部请用 edit_file', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '完整内容' } }, required: ['path', 'content'] } } },
   { type: 'function', function: { name: 'append_file', description: '末尾追加内容', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '追加内容' } }, required: ['path', 'content'] } } },
   { type: 'function', function: { name: 'delete_path', description: '删除文件/目录（不可撤销）', parameters: { type: 'object', properties: { path: { type: 'string', description: '路径' } }, required: ['path'] } } },
   { type: 'function', function: { name: 'move_path', description: '移动或重命名', parameters: { type: 'object', properties: { from: { type: 'string', description: '源路径' }, to: { type: 'string', description: '目标路径' } }, required: ['from', 'to'] } } },
@@ -1922,6 +1923,16 @@ const TOOLS = [
 
 const MAX_READ = 30000;
 
+// 给文本加行号前缀：普通行 "N| 内容"，高亮行 ">N| 内容"
+function withLineNumbers(text, startLine = 1, highlightLineSet = null) {
+  const lines = String(text == null ? '' : text).split('\n');
+  return lines.map((line, i) => {
+    const n = startLine + i;
+    const prefix = highlightLineSet && highlightLineSet.has(n) ? '>' + n + '| ' : n + '| ';
+    return prefix + line;
+  }).join('\n');
+}
+
 // 大文件结果裁剪：存 VFS，回填结构 + 前 2000 字
 async function trimLargeFileResult(p, content, lines) {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -1939,7 +1950,9 @@ async function trimLargeFileResult(p, content, lines) {
     }
   }
   const preview = content.slice(0, 2000);
-  return `文件：${p}（${lines.length} 行，${content.length} 字符）\n\n## 结构\n${outline.join('\n') || '（未提取到标题/函数定义）'}\n\n## 前 2000 字符\n\`\`\`\n${preview}\n\`\`\`\n\n[完整内容已存 ${savePath}。建议：用 read_file(path="${p}", query="关键词") 定位具体段落；或用 start_line/end_line 分段读]`;
+  const previewLines = preview.split('\n').length;
+  const numberedPreview = withLineNumbers(preview, 1);
+  return `文件：${p}（${lines.length} 行，${content.length} 字符）\n\n## 结构\n${outline.join('\n') || '（未提取到标题/函数定义）'}\n\n## 前 2000 字符（第 1-${previewLines} 行）\n\`\`\`\n${numberedPreview}\n\`\`\`\n\n[完整内容已存 ${savePath}。建议：用 read_file(path="${p}", query="关键词") 定位具体段落；或用 start_line/end_line 分段读]`;
 }
 
 // 文件内搜索：返回匹配行±上下文
@@ -1979,7 +1992,8 @@ function searchInFile(path, content, query, opts) {
   for (const [s, e] of ranges) {
     out += `--- 第 ${s + 1}-${e + 1} 行 ---\n`;
     for (let i = s; i <= e; i++) {
-      out += `${hitSet.has(i) ? '>' : ' '} ${i + 1}: ${lines[i]}\n`;
+      const prefix = hitSet.has(i) ? '>' + (i + 1) + '| ' : (i + 1) + '| ';
+      out += prefix + lines[i] + '\n';
     }
     out += '\n';
   }
@@ -2000,12 +2014,15 @@ async function executeTool(name, args, onChunk) {
         const lines = [];
         if (p !== '/') lines.push(`目录：${p}`);
         if (r.dirs.length) lines.push('📁 子目录：\n' + r.dirs.map(d => '  ' + d).join('\n'));
+        const limit = Math.max(1, parseInt(args.limit) || 100);
         if (r.files.length) {
-          lines.push('📄 文件：\n' + r.files.map(f => {
+          const shown = r.files.slice(0, limit);
+          lines.push('📄 文件：\n' + shown.map(f => {
             const full = (p === '/' ? '' : p) + '/' + f;
             const m = VFS.stat(full);
             return `  ${f}  (${fmtSize(m ? m.size : 0)})`;
           }).join('\n'));
+          if (r.files.length > limit) lines.push(`  ...还有 ${r.files.length - limit} 个文件未显示，用 search_files 精确定位`);
         }
         return lines.join('\n');
       }
@@ -2017,9 +2034,15 @@ async function executeTool(name, args, onChunk) {
         if (isImagePath(p)) {
           return `图片文件：${p}\n格式：${extOf(p).slice(1).toUpperCase()}\n大小：${fmtSize(node.size)}\n（图片为二进制，read_file 不返回内容。如需理解图片内容，请调用 describe_image 工具；用户可在右侧预览区直接查看。）`;
         }
-        const rawContent = await VFS.getContent(p);
+        const rawContent = await VFS.getContent(p, { bypassCache: true });
         if (rawContent === undefined) return `错误：${p} 内容不可用（云端拉取失败），可稍后重试或先检查网络/Gitee 配置。`;
-        let content = rawContent || '';
+        // /config/ 下的文件含密钥，返回前脱敏，避免进 conversation 二次留痕
+        let safeRaw = rawContent;
+        if (rawContent !== undefined && p.startsWith('/config/')) {
+          const secrets = await collectSensitiveSecrets();
+          safeRaw = redactText(rawContent || '', secrets);
+        }
+        let content = safeRaw || '';
         const allLines = content.split('\n');
         const totalLines = allLines.length;
 
@@ -2052,7 +2075,8 @@ async function executeTool(name, args, onChunk) {
           truncated = `\n\n[内容已截断，本段 ${content.length} 字符，超出 ${MAX_READ} 限制]\n[建议：用 start_line/end_line 分段读，或用 query 定位关键词]`;
           content = content.slice(0, MAX_READ);
         }
-        return `文件：${p}${lineInfo}\n\`\`\`\n${content}\n\`\`\`${truncated}`;
+        const numbered = withLineNumbers(content, sl);
+        return `文件：${p}${lineInfo}\n\`\`\`\n${numbered}\n\`\`\`${truncated}\n（行号前缀 N| 仅供定位，构造 edit_file 的 old_string 时请去掉行号）`;
       }
       case 'edit_file': {
         const p = VFS.norm(args.path || '');
@@ -2064,7 +2088,7 @@ async function executeTool(name, args, onChunk) {
         const node = VFS.stat(p);
         if (!node) return `错误：文件不存在 -> ${p}\n建议：先用 list_files 看目录结构确认路径`;
         if (node.type === 'dir') return `错误：${p} 是目录`;
-        const oldRaw = await VFS.getContent(p);
+        const oldRaw = await VFS.getContent(p, { bypassCache: true });
         if (oldRaw === undefined) return `错误：${p} 内容不可用（云端拉取失败）`;
         const content = oldRaw || '';
         // 唯一性校验
@@ -2100,36 +2124,11 @@ async function executeTool(name, args, onChunk) {
         const p = VFS.norm(args.path || '');
         if (p === '/') return '错误：不能写入根路径。';
         const newContent = args.content ?? '';
-        // 行级替换模式
-        if (args.start_line != null && args.start_line !== '') {
-          const node = VFS.stat(p);
-          if (!node) return `错误：文件不存在 -> ${p}（行级编辑需要文件已存在，新建文件请用整写）。`;
-          if (node.type === 'dir') return `错误：${p} 是目录。`;
-          const oldRaw = await VFS.getContent(p);
-          if (oldRaw === undefined) return `错误：${p} 内容不可用（云端拉取失败）。`;
-          const lines = (oldRaw || '').split('\n');
-          const total = lines.length;
-          const sl = Math.max(1, parseInt(args.start_line) || 1);
-          const el = args.end_line != null && args.end_line !== '' ? Math.min(total, parseInt(args.end_line) || total) : sl;
-          if (sl > total + 1) return `错误：start_line=${sl} 超出文件总行数 ${total}+1。`;
-          const replaceLines = newContent.split('\n');
-          // sl=total+1 表示追加到末尾
-          if (sl === total + 1) {
-            lines.push(...replaceLines);
-          } else {
-            lines.splice(sl - 1, el - sl + 1, ...replaceLines);
-          }
-          const finalContent = lines.join('\n');
-          await VFS.writeFile(p, finalContent);
-          await refreshFS();
-          return `✅ 已编辑 ${p}：替换第 ${sl}-${el === total + 1 ? '末尾' : el} 行（原 ${total} 行 → 现 ${lines.length} 行，写入 ${newContent.length} 字符）`;
-        }
-        // 整写模式
         const isNew = !VFS.exists(p);
         if (!isNew && !(await customConfirm(`文件 ${p} 已存在，确定覆盖吗？`, 'overwrite_file'))) return '已取消写入（用户拒绝覆盖）。';
         await VFS.writeFile(p, newContent);
         await refreshFS();
-        return `✅ 已${isNew ? '创建' : '更新'}文件 ${p}（${newContent.length} 字符）`;
+        return `✅ 已${isNew ? '创建' : '更新'}文件 ${p}（${newContent.length} 字符）\n[改局部请用 edit_file]`;
       }
       case 'append_file': {
         const p = VFS.norm(args.path || '');
@@ -2197,7 +2196,7 @@ async function executeTool(name, args, onChunk) {
               if (lines[i].toLowerCase().includes(qLow)) {
                 const s = Math.max(0, i - 2), e = Math.min(lines.length - 1, i + 2);
                 const snippet = [];
-                for (let j = s; j <= e; j++) snippet.push(`${j === i ? '>' : ' '} ${j + 1}: ${lines[j]}`);
+                for (let j = s; j <= e; j++) snippet.push(`${j === i ? '>' + (j + 1) + '| ' : (j + 1) + '| '}${lines[j]}`);
                 results.push({ path, line: i + 1, content: snippet.join('\n'), size: m.size });
                 if (results.length >= limit) break;
               }
@@ -2239,11 +2238,11 @@ async function executeTool(name, args, onChunk) {
       }
       case 'run_js': {
         try {
-          const r = runJs(args.code);
+          const r = await runJsInWorker(args.code, 10000);
           return r;
         } catch (e) { return '执行错误：' + e.message; }
       }
-      case 'run_py': return await runPy(args.code);
+      case 'run_py': return '错误：run_py 依赖 Pyodide WASM，当前版本已暂时禁用（主线程阻塞风险）。如需执行 Python，请用 run_js 或本地环境。';
       case 'render_chart': {
         try {
           const chartMsg = { role: 'assistant', content: '', chart: { type: args.type, title: args.title, labels: args.labels, datasets: args.datasets } };
@@ -2604,7 +2603,16 @@ function checkJs(code, isModule) {
   try { new Function(src); return null; }
   catch (e) {
     const st = (e && e.stack) || '';
-    const m = st.match(/<anonymous>:(\d+):(\d+)/);
+    let m = st.match(/<anonymous>:(\d+):(\d+)/) || st.match(/Function:(\d+):(\d+)/);
+    if (!m && src.length < 50000) {
+      const lines = src.split('\n');
+      for (let i = 1; i <= lines.length; i++) {
+        try { new Function(lines.slice(0, i).join('\n')); }
+        catch (e2) {
+          return 'JS 语法错误（第 ' + i + ' 行附近）：' + String(e2.message || e2).slice(0, 160) + modeNote;
+        }
+      }
+    }
     const pos = m ? '（第 ' + m[1] + ' 行，第 ' + m[2] + ' 列）' : '';
     const msg = String((e && e.message) || e);
     return 'JS 语法错误' + pos + '：' + msg.slice(0, 160) + modeNote;
@@ -2770,7 +2778,7 @@ function safeEval(expr) {
   for (const f of funcs) code = code.replace(new RegExp('\\b' + f + '\\b', 'g'), 'Math.' + f);
   const result = new Function('"use strict"; return (' + code + ')')();
   if (typeof result !== 'number' || !isFinite(result)) throw new Error('结果不是有限数字');
-  return result;
+  return Number.isInteger(result) ? result : Math.round(result * 1e10) / 1e10;
 }
 
 /* ---------- 统计分析（statistics 工具） ---------- */
@@ -2856,6 +2864,74 @@ let pyodide = null;
 let pyodideLoading = null;
 const PYODIDE_URL = 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js';
 const PY_TIMEOUT_MS = 15000;  // Python 执行超时 15 秒
+
+/* ---------- run_js 的 Worker 隔离执行（避免阻塞主线程 / 暴露 window） ---------- */
+const RUN_JS_WORKER_SRC = `
+var NL = String.fromCharCode(10);
+self.onmessage = function(e) {
+  var code = e.data.code;
+  var logs = [];
+  function fmt(x) { try { return (typeof x === 'object' && x !== null) ? JSON.stringify(x) : String(x); } catch (err) { return String(x); } }
+  var fakeConsole = {
+    log: function() { logs.push(Array.prototype.map.call(arguments, fmt).join(' ')); },
+    error: function() { logs.push('[error] ' + Array.prototype.map.call(arguments, String).join(' ')); },
+    warn: function() { logs.push('[warn] ' + Array.prototype.map.call(arguments, String).join(' ')); },
+    info: function() { logs.push(Array.prototype.map.call(arguments, String).join(' ')); }
+  };
+  var safe = {
+    console: fakeConsole, Math: Math, JSON: JSON, Date: Date, Number: Number, String: String, Boolean: Boolean,
+    Array: Array, Object: Object, RegExp: RegExp, Error: Error, TypeError: TypeError, RangeError: RangeError, SyntaxError: SyntaxError,
+    parseInt: parseInt, parseFloat: parseFloat, isNaN: isNaN, isFinite: isFinite,
+    encodeURIComponent: encodeURIComponent, decodeURIComponent: decodeURIComponent, encodeURI: encodeURI, decodeURI: decodeURI,
+    Promise: Promise, Map: Map, Set: Set, WeakMap: WeakMap, WeakSet: WeakSet, Symbol: Symbol, BigInt: BigInt,
+    undefined: undefined, NaN: NaN, Infinity: Infinity
+  };
+  var paramNames = Object.keys(safe);
+  var paramValues = paramNames.map(function(k) { return safe[k]; });
+  try {
+    var wrapped = '"use strict";' + NL + 'return (function(){' + NL + code + NL + '})();';
+    var fn = Function.apply(null, paramNames.concat([wrapped]));
+    var result = fn.apply(null, paramValues);
+    var resultStr;
+    try {
+      resultStr = (typeof result === 'undefined') ? '(无返回值)' : ((typeof result === 'object' && result !== null) ? JSON.stringify(result, null, 2) : String(result));
+    } catch (err2) { resultStr = String(result); }
+    var output = logs.length ? logs.join(NL) + NL : '';
+    self.postMessage({ ok: true, result: output + '→ 返回: ' + resultStr });
+  } catch (err3) {
+    self.postMessage({ ok: false, error: (err3 && err3.message) || String(err3) });
+  }
+};
+`;
+
+function runJsInWorker(code, timeoutMs) {
+  timeoutMs = timeoutMs || 10000;
+  return new Promise((resolve) => {
+    let worker;
+    try {
+      const blob = new Blob([RUN_JS_WORKER_SRC], { type: 'application/javascript' });
+      worker = new Worker(URL.createObjectURL(blob));
+    } catch (e) {
+      return resolve('Worker 创建失败（可能被 CSP 阻止）：' + e.message);
+    }
+    const timer = setTimeout(() => {
+      try { worker.terminate(); } catch (e) {}
+      resolve('执行超时（超过 ' + (timeoutMs / 1000) + ' 秒），Worker 已终止');
+    }, timeoutMs);
+    worker.onmessage = (e) => {
+      clearTimeout(timer);
+      try { worker.terminate(); } catch (err) {}
+      if (e.data && e.data.ok) resolve(e.data.result);
+      else resolve('执行错误：' + ((e.data && e.data.error) || '未知错误'));
+    };
+    worker.onerror = (e) => {
+      clearTimeout(timer);
+      try { worker.terminate(); } catch (err) {}
+      resolve('Worker 错误：' + (e.message || '未知'));
+    };
+    worker.postMessage({ code: String(code == null ? '' : code) });
+  });
+}
 
 async function ensurePyodide() {
   if (pyodide) return pyodide;
@@ -3024,14 +3100,17 @@ async function kbRead(relPath, startLine, endLine) {
       const to = e ? Math.min(e, lines.length) : lines.length;
       if (from >= lines.length) return '错误：start_line 超出文件总行数（共 ' + lines.length + ' 行）';
       const slice = lines.slice(from, to).join('\n');
-      return slice + '\n（第 ' + (from + 1) + '-' + to + ' 行 / 共 ' + lines.length + ' 行）';
+      const numbered = withLineNumbers(slice, from + 1);
+      return numbered + '\n（第 ' + (from + 1) + '-' + to + ' 行 / 共 ' + lines.length + ' 行）';
     }
     if (text.length > 3000) {
       const savePath = '/tmp/kb_' + Date.now() + '.md';
       try { await VFS.writeFile(savePath, text); } catch (e) {}
-      return `知识库文件 ${relPath}（${text.length} 字符）\n\n前 2000 字符：\n\`\`\`\n${text.slice(0, 2000)}\n\`\`\`\n\n[完整内容已存 ${savePath}，用 read_file(path="${savePath}", query="关键词") 定位]`;
+      const preview = text.slice(0, 2000);
+      const numberedPreview = withLineNumbers(preview, 1);
+      return `知识库文件 ${relPath}（${text.length} 字符，共 ${text.split('\n').length} 行）\n\n前 2000 字符：\n\`\`\`\n${numberedPreview}\n\`\`\`\n\n[完整内容已存 ${savePath}，用 read_file(path="${savePath}", query="关键词") 定位]`;
     }
-    return text;
+    return withLineNumbers(text, 1);
   }
   if (Array.isArray(r.data)) return '错误：该路径是目录，用 kb_list 查看';
   return '错误：返回格式异常';
@@ -5730,10 +5809,11 @@ async function streamChat() {
     });
     dynamicParts.push('相关历史记忆（仅话题指针，详情需用户确认后用 read_file 读 /conversations/）：\n' + lines.join('\n'));
   }
+  const pastesExists = !!VFS.meta['/pastes'];
   if (modelSupportsVision()) {
-    dynamicParts.push('当前模型原生支持图片输入，可直接理解 content 数组中的 image_url 块，不需要调用 describe_image。图片同时存于 /pastes/ 目录。');
+    dynamicParts.push('当前模型原生支持图片输入，可直接理解 content 数组中的 image_url 块，不需要调用 describe_image。' + (pastesExists ? '图片同时存于 /pastes/ 目录。' : ''));
   } else {
-    dynamicParts.push('当前模型不原生支持视觉输入。图片存于 /pastes/ 目录，需要理解图片内容时请调用 describe_image，或用 route_ai 转交支持视觉的模型。');
+    dynamicParts.push('当前模型不原生支持视觉输入。' + (pastesExists ? '图片存于 /pastes/ 目录，需要理解图片内容时请调用 describe_image，或用 route_ai 转交支持视觉的模型。' : '如需理解图片，请用 route_ai 转交支持视觉的模型。'));
   }
   if (agentThisRound) {
     dynamicParts.push('Agent 模式：复杂任务先 todo_add 列出 3-8 步再执行；无依赖的工具调用可并行；删除/覆盖/移动前系统会弹窗确认；需要用户决策时用 ask_user。');
@@ -6054,6 +6134,7 @@ const WRITE_OPS = new Set(['write_file', 'append_file', 'delete_path', 'move_pat
 
 // 从工具参数提取操作的资源标识，同资源的操作必须串行
 function extractResource(name, args) {
+  if (name.startsWith('todo_')) return 'todo:__all__';
   // 目录级操作（删除/移动）用全树锁，避免与子文件操作竞态
   if (name === 'delete_path' || name === 'move_path') return 'vfs:__tree__';
   if (['write_file', 'append_file', 'read_file', 'create_dir'].includes(name)) return 'vfs:' + (args.path || '');
