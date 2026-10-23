@@ -1914,9 +1914,9 @@ const VFS = {
 const TOOLS = [
   { type: 'function', function: { name: 'list_files', description: '列出目录内容', parameters: { type: 'object', properties: { path: { type: 'string', description: '目录，默认 /' }, limit: { type: 'integer', description: '可选，最多返回多少条，默认 100' } } } } },
   { type: 'function', function: { name: 'read_file', description: '读文件（可搜关键词）', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, query: { type: 'string', description: '可选，关键词定位' }, regex: { type: 'boolean', description: '可选，正则' }, context_lines: { type: 'integer', description: '可选，上下行数，默认 3' }, ignore_case: { type: 'boolean', description: '可选，默认 true' }, start_line: { type: 'integer', description: '可选，起始行' }, end_line: { type: 'integer', description: '可选，结束行' } }, required: ['path'] } } },
-  { type: 'function', function: { name: 'edit_file', description: '按原文替换，无需行号（old_string 不要带 read_file 返回的行号前缀）', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, old_string: { type: 'string', description: '原文，须唯一匹配' }, new_string: { type: 'string', description: '新内容' } }, required: ['path', 'old_string', 'new_string'] } } },
-  { type: 'function', function: { name: 'write_file', description: '整文件写入覆盖（content 不要带 "42| " 行号前缀）；改局部请用 edit_file', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '完整内容' } }, required: ['path', 'content'] } } },
-  { type: 'function', function: { name: 'append_file', description: '末尾追加内容', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '追加内容' } }, required: ['path', 'content'] } } },
+  { type: 'function', function: { name: 'edit_file', description: '按原文替换，无需行号（old_string 不要带 read_file 返回的行号前缀）。old_string/new_string 都支持 [ref:/path:10-20] 占位符，可避免重新输出长段代码', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, old_string: { type: 'string', description: '原文，须唯一匹配；或 [ref:/path:a-b]' }, new_string: { type: 'string', description: '新内容；或 [ref:/path:a-b]' } }, required: ['path', 'old_string', 'new_string'] } } },
+  { type: 'function', function: { name: 'write_file', description: '整文件写入覆盖（content 不要带 "42| " 行号前缀）；改局部请用 edit_file。content 可以是 [ref:/源文件路径] 或 [ref:msg:N] 占位符，工具层会展开为真实内容（用于复制文件/引用对话，无需重新输出长文本）', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '完整内容，或 [ref:/path]、[ref:msg:N] 占位符' } }, required: ['path', 'content'] } } },
+  { type: 'function', function: { name: 'append_file', description: '末尾追加内容。content 支持 [ref:/path]（可带行号 [ref:/path:10-20]）和 [ref:msg:N] 占位符', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '追加内容，或 [ref:/path]、[ref:msg:N] 占位符' } }, required: ['path', 'content'] } } },
   { type: 'function', function: { name: 'delete_path', description: '删除文件/目录（不可撤销）', parameters: { type: 'object', properties: { path: { type: 'string', description: '路径' } }, required: ['path'] } } },
   { type: 'function', function: { name: 'move_path', description: '移动或重命名', parameters: { type: 'object', properties: { from: { type: 'string', description: '源路径' }, to: { type: 'string', description: '目标路径' } }, required: ['from', 'to'] } } },
   { type: 'function', function: { name: 'create_dir', description: '创建目录', parameters: { type: 'object', properties: { path: { type: 'string', description: '目录路径' } }, required: ['path'] } } },
@@ -1948,9 +1948,120 @@ const TOOLS = [
   { type: 'function', function: { name: 'undo_list', description: '列出当前可撤销的轮次', parameters: { type: 'object', properties: {} } } },
   { type: 'function', function: { name: 'deliver', description: '展示交付卡片', parameters: { type: 'object', properties: { title: { type: 'string', description: '标题' }, description: { type: 'string', description: '简述' }, files: { type: 'array', items: { type: 'string' }, description: '文件路径列表' } }, required: ['title'] } } },
   { type: 'function', function: { name: 'ask_user', description: '向用户提问/确认', parameters: { type: 'object', properties: { question: { type: 'string', description: '问题' }, options: { type: 'array', items: { type: 'string' }, description: '可选，按钮选项' } }, required: ['question'] } } },
+  { type: 'function', function: { name: 'remember', description: '记录用户主动要求长期记忆的内容（偏好、约定、项目决定、称呼等）。跨会话有效，下次对话会自动召回', parameters: { type: 'object', properties: { content: { type: 'string', description: '要记住的内容，尽量精简（≤500 字符）' }, tags: { type: 'array', items: { type: 'string' }, description: '可选标签，如 ["偏好","中文"]' }, scope: { type: 'string', description: '可选，默认 user；项目相关可填项目名' } }, required: ['content'] } } },
 ];
 
 const MAX_READ = 30000;
+
+/* ===== 工具参数占位符展开 =====
+ * AI 调工具时，参数里可写：
+ *   [ref:/path]         /path 的完整内容
+ *   [ref:/path:10-20]   /path 的第 10-20 行（1-based，含两端）
+ *   [ref:msg:5]         当前对话第 5 条消息
+ *   [ref:msg:3-7]       第 3 到 7 条，逐条带 role 拼接
+ *   [ref:msg:last]      最近一条消息
+ *   [ref:msg:last:user] 最近一条 user/assistant/tool 消息
+ * 工具层执行前展开为真实内容，避免 AI 重复输出长文本（既省 token 又避免输出不全）
+ */
+const PATH_PARAM_NAMES = new Set(['path', 'from', 'to', 'new_name', 'in_path', 'url', 'profile', 'ref_id']);
+const REF_EXPAND_MAX = 5 * 1024 * 1024;  // 单个引用展开上限 5MB，防止超大文件撑爆内存
+
+async function resolveRefToken(raw) {
+  const spec = String(raw || '').trim();
+  if (!spec) return null;
+
+  // ---- 对话内容引用：[ref:msg:N] / [ref:msg:N-M] / [ref:msg:last] / [ref:msg:last:user|assistant|tool] ----
+  if (spec.startsWith('msg:')) {
+    if (typeof conversation === 'undefined' || !Array.isArray(conversation) || !conversation.length) return null;
+    const rest = spec.slice(4);
+    if (rest === 'last') {
+      const last = conversation[conversation.length - 1];
+      return last ? contentToText(last.content) : null;
+    }
+    const lm = rest.match(/^last:(user|assistant|tool)$/);
+    if (lm) {
+      for (let i = conversation.length - 1; i >= 0; i--) {
+        if (conversation[i].role === lm[1]) return contentToText(conversation[i].content);
+      }
+      return null;
+    }
+    const rm = rest.match(/^(\d+)(?:-(\d+))?$/);
+    if (rm) {
+      const s = parseInt(rm[1], 10);
+      const e = rm[2] ? parseInt(rm[2], 10) : s;
+      if (!(s >= 1) || e < s) return null;
+      const out = [];
+      for (let i = s - 1; i <= e - 1 && i < conversation.length; i++) {
+        if (i < 0) continue;
+        out.push('[' + conversation[i].role + '] ' + contentToText(conversation[i].content));
+      }
+      return out.length ? out.join('\n\n') : null;
+    }
+    return null;
+  }
+
+  // ---- 文件内容引用：[ref:/path] / [ref:/path:10-20] ----
+  let path = spec, startLine = null, endLine = null;
+  const rl = spec.match(/^(.+?):(\d+)-(\d+)$/);
+  if (rl) { path = rl[1]; startLine = parseInt(rl[2], 10); endLine = parseInt(rl[3], 10); }
+  const norm = VFS.norm(path);
+  const node = VFS.stat(norm);
+  if (!node || node.type !== 'file') return null;
+  const content = await VFS.getContent(norm, { bypassCache: true });
+  if (content === undefined || content === null) return null;
+  const str = String(content);
+  if (startLine != null) {
+    const lines = str.split('\n');
+    const s = Math.max(1, startLine);
+    const e = Math.min(lines.length, endLine);
+    if (s > lines.length) return null;
+    return lines.slice(s - 1, e).join('\n');
+  }
+  if (str.length > REF_EXPAND_MAX) return null;   // 超大内容不展开，让 AI 另想办法
+  return str;
+}
+
+const REF_TOKEN_RE = /\[ref:([^\[\]]+)\]/g;
+
+async function expandRefsInString(str) {
+  const s = String(str);
+  if (!s || s.indexOf('[ref:') === -1) return s;
+  const seen = new Set();
+  let m;
+  REF_TOKEN_RE.lastIndex = 0;
+  while ((m = REF_TOKEN_RE.exec(s))) seen.add(m[1]);
+  if (seen.size === 0) return s;
+  const map = new Map();
+  for (const token of seen) {
+    try {
+      const expanded = await resolveRefToken(token);
+      if (expanded !== null) map.set(token, expanded);
+    } catch (e) { /* 单个展开失败不影响其他 */ }
+  }
+  if (map.size === 0) return s;
+  REF_TOKEN_RE.lastIndex = 0;
+  return s.replace(REF_TOKEN_RE, (full, inner) => map.has(inner) ? map.get(inner) : full);
+}
+
+async function expandRefsInArgs(args, parentKey) {
+  if (args == null) return args;
+  if (typeof args === 'string') {
+    // 路径类参数不展开，避免 [ref:/xxx] 被误当内容/路径塞进去
+    if (parentKey && PATH_PARAM_NAMES.has(parentKey)) return args;
+    return await expandRefsInString(args);
+  }
+  if (Array.isArray(args)) {
+    const out = [];
+    for (const item of args) out.push(await expandRefsInArgs(item, parentKey));
+    return out;
+  }
+  if (typeof args === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(args)) out[k] = await expandRefsInArgs(v, k);
+    return out;
+  }
+  return args;
+}
 
 // 给文本加行号前缀：普通行 "N| 内容"，高亮行 ">N| 内容"
 function withLineNumbers(text, startLine = 1, highlightLineSet = null) {
@@ -2033,6 +2144,12 @@ function searchInFile(path, content, query, opts) {
 async function executeTool(name, args, onChunk) {
   args = args || {};
   if (cfg.disabledTools && cfg.disabledTools.includes(name)) return `错误：工具 ${name} 已被用户在设置中禁用。`;
+  // 展开参数里的 [ref:...] 占位符（路径类参数除外）
+  try {
+    args = await expandRefsInArgs(args, null);
+  } catch (e) {
+    return '错误：展开 [ref:xxx] 占位符失败：' + (e && e.message ? e.message : e);
+  }
   try {
     switch (name) {
       case 'list_files': {
@@ -2384,6 +2501,33 @@ async function executeTool(name, args, onChunk) {
             resolve('用户选择：' + choice);
           });
         });
+      case 'remember': {
+        const content = String(args.content || '').trim();
+        if (!content) return '错误：content 不能为空';
+        if (content.length > 500) return '错误：content 过长（' + content.length + ' 字符），请精简到 500 以内';
+        const tags = Array.isArray(args.tags) ? args.tags.slice(0, 10).map(String) : [];
+        const scope = String(args.scope || 'user').slice(0, 50);
+        try {
+          const db = await memOpen();
+          if (!db) return '错误：记忆库不可用（IndexedDB 被禁用）';
+          const tx = db.transaction(MEM_STORE, 'readwrite');
+          tx.objectStore(MEM_STORE).add({
+            text: content,
+            topic: content.slice(0, 60),
+            tokens: memTokenize(content),
+            pointer: sessionFile || '',
+            tags,
+            scope,
+            pinned: true,
+            source: 'user',
+            time: Date.now()
+          });
+          await memTrim();
+          return '✅ 已记住（scope=' + scope + (tags.length ? '，tags=' + tags.join('/') : '') + '）：' + content.slice(0, 100) + (content.length > 100 ? '…' : '');
+        } catch (e) {
+          return '记忆写入失败：' + (e && e.message ? e.message : e);
+        }
+      }
       default:
         return `错误：未知工具 ${name}`;
     }
@@ -2734,11 +2878,8 @@ function detectLang(code) {
 function checkHtml(code) {
   // 先剥离 script/style 内容，避免 JS/CSS 里的 < 被当成标签
   const htmlOnly = String(code)
-    // 注意：替换串里的 script 闭合标签必须写成 <\/script> 这种转义形式，
-    // 否则 HTML 解析器会在此处提前结束整个 script 块（解析器不看 JS 字符串和注释边界），
-    // 导致后面所有脚本变成纯文本、页面整体失效
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '<script><\/script>')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '<style><\/style>');
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '<script></script>')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '<style></style>');
   const doc = new DOMParser().parseFromString(htmlOnly, 'text/html');
   const pe = doc.querySelector('parsererror');
   if (pe) return 'HTML 解析错误：' + (pe.textContent || '').slice(0, 200);
@@ -3673,7 +3814,10 @@ const DEFAULT_SYSTEM = `你是一个运行在浏览器中的 AI Agent，拥有�
 5. 一轮可以同时调用多个工具（并行执行），无依赖的操作尽量合并到一轮发出。
 6. 删除/覆盖/移动等危险操作系统会弹窗确认；需要用户决策时用 ask_user。
 7. 不要为了显得忙而空转调用工具，每次调用都花用户的钱。
-8. 完成任务后用中文简洁总结；重大成果可用 deliver 生成交付卡片。`;
+8. 完成任务后用中文简洁总结；重大成果可用 deliver 生成交付卡片。
+9. 工具参数里如果要传入一段已在 VFS 中的长文本（如复制 /a.txt 到 /b.txt、引用某文件片段），不要重新输出全文，直接写 [ref:/a.txt] 或 [ref:/a.txt:10-20]（行号 1-based 含两端）。工具层会在执行前自动展开。这能避免输出不全（漏掉尾部）和重复消耗 token。
+10. 需要引用对话里已有的消息内容（如把用户第 3 条消息写进文件），用 [ref:msg:3]；区间用 [ref:msg:3-7]，最近一条用 [ref:msg:last]，最近一条 user 用 [ref:msg:last:user]。同样由工具层展开，不要重新复述原文。
+11. 用户说"记住/以后都/下次/我的习惯是"等明确要求记忆时，调用 remember 工具记录。不要把所有对话都记进 remember——只有用户主动要求、且对跨会话有用的内容才记。`;
 
 let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, vfsOrigins: '', allowAllOrigins: false, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0 };
 /* ---------- 密钥加密（主密码 + PBKDF2 + AES-GCM） ---------- */
@@ -5363,7 +5507,8 @@ async function memTrim() {
   try {
     const all = await memGetAll();
     if (all.length <= MEM_MAX) return;
-    all.sort((a, b) => (a.time || 0) - (b.time || 0));
+    // pinned（用户主动 remember 的）排最后被淘汰
+    all.sort((a, b) => (a.pinned ? 1 : 0) - (b.pinned ? 1 : 0) || (a.time || 0) - (b.time || 0));
     const drop = all.slice(0, all.length - MEM_MAX).map(m => m.id);
     const db = await memOpen(); if (!db) return;
     const tx = db.transaction(MEM_STORE, 'readwrite');
@@ -5371,11 +5516,20 @@ async function memTrim() {
     drop.forEach(id => st.delete(id));
   } catch (e) {}
 }
+// 自动记忆只记"跨会话有用"的内容：偏好/约定/长期决定/称呼。任务描述、临时问题不入库
+const MEM_WORTHY_RE = /(以后|今后|下次|记住|记一下|记下来|注意|必须|不要|永远|统一|约定|决定|偏好|习惯|叫我|称呼我|我的项目|我们用|我这边|默认用|默认是|倾向于|不喜欢|喜欢)/;
+const MEM_WORTHY_SHORT_RE = /^(记住|记一下|记下来|以后|今后)/;
+
 async function memRemember(userText, aiText) {
   try {
     if (cfg.memoryOn === false) return;
     const q = String(userText || '').trim();
     if (!q) return;
+    // 0. 过滤：只有"值得跨会话记住"的才入库，减少噪音
+    const worthy = MEM_WORTHY_RE.test(q) || (q.length < 30 && MEM_WORTHY_SHORT_RE.test(q));
+    if (!worthy) return;                                // 任务内容不记
+    if (q.length > 500) return;                         // 过长的多半是任务描述
+    if (q.startsWith('[') && q.endsWith(']')) return;   // 纯占位符/附件标记
     // 1. 头尾各 40 字，用于 tokenize 和检索（保住开头背景 + 结尾结论）
     const head = q.slice(0, 40).replace(/\s+/g, ' ').trim();
     const tail = q.length > 80 ? q.slice(-40).replace(/\s+/g, ' ').trim() : '';
@@ -5399,6 +5553,9 @@ async function memRemember(userText, aiText) {
       topic: topic,
       tokens: memTokenize(topic),
       pointer: pointer,
+      tags: [],
+      scope: 'auto',
+      pinned: false,
       time: Date.now(),
       source: 'chat'
     });
@@ -6105,7 +6262,8 @@ async function streamChat() {
       const topic = m.topic || (m.text ? m.text.slice(0, 80) : '(无内容)');
       const date = m.time ? new Date(m.time).toLocaleDateString() : '';
       const ptr = m.pointer ? ' → 完整对话：' + m.pointer : '';
-      return (i + 1) + '. ' + topic + (date ? '（' + date + '）' : '') + ptr;
+      const pin = m.pinned ? '📌 ' : '';
+      return (i + 1) + '. ' + pin + topic + (date ? '（' + date + '）' : '') + ptr;
     });
     dynamicParts.push('相关历史记忆（仅话题指针，详情需用户确认后用 read_file 读 /conversations/）：\n' + lines.join('\n'));
   }
