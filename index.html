@@ -373,7 +373,9 @@
   .session-row:hover { background: var(--bg-hover); }
   /* ===== 滚动缩略导航条 ===== */
   .chat { position: relative; }
-  .scroll-thumbnail { position: absolute; right: 2px; top: 50px; bottom: 120px; width: 20px; z-index: 5; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+  .scroll-thumbnail { position: absolute; right: 2px; top: 50px; bottom: 120px; width: 20px; z-index: 5; pointer-events: none; opacity: 0; transition: opacity 0.2s; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
+  .scroll-thumbnail::-webkit-scrollbar { display: none; }
+  .scroll-thumbnail .thumb-inner { position: relative; width: 100%; pointer-events: auto; }
   .chat:hover .scroll-thumbnail, .scroll-thumbnail.active { opacity: 1; }
   .scroll-thumb-item { position: absolute; left: 50%; transform: translateX(-50%); width: 4px; height: 6px; border-radius: 2px; pointer-events: auto; cursor: pointer; transition: width 0.15s, opacity 0.15s; opacity: 0.5; }
   .scroll-thumb-item:hover { width: 8px; opacity: 1; }
@@ -2732,8 +2734,11 @@ function detectLang(code) {
 function checkHtml(code) {
   // 先剥离 script/style 内容，避免 JS/CSS 里的 < 被当成标签
   const htmlOnly = String(code)
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '<script></script>')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '<style></style>');
+    // 注意：替换串里的 script 闭合标签必须写成 <\/script> 这种转义形式，
+    // 否则 HTML 解析器会在此处提前结束整个 script 块（解析器不看 JS 字符串和注释边界），
+    // 导致后面所有脚本变成纯文本、页面整体失效
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '<script><\/script>')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '<style><\/style>');
   const doc = new DOMParser().parseFromString(htmlOnly, 'text/html');
   const pe = doc.querySelector('parsererror');
   if (pe) return 'HTML 解析错误：' + (pe.textContent || '').slice(0, 200);
