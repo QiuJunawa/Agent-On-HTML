@@ -1154,6 +1154,17 @@
   </div>
 </div>
 
+<!-- 更新通知（非原生弹窗；上次记录版本与当前不同或从未记录时弹出，内容显示更新条目） -->
+<div class="modal" id="updateModal" style="z-index:3200">
+  <div class="modal-box" style="width:600px">
+    <h2>🚀 应用已更新</h2>
+    <div id="updateBody" style="font-size:13px;line-height:1.85;color:var(--text-dim,#aab3c2);max-height:55vh;overflow:auto;padding-right:4px"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" id="btnUpdateOk" type="button" style="padding:8px 24px">知道了</button>
+    </div>
+  </div>
+</div>
+
 <!-- 自定义确认弹窗 -->
 <div class="modal" id="confirmModal" style="z-index:3000">
   <div class="modal-box" style="width:420px">
@@ -1634,6 +1645,27 @@ const DEFAULT_CONFIG_README = [
 ].join('\n');
 
 const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再自动补写内置文件（用户删除即尊重）
+
+/* ---------- 更新通知 ---------- */
+// 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
+// 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
+const APP_VERSION = '2026.10.24.1';
+const APP_CHANGELOG = [
+  {
+    v: '2026.10.24.1',
+    date: '2026-10-24',
+    title: 'Codespace 修复 + Beta 优化收尾',
+    items: [
+      '修复 Codespace 端口设公开：改用容器内 gh CLI 执行 gh codespace ports visibility（原 REST 端点实测 404，从未真正生效）',
+      'cs_serve 本地自检改为 10 秒轮询，不再出现空状态码 "?"',
+      '上下文管理四件套：ToolResult 头尾修剪、上下文溢出自动恢复重试、trimConversation 预算计入 reasoning_content、saveSessions 脱敏',
+      '占位符 [ref:] 自引用防护 + 展开前快照（防脏快照/递归复制）',
+      '全部读写工具支持行列级替换（read/write/append/kb_read/kb_write 的 start_col/end_col）',
+      'Gitee 同步改为分片批量 commit（8MB/片），大文件走 Blobs API'
+    ]
+  }
+];
+const APP_LAST_SEEN_KEY = 'app_last_seen_version';
 
 /* ---------- 撤销栈（按轮次分组） ---------- */
 // 一轮 = 一次 sendMessage / regenerateFrom 内的全部工具写操作，撤销一次回滚整轮
@@ -8369,6 +8401,24 @@ function updateCloudFields() {
 
 function on(id, event, handler) { const el = $(id); if (!el) { console.warn('[bindEvents] 未找到元素 #' + id); return; } el.addEventListener(event, handler); }
 
+/* ---------- 更新通知 ---------- */
+function maybeShowUpdateModal() {
+  let last = '';
+  try { last = localStorage.getItem(APP_LAST_SEEN_KEY) || ''; } catch (e) {}
+  if (last === APP_VERSION) return;   // 已看过当前版本
+  const body = $('updateBody');
+  if (body) {
+    // 只显示"上次之后"的更新条目；从未记录（首次打开）或版本号不在表里 → 显示全部
+    const idx = APP_CHANGELOG.findIndex(c => c.v === last);
+    const list = idx === -1 ? APP_CHANGELOG : APP_CHANGELOG.slice(0, idx);
+    body.innerHTML = list.map(c =>
+      '<div style="margin-bottom:14px"><strong>v' + escapeHtml(c.v) + '</strong> <span style="opacity:.55">' + escapeHtml(c.date) + '</span> · ' + escapeHtml(c.title) +
+      '<ul style="padding-left:18px;margin:6px 0 0">' + c.items.map(i => '<li>' + escapeHtml(i) + '</li>').join('') + '</ul></div>'
+    ).join('');
+  }
+  const m = $('updateModal'); if (m) m.classList.add('open');
+}
+
 function bindEvents() {
   on('btnStop', 'click', () => {
     if (!chatAbort) return;
@@ -8393,6 +8443,10 @@ function bindEvents() {
   on('btnPrivacyOk', 'click', () => {
     try { localStorage.setItem('vfs_privacy_noticed', '1'); } catch (e) {}
     const m = $('privacyModal'); if (m) m.classList.remove('open');
+  });
+  on('btnUpdateOk', 'click', () => {
+    try { localStorage.setItem(APP_LAST_SEEN_KEY, APP_VERSION); } catch (e) {}
+    const m = $('updateModal'); if (m) m.classList.remove('open');
   });
   on('btnSend', 'click', sendMessage);
   // 欢迎屏大输入框
@@ -8786,6 +8840,7 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
   // 首次使用隐私提示（localStorage 标记，看过不再弹）
   try {
     if (!localStorage.getItem('vfs_privacy_noticed')) $('privacyModal').classList.add('open');
+    maybeShowUpdateModal();
   } catch (e) {}
   try { await VFS.init(); }
   catch (e) { console.error('VFS.init 异常', e); memoryOnly = true; memoryReason = (e && e.message) ? e.message : String(e); }
