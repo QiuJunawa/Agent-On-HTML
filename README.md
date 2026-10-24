@@ -6,6 +6,7 @@ A self-contained AI agent chat application running in a single HTML file.
 - AI chat with multi-provider support (OpenAI, DeepSeek, GLM, etc.)
 - Virtual File System (IndexedDB)
 - 43 built-in tools (files, search, web, todo, chart, JS/Python sandbox, undo…)
+- Tolerates models that emit tool calls as XML text (`<ask_user>…</ask_user>`, `<invoke name="…">`, `<tool_call>{json}`) instead of native `tool_calls`
 - Cloud sync (Gitee / WebDAV / GitHub Gist / custom endpoint)
 - **GitHub Codespaces as a remote execution environment** (real shell, real files, public preview URLs)
 - Light/dark theme

@@ -6857,6 +6857,265 @@ function createDsmlFilter() {
   };
 }
 
+/* ---------- 通用 XML 式工具调用解析（跨 chunk 流式状态机） ----------
+   有些模型（自建代理、非原生工具调用的小模型）不返回 tool_calls，而是把调用写成正文里的 XML：
+     <ask_user><question>…</question><options><option>A</option><option>B</option></options></ask_user>
+     <write_file><path>/a.md</path><content>…</content></write_file>
+     <function_calls><invoke name="read_file"><parameter name="path">/a.md</parameter></invoke></function_calls>
+     <tool_call>{"name":"read_file","arguments":{"path":"/a.md"}}</tool_call>
+   这里统一识别成标准 tool_calls，避免这些标签以原文形式显示在气泡里。
+   原则：只认已知工具名；解析不出调用就原样透传（fail-open），绝不吞正文。 */
+const XML_TOOL_WRAPPERS = ['function_calls', 'tool_calls', 'tool_call', 'invoke'];
+// 本来就无参数的工具：允许 <todo_list/> 这种空标签形态
+const XML_NOARG_TOOLS = new Set(['todo_list', 'undo_list']);
+// 这些参数是标量，才做 true/false、数字转换；content/code 等长文本一律当字符串，避免 JSON.parse 破坏原文
+const XML_SCALAR_PARAMS = new Set(['timeout_sec', 'timeout_ms', 'start_line', 'end_line', 'start_col', 'end_col', 'count', 'port', 'limit', 'id', 'done', 'all', 'in_content', 'append', 'regex', 'ignore_case', 'need_content', 'max_bytes', 'seconds']);
+const XML_INLINE_TAGS = new Set(['br', 'p', 'div']);
+
+function xmlUnescape(s) {
+  return String(s == null ? '' : s)
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'").replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+}
+
+/** 去掉 XML 缩进：掐掉首尾空白行，再按非空行的最小公共缩进左移（保留代码内部相对缩进） */
+function xmlDedent(s) {
+  let t = String(s == null ? '' : s).replace(/\r\n?/g, '\n').replace(/^[ \t]*\n/, '').replace(/\s+$/, '');
+  const lines = t.split('\n');
+  const inds = lines.filter(l => l.trim()).map(l => (l.match(/^[ \t]*/) || [''])[0].length);
+  const min = inds.length ? Math.min.apply(null, inds) : 0;
+  if (min > 0) t = lines.map(l => l.replace(new RegExp('^[ \\t]{0,' + min + '}'), '')).join('\n');
+  return t;
+}
+
+function xmlScalarValue(key, raw) {
+  const s = String(raw == null ? '' : raw);
+  if (!XML_SCALAR_PARAMS.has(key)) return s;
+  const t = s.trim();
+  if (t === 'true') return true;
+  if (t === 'false') return false;
+  if (/^-?\d+(?:\.\d+)?$/.test(t) && t.length < 16) return Number(t);
+  return s;
+}
+
+function xmlParseAttrs(raw) {
+  const attrs = {};
+  const re = /([A-Za-z_][\w.-]*)\s*=\s*("([^"]*)"|'([^']*)')/g;
+  let m;
+  while ((m = re.exec(String(raw || '')))) attrs[m[1]] = xmlUnescape(m[3] != null ? m[3] : m[4]);
+  return attrs;
+}
+
+function xmlNodeText(node) {
+  let s = node.text.join('');
+  for (const c of node.children) if (XML_INLINE_TAGS.has(c.name.toLowerCase())) s += '\n' + xmlNodeText(c);
+  return xmlDedent(xmlUnescape(s));
+}
+
+function xmlNodeToArgs(node) {
+  const args = {};
+  for (const child of node.children) {
+    const key = child.name;
+    const val = child.children.length ? xmlNodeToArgs(child) : xmlNodeText(child);
+    if (Object.prototype.hasOwnProperty.call(args, key)) {
+      if (!Array.isArray(args[key])) args[key] = [args[key]];
+      args[key].push(val);
+    } else args[key] = val;
+  }
+  return args;
+}
+
+function xmlFlattenList(v) {
+  if (v == null) return [];
+  const arr = Array.isArray(v) ? v : [v];
+  const out = [];
+  for (const item of arr) {
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      // <options><option>..</option></options> 解析成 { option: [...] }
+      if (item.option != null) out.push(...xmlFlattenList(item.option));
+      else if (item.value != null) out.push(...xmlFlattenList(item.value));
+      else out.push(...xmlFlattenList(Object.values(item)));
+    } else out.push(item);
+  }
+  return out;
+}
+
+function xmlNormalizeArgs(args) {
+  const out = {};
+  for (const k of Object.keys(args || {})) {
+    if (k === 'options' || k === 'option') continue;
+    out[k] = args[k];
+  }
+  const opts = args.options != null ? args.options : args.option;
+  if (opts != null) {
+    const list = xmlFlattenList(opts).map(x => String(x).trim()).filter(Boolean);
+    if (list.length) out.options = list;
+  }
+  for (const k of Object.keys(out)) {
+    if (typeof out[k] === 'string') out[k] = xmlScalarValue(k, out[k]);
+  }
+  return out;
+}
+
+/** 从一段 XML 文本里抽标准 tool_calls（无法识别则返回空数组） */
+function parseXmlToolBlock(block) {
+  const known = new Set(TOOLS.map(t => (t.function && t.function.name) || '').filter(Boolean));
+  const roots = [];
+  const stack = [];
+  const TAG_RE = /<(\/?)([A-Za-z_][\w.-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)(\/?)>/g;
+  const pushText = (s) => { if (s && stack.length) stack[stack.length - 1].text.push(s); };
+  const finish = (node) => { const parent = stack[stack.length - 1]; (parent ? parent.children : roots).push(node); };
+  let last = 0, m;
+  while ((m = TAG_RE.exec(block))) {
+    pushText(block.slice(last, m.index));
+    last = TAG_RE.lastIndex;
+    const [, slash, rawName, rawAttrs, selfClose] = m;
+    const lower = rawName.toLowerCase();
+    if (slash) {
+      let idx = -1;
+      for (let i = stack.length - 1; i >= 0; i--) if (stack[i].name.toLowerCase() === lower) { idx = i; break; }
+      if (idx < 0) continue;                     // 多余的闭合标签，忽略
+      while (stack.length - 1 > idx) finish(stack.pop());   // 容忍漏闭合的子标签
+      if (stack.length) finish(stack.pop());
+    } else {
+      const node = { name: rawName, attrs: xmlParseAttrs(rawAttrs), children: [], text: [] };
+      if (selfClose) finish(node);
+      else stack.push(node);
+    }
+  }
+  pushText(block.slice(last));
+  while (stack.length) finish(stack.pop());
+
+  const calls = [];
+  const push = (name, args) => {
+    if (!known.has(name)) return;
+    calls.push({ id: 'call_xml_' + Date.now().toString(36) + '_' + calls.length, type: 'function', function: { name, arguments: JSON.stringify(args || {}) } });
+  };
+  const walk = (node) => {
+    const name = node.name;
+    const lower = name.toLowerCase();
+    if (lower === 'function_calls' || lower === 'tool_calls') { node.children.forEach(walk); return; }
+    if (lower === 'invoke') {
+      const tool = (node.attrs.name || '').trim();
+      const args = {};
+      for (const p of node.children) {
+        if (p.name.toLowerCase() !== 'parameter') continue;
+        const key = (p.attrs.name || '').trim();
+        if (!key) continue;
+        args[key] = p.children.length ? xmlNodeToArgs(p) : xmlNodeText(p);
+      }
+      if (known.has(tool)) push(tool, xmlNormalizeArgs(args));
+      else node.children.forEach(walk);
+      return;
+    }
+    if (lower === 'tool_call') {
+      const txt = xmlUnescape(node.text.join('')).trim();
+      try {
+        const j = JSON.parse(txt);
+        const tool = String(j.name || (j.function && j.function.name) || '').trim();
+        let rawArgs = j.arguments != null ? j.arguments : (j.args != null ? j.args : (j.function && j.function.arguments));
+        if (typeof rawArgs === 'string') rawArgs = JSON.parse(rawArgs);
+        if (known.has(tool)) push(tool, xmlNormalizeArgs(rawArgs || {}));
+        return;
+      } catch (_) { /* 不是 JSON，按普通标签继续往下试 */ }
+    }
+    if (known.has(name)) {
+      // 没有子元素又没有文字的 <ask_user>xxx</ask_user> 多半是正文里提到标签名，不当调用处理
+      if (!node.children.length && !XML_NOARG_TOOLS.has(lower)) return;
+      push(name, xmlNormalizeArgs(xmlNodeToArgs(node)));
+      return;
+    }
+    node.children.forEach(walk);
+  };
+  roots.forEach(walk);
+  return calls;
+}
+
+/** 有状态流式过滤器：标签一出现就拦，跨 chunk 拼完整再转工具调用；代码块内原样透传 */
+function createXmlToolFilter(opts) {
+  const enabled = () => !opts || !opts.enabled || !!opts.enabled();
+  const names = TOOLS.map(t => (t.function && t.function.name) || '').filter(Boolean).concat(XML_TOOL_WRAPPERS);
+  const uniq = [...new Set(names)].sort((a, b) => b.length - a.length);
+  const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // 开标签：<name ...>；命名必须是已知工具/包装标签，且后面跟空格、/ 或 >
+  const START_RE = new RegExp('<(' + uniq.map(esc).join('|') + ')(?=[\\s/>])(?:"[^"]*"|\'[^\']*\'|[^>"\'])*?>', 'i');
+  const fenceCount = s => (s.match(/```+/g) || []).length;
+  const tailKeep = (s) => {
+    const lt = s.lastIndexOf('<');
+    if (lt < 0) return 0;
+    const tail = s.slice(lt).replace(/\s/g, '').toLowerCase();
+    if (tail.length > 48) return 0;
+    const looksPartial = tail === '<' || tail === '</' || uniq.some(n => ('<' + n).startsWith(tail));
+    const bm = s.match(/`+$/);
+    return Math.max(looksPartial ? s.length - lt : 0, bm ? bm[0].length : 0);
+  };
+  return {
+    pending: '', capture: '', capturing: false, name: '', inCodeBlock: false,
+    closeRe() { return new RegExp('</\\s*' + esc(this.name) + '\\s*>', 'i'); },
+    feed(chunk) {
+      if (!enabled()) return { text: chunk || '', calls: [] };
+      const newCalls = [];
+      let out = '';
+      if (this.capturing) {
+        this.capture += (chunk || '');
+        const cm = this.capture.match(this.closeRe());
+        if (!cm) return { text: '', calls: [] };
+        const end = cm.index + cm[0].length;
+        const block = this.capture.slice(0, end);
+        const rest = this.capture.slice(end);
+        this.capture = ''; this.capturing = false; this.name = '';
+        const got = parseXmlToolBlock(block);
+        if (got.length) newCalls.push(...got);
+        else out += block;                       // fail-open：解析不出就原样显示
+        const sub = this.feed(rest);
+        return { text: out + sub.text, calls: newCalls.concat(sub.calls) };
+      }
+      this.pending += (chunk || '');
+      while (true) {
+        const sm = this.pending.match(START_RE);
+        if (!sm) break;
+        const before = this.pending.slice(0, sm.index);
+        const inCode = this.inCodeBlock ? (fenceCount(before) % 2 === 0) : (fenceCount(before) % 2 === 1);
+        if (inCode) {
+          const piece = this.pending.slice(0, sm.index + sm[0].length);
+          if (fenceCount(piece) % 2) this.inCodeBlock = !this.inCodeBlock;
+          out += piece;
+          this.pending = this.pending.slice(sm.index + sm[0].length);
+          continue;
+        }
+        if (fenceCount(before) % 2) this.inCodeBlock = !this.inCodeBlock;
+        out += before;
+        this.capture = this.pending.slice(sm.index);
+        this.pending = '';
+        this.name = sm[1];
+        this.capturing = true;
+        const sub = this.feed('');
+        return { text: out + sub.text, calls: newCalls.concat(sub.calls) };
+      }
+      const keep = tailKeep(this.pending);
+      const toOut = this.pending.slice(0, this.pending.length - keep);
+      if (fenceCount(toOut) % 2) this.inCodeBlock = !this.inCodeBlock;
+      out += toOut;
+      this.pending = this.pending.slice(this.pending.length - keep);
+      return { text: out, calls: newCalls };
+    },
+    flush() {
+      let calls = [];
+      let out = '';
+      if (this.capturing) {
+        const got = parseXmlToolBlock(this.capture);
+        if (got.length) calls = calls.concat(got);
+        else out += this.capture;                // 没闭合又解析不出：原样吐出，别丢用户可见内容
+        this.capture = ''; this.capturing = false; this.name = '';
+      }
+      out += this.pending;
+      this.pending = '';
+      return { text: out, calls };
+    }
+  };
+}
+
 async function streamChat() {
   // 密钥仍为加密状态时，提示输入主密码
   if (cfg.apiKey && typeof cfg.apiKey === 'string' && cfg.apiKey.startsWith('enc:')) {
@@ -6926,10 +7185,22 @@ async function streamChat() {
     const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 150;
     if (nearBottom) { messagesEl.scrollTop = messagesEl.scrollHeight; scheduleThumbUpdate(); }
   };
-  // DSML 流式状态机：标记实时拦截，跨 chunk 拼接
+  // 工具调用解析：DSML（DeepSeek）与通用 XML 两套状态机串联，跨 chunk 拼接
   const dsmlFilter = createDsmlFilter();
+  const xmlFilter = createXmlToolFilter({ enabled: () => agentThisRound });
+  const toolFilterFeed = (chunk) => {
+    const a = dsmlFilter.feed(chunk || '');
+    const b = xmlFilter.feed(a.text || '');
+    return { text: b.text, calls: a.calls.concat(b.calls) };
+  };
+  const toolFilterFlush = () => {
+    const a = dsmlFilter.flush();
+    const b = xmlFilter.feed(a.text || '');
+    const c = xmlFilter.flush();
+    return { text: b.text + c.text, calls: a.calls.concat(b.calls, c.calls) };
+  };
   const dsmlIngest = (chunk) => {
-    const r = dsmlFilter.feed(chunk || '');
+    const r = toolFilterFeed(chunk || '');
     if (r.text) { text += r.text; }
     if (r.calls.length) r.calls.forEach(tc => { toolAcc[toolAcc.length] = tc; });
     if (r.text || r.calls.length) scheduleRender();
@@ -7038,7 +7309,7 @@ async function streamChat() {
       const choice = j.choices && j.choices[0];
       if (choice && choice.message) {
         if (choice.message.content) {
-          const r = dsmlFilter.feed(choice.message.content);
+          const r = toolFilterFeed(choice.message.content);
           if (r.text) text += r.text;
           r.calls.forEach(tc => { toolAcc[toolAcc.length] = tc; });
         }
@@ -7052,6 +7323,10 @@ async function streamChat() {
       if (e.message && e.message.startsWith('API 错误')) throw e;
       msgEl.remove(); throw new Error('解析响应失败：' + e.message + '\n原始返回：' + raw.slice(0, 500));
     }
+    // 非流式响应没有后续 flush 机会，这里收尾一次
+    const tail = toolFilterFlush();
+    if (tail.text) text += tail.text;
+    tail.calls.forEach(tc => { toolAcc[toolAcc.length] = tc; });
     bubble.innerHTML = mdToHtml(text);
     if (!text.trim() && toolAcc.filter(Boolean).length === 0) {
       msgEl.remove();
@@ -7128,7 +7403,7 @@ async function streamChat() {
       if (choice && choice.message) {
         if (choice.message.reasoning_content) thinking = choice.message.reasoning_content;
         if (choice.message.content) {
-          const r = dsmlFilter.feed(choice.message.content);
+          const r = toolFilterFeed(choice.message.content);
           if (r.text) text += r.text;
           r.calls.forEach(tc => { toolAcc[toolAcc.length] = tc; });
         }
@@ -7143,7 +7418,7 @@ async function streamChat() {
   }
 
   // 收尾：flush 状态机（未闭合块内若有完整 invoke 仍采纳，半个前缀标记不渲染）
-  const flush = dsmlFilter.flush();
+  const flush = toolFilterFlush();
   if (flush.text) text += flush.text;
   flush.calls.forEach(tc => { toolAcc[toolAcc.length] = tc; });
   // 流层/模型层停止诊断：截断、内容过滤、流提前关闭（都要显式告诉用户，不要静默停止）
