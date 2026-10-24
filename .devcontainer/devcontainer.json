@@ -1,0 +1,15 @@
+{
+  "name": "Agent-On-HTML · Codespace Bridge",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "postStartCommand": "bash .devcontainer/start-bridge.sh",
+  "forwardPorts": [8787],
+  "portsAttributes": {
+    "8787": {
+      "label": "agent-bridge",
+      "onAutoForward": "notify"
+    }
+  },
+  "hostRequirements": {
+    "cpus": 2
+  }
+}
