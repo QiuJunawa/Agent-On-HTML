@@ -5241,12 +5241,28 @@ async function csGhList() {
 }
 async function csGhStart(name) { return csGh('POST', '/user/codespaces/' + encodeURIComponent(name) + '/start'); }
 async function csGhStop(name) { return csGh('POST', '/user/codespaces/' + encodeURIComponent(name) + '/stop'); }
-async function csGhPorts(name) {
-  const d = await csGh('GET', '/user/codespaces/' + encodeURIComponent(name) + '/ports');
-  return Array.isArray(d) ? d : ((d && d.ports) || []);
-}
 async function csGhMakePublic(name, port) {
-  return csGh('PATCH', '/user/codespaces/' + encodeURIComponent(name) + '/ports/' + encodeURIComponent(port), { visibility: 'public' });
+  // GitHub REST API 不存在"改端口可见性"端点（/user/codespaces/{n}/ports/* 实测全部 404），
+  // 浏览器直连 Tunnels API 的写路径也不通（PATCH 405 / PUT 401）。
+  // 唯一实测可行路径：容器内 gh CLI `gh codespace ports visibility <port>:public -c <name>`。
+  // 官方 Codespace 镜像预装 gh；万一没有，用 curl 拉官方 tar.gz 装到 ~/.local/bin（约 1 秒）。
+  const cmd = [
+    'if ! command -v gh >/dev/null 2>&1; then',
+    '  mkdir -p ~/.local/bin',
+    '  curl -fsSL https://github.com/cli/cli/releases/latest/download/gh_linux_amd64.tar.gz | tar xz -C /tmp 2>/dev/null || true',
+    '  cp /tmp/gh_*/bin/gh ~/.local/bin/gh 2>/dev/null || true',
+    'fi',
+    'export PATH="$HOME/.local/bin:$PATH"',
+    'command -v gh >/dev/null 2>&1 || { echo "GH_MISSING_AFTER_INSTALL"; exit 9; }',
+    'gh codespace ports visibility ' + Number(port) + ':public -c ' + csQuote(String(name)),
+    'echo AGENT_PORTS_PUBLIC_OK'
+  ].join('\n');
+  const data = await csBridgeRequest('/exec', { cmd, timeout_ms: 60000 });
+  const out = String(data.stdout || '') + String(data.stderr || '');
+  if (data.exit_code !== 0 || out.indexOf('AGENT_PORTS_PUBLIC_OK') === -1) {
+    throw new Error('gh 设置端口可见性失败：' + out.slice(0, 300));
+  }
+  return { visibility: 'public' };
 }
 
 /* ---------- 桥接 HTTP 客户端 ---------- */
@@ -5415,7 +5431,14 @@ async function csToolServe(args) {
     '  sleep 1',
     '  echo AGENT_SERVE_STARTED',
     'fi',
-    'curl -s -o /dev/null -w "AGENT_SERVE_HTTP=%{http_code}\\n" http://127.0.0.1:' + port + '/' + ' || true'
+    // 自检改为轮询：python http.server 启动有延迟，只探测一次会拿到空结果
+    'code=000',
+    'for i in $(seq 1 10); do',
+    '  code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:' + port + '/ || true)',
+    '  [ "$code" = "200" ] && break',
+    '  sleep 1',
+    'done',
+    'echo "AGENT_SERVE_HTTP=$code"'
   ].join('\n');
   const data = await csBridgeRequest('/exec', { cmd: script, timeout_ms: 45000 });
   const code = (/AGENT_SERVE_HTTP=(\d+)/.exec(String(data.stdout || '')) || [])[1] || '?';
