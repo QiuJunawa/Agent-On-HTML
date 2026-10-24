@@ -2218,8 +2218,8 @@ async function executeTool(name, args, onChunk) {
 
         let truncated = '';
         if (content.length > MAX_READ) {
-          truncated = `\n\n[内容已截断，本段 ${content.length} 字符，超出 ${MAX_READ} 限制]\n[建议：用 start_line/end_line 分段读，或用 query 定位关键词]`;
-          content = content.slice(0, MAX_READ);
+          truncated = `\n\n[内容已截断，本段 ${content.length} 字符，超出 ${MAX_READ} 限制]\n[已保留开头和结尾；建议用 start_line/end_line 分段读，或用 query 定位关键词]`;
+          content = pruneToolResult(content, { thresholdChars: MAX_READ, headChars: Math.floor(MAX_READ * 0.8), tailChars: Math.floor(MAX_READ * 0.2) });
         }
         const numbered = withLineNumbers(content, sl);
         return `文件：${p}${lineInfo}\n\`\`\`\n${numbered}\n\`\`\`${truncated}\n（行号前缀 N| 仅供定位，构造 edit_file 的 old_string 时请去掉行号）`;
@@ -2804,7 +2804,7 @@ async function toolRouteAi(args, onChunk) {
     }
     clearTimeout(idleTimer);
     if (!String(out).trim()) return '其他 AI 返回了空内容';
-    return '【' + tname + ' 的回答】\n' + String(out).slice(0, 30000);
+    return '【' + tname + ' 的回答】\n' + truncateToolResult(out);
   } catch (e) {
     clearTimeout(idleTimer);
     if (e.name === 'AbortError') return '其他 AI 连续 30 秒无输出，已超时（对方可能已断开或思考过久）';
@@ -2877,9 +2877,12 @@ function detectLang(code) {
 }
 function checkHtml(code) {
   // 先剥离 script/style 内容，避免 JS/CSS 里的 < 被当成标签
+  // 注意：此处禁止出现 script/style 标签的尖括号字面量序列（含其闭合写法）——
+  // HTML 解析器在脚本块内遇到它们会提前闭合或进入转义状态，导致整个脚本块被截断。
+  // 以下用字符串拼接构造正则，源码中不出现任何该序列字面量。
   const htmlOnly = String(code)
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '<script></script>')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '<style></style>');
+    .replace(new RegExp('<scr' + 'ipt\\b[^>]*>[\\s\\S]*?<\\/scr' + 'ipt>', 'gi'), '<scr' + 'ipt></scr' + 'ipt>')
+    .replace(new RegExp('<sty' + 'le\\b[^>]*>[\\s\\S]*?<\\/sty' + 'le>', 'gi'), '<sty' + 'le></sty' + 'le>');
   const doc = new DOMParser().parseFromString(htmlOnly, 'text/html');
   const pe = doc.querySelector('parsererror');
   if (pe) return 'HTML 解析错误：' + (pe.textContent || '').slice(0, 200);
@@ -5085,7 +5088,28 @@ function saveSessions() {
       conversation: (s.conversation || []).map(m => {
         // 过滤掉内存级渲染缓存，不占 localStorage
         const { _html, ...rest } = m;
-        return rest;
+        // 脱敏（对齐 saveConversation 的存档策略）：内容文本和工具调用参数里的密钥 → ****
+        const out = { ...rest };
+        if (typeof out.content === 'string') out.content = redactCached(out.content);
+        else if (Array.isArray(out.content)) {
+          out.content = out.content.map(p => (p && p.type === 'text') ? { ...p, text: redactCached(String(p.text || '')) } : p);
+        }
+        if (Array.isArray(out.tool_calls)) {
+          out.tool_calls = out.tool_calls.map(tc => {
+            if (tc && tc.function && typeof tc.function.arguments === 'string') {
+              try {
+                const a = JSON.parse(tc.function.arguments);
+                const r = {};
+                for (const k of Object.keys(a)) r[k] = typeof a[k] === 'string' ? redactCached(a[k]) : a[k];
+                return { ...tc, function: { ...tc.function, arguments: JSON.stringify(r) } };
+              } catch (e) {
+                return { ...tc, function: { ...tc.function, arguments: redactCached(tc.function.arguments) } };
+              }
+            }
+            return tc;
+          });
+        }
+        return out;
       })
     }));
     localStorage.setItem(SESSIONS_KEY, JSON.stringify(data));
@@ -5948,6 +5972,8 @@ function buildEndpoint() {
 
 /* ---------- 对话裁剪：防上下文爆掉（仅裁剪发往模型的消息，存档完整保留） ---------- */
 // 对话正文预算随模型上下文窗口变化（留 40% 给 system + tools + 输出）
+// contextBudgetScale：上下文溢出自动恢复时收紧的系数（对齐 deepseek-harness compaction 的 overflow recovery）
+let contextBudgetScale = 1;
 function getChatBudget() {
   const m = (cfg.model || '').toLowerCase();
   let ctx = 128000;  // 默认
@@ -5956,7 +5982,17 @@ function getChatBudget() {
   else if (m.includes('16k')) ctx = 16000;
   else if (m.includes('8k')) ctx = 8000;
   else if (m.includes('128k') || m.includes('deepseek') || m.includes('glm') || m.includes('qwen') || m.includes('gpt-4o') || m.includes('kimi')) ctx = 128000;
-  return Math.floor(ctx * 0.6 * 1.5);  // 中文约 1.5 字符/token（第一批）
+  return Math.floor(ctx * 0.6 * 1.5 * contextBudgetScale);  // 中文约 1.5 字符/token（第一批）
+}
+// 判定 LLM 请求错误是否为"上下文窗口超限"（HTTP 400/413 + context/token 关键词）
+function isContextOverflowError(err) {
+  const s = String((err && err.message) || err || '');
+  if (!s) return false;
+  const l = s.toLowerCase();
+  const overflowHint = l.includes('context') || l.includes('token') || l.includes('prompt is too long')
+    || l.includes('maximum context') || l.includes('上下文') || l.includes('超出') || l.includes('超长') || l.includes('过长');
+  const httpHint = l.includes('http 400') || l.includes('http 413') || l.includes(' 400 ') || l.includes(' 413 ') || /400|413/.test(l.slice(0, 60));
+  return overflowHint && httpHint;
 }
 /* 判断当前模型是否原生支持视觉输入（图片直接塞进 message content 数组） */
 function modelSupportsVision() {
@@ -5984,7 +6020,11 @@ function trimConversation(msgs) {
     // 且插在 assistant(tool_calls) 与 tool 之间会破坏 API 要求的消息序列
     const m = msgs[i];
     if (m && (m.ask || m.deliver || m.chart)) continue;
-    const len = contentToText(m.content).length + 160;   // 每条消息估算开销
+    // 推理模型 assistant 消息带 reasoning_content（可能几千~几万字符），必须计入预算，
+    // 否则上下文实际超预算、请求被 400 context 截断（对齐 deepseek-harness token-meter 的 reasoning 计费）
+    const rc = m.reasoning_content;
+    const reasonLen = rc ? (Array.isArray(rc) ? rc.map(x => String(x.text || x || '')).join('\n') : String(rc)).length : 0;
+    const len = contentToText(m.content).length + reasonLen + 160;   // 每条消息估算开销
     if (total + len > getChatBudget() && kept.length) break;
     total += len;
     kept.unshift(m);
@@ -6653,6 +6693,32 @@ function isToolFailure(result) {
   return false;
 }
 
+/* ---------- 工具结果修剪（对齐 deepseek-harness ToolResultPruner） ----------
+   超预算结果保留 head + tail，中间替换为标记。Unicode 码点安全切割，
+   不拆代理对。head/tail 与标记总长必须不超过 threshold。 */
+const PRUNE_MARKER = '\n\n[... 工具结果中段已省略 ...]\n\n';
+const PRUNE_DEFAULTS = { thresholdChars: 24000, headChars: 20000, tailChars: 4000 };
+function pruneToolResult(text, opts) {
+  const cfg2 = Object.assign({}, PRUNE_DEFAULTS, opts || {});
+  const s = String(text == null ? '' : text);
+  // 按 Unicode 码点计数/切割，避免 slice 切半个代理对（emoji/生僻字乱码）
+  const points = Array.from(s);
+  const total = points.length;
+  if (total <= cfg2.thresholdChars) return s;
+  const headEnd = Math.min(cfg2.headChars, total);
+  const tailStart = Math.max(cfg2.tailChars, total - cfg2.tailChars);
+  const kept = headEnd + PRUNE_MARKER.length + (total - tailStart);
+  if (kept > cfg2.thresholdChars) {
+    // 防御：head/tail+标记超阈值时退化为纯 head（不超阈值）
+    return points.slice(0, Math.max(0, cfg2.thresholdChars - PRUNE_MARKER.length)).join('') + PRUNE_MARKER;
+  }
+  return points.slice(0, headEnd).join('') + PRUNE_MARKER + points.slice(tailStart).join('');
+}
+function truncateToolResult(text) {
+  // 统一入口：入 conversation 的工具结果上限
+  return pruneToolResult(text, { thresholdChars: 30000, headChars: 24000, tailChars: 6000 });
+}
+
 // 带指数退避重试的执行
 async function execWithRetry(tc, execOne, maxRetries) {
   let lastResult = null;
@@ -6794,7 +6860,24 @@ async function agentLoop() {
       return;
     }
     loops++;
-    let { content, toolCalls, usage, thinking } = await streamChat();
+    // 上下文溢出自动恢复：API 报 context 超限时，收紧对话裁剪预算并重试一次
+    // （对齐 deepseek-harness compaction-basic 的 context-overflow recovery，maxOverflowRetries=1）
+    let round = null;
+    let overflowRetried = false;
+    while (!round) {
+      try {
+        round = await streamChat();
+      } catch (e) {
+        if (!overflowRetried && isContextOverflowError(e)) {
+          overflowRetried = true;
+          contextBudgetScale = Math.max(0.3, contextBudgetScale * 0.5);
+          addErrorMsg('⚠ 上下文超限，已自动收紧对话裁剪预算至 ' + Math.round(contextBudgetScale * 100) + '% 后重试一次。若仍超限，可减少本轮消息或切换更大上下文模型。');
+          continue;
+        }
+        throw e;
+      }
+    }
+    const { content, toolCalls, usage, thinking } = round;
     if (usage) {
       lastUsage = usage;
       budget.inputTokens += (usage.prompt_tokens || usage.input_tokens || 0);
@@ -6852,7 +6935,7 @@ async function agentLoop() {
       const resultMap = new Map(results.filter(Boolean).map(r => [r.tc.id, r]));
       for (const tc of toolCalls) {
         const r = resultMap.get(tc.id);
-        conversation.push({ role: 'tool', tool_call_id: tc.id, content: String(r ? r.result : '已停止').slice(0, 30000) });
+        conversation.push({ role: 'tool', tool_call_id: tc.id, content: truncateToolResult(r ? r.result : '已停止') });
       }
       continue;
     }
@@ -6889,6 +6972,8 @@ function convToMarkdown() {
 }
 
 /* ---------- 对话存档脱敏：屏蔽 ai-profiles.json 里的 apiKey 与当前配置密钥 ---------- */
+// 全局密钥缓存：saveSessions（同步写 localStorage）复用，避免每次重新异步读 VFS
+let sensitiveSecretsCache = [];
 async function collectSensitiveSecrets() {
   const secrets = [];
   const add = v => { if (v && typeof v === 'string' && v.length >= 4 && !secrets.includes(v)) secrets.push(v); };
@@ -6901,11 +6986,14 @@ async function collectSensitiveSecrets() {
       for (const p of list) if (p && p.apiKey) add(p.apiKey);
     }
   } catch (e) { /* 文件不存在或解析失败则跳过 */ }
-  // 当前设置里保存的密钥（AI 可能通过工具调用参数或返回内容带出）
-  add(cfg.apiKey); add(cfg.giteeToken); add(cfg.wdPass); add(cfg.gistToken);
+  // 当前设置里保存的密钥（AI 可能通过工具调用参数或返回内容带出）——6 项全覆盖
+  add(cfg.apiKey); add(cfg.giteeToken); add(cfg.wdPass); add(cfg.gistToken); add(cfg.kbToken); add(cfg.searchApiKey);
   // 长值优先替换，避免短值先被替换导致长值替换不完整
-  return secrets.sort((a, b) => b.length - a.length);
+  const sorted = secrets.sort((a, b) => b.length - a.length);
+  sensitiveSecretsCache = sorted;
+  return sorted;
 }
+function redactCached(text) { return redactText(text, sensitiveSecretsCache); }
 
 function redactText(text, secrets) {
   if (!secrets.length) return text;
@@ -7689,6 +7777,8 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
   try { loadCfg(); } catch (e) { console.error('loadCfg 失败', e); }
   initCustomSelects();
   initConfirmModal();
+  // 预填充脱敏密钥缓存，供 saveSessions 同步脱敏使用
+  collectSensitiveSecrets().catch(() => {});
   loadSessions();
   // 恢复最近一次对话的渲染和标题
   try {
