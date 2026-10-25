@@ -119,7 +119,11 @@
     background: var(--bg-main); color: var(--text-primary); font-size: 14px; overflow: hidden;
   }
   /* UI 层书写感字体（标题/按钮/品牌；用户可在设置里自定义覆盖） */
-  .brand, .settings-nav-btn, .ghost-btn, .btn-primary, .send-btn, .new-chat-btn, h2, h3, .msg .name, .file-item { font-family: var(--font-ui); }
+  .brand, .settings-nav-btn, .ghost-btn, .btn-primary, .send-btn, .new-chat-btn, h2, h3, .msg .name, .file-item,
+  .sidebar, .sidebar *, .chat-head, .chat-head *, .settings-nav, .settings-nav *, .settings-pane label,
+  .modal-box h2, .modal-box h3, .modal-box label, .field label, .toast, .badge, .tag,
+  button, select, .cselect-btn, .profile-bar, .profile-bar *, .session-item, .session-item *,
+  .editor-head, .editor-head *, .tab, .tab *, .menu-item, .dropdown-item { font-family: var(--font-ui); }
   /* 隐藏 VFS 侧栏 */
   body.hide-sidebar .sidebar { display: none; }
   body.hide-sidebar .chat { border-left: none; }
@@ -1679,8 +1683,18 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.10.25.1';
+const APP_VERSION = '2026.10.25.2';
 const APP_CHANGELOG = [
+  {
+    v: '2026.10.25.2',
+    date: '2026-10-25',
+    title: '修复 UI 字体覆盖不全',
+    items: [
+      '修复界面字体（--font-ui）只作用于 10 个元素、其余 UI 元素被归到正文字体的问题',
+      'UI 字体覆盖范围扩展到侧边栏、聊天头部、设置面板、会话列表、编辑器头部、标签页、下拉框、Toast/徽标等全部界面层元素',
+      '消息气泡正文与输入框仍使用正文字体（--font-body），保持正文可读性',
+    ],
+  },
   {
     v: '2026.10.25.1',
     date: '2026-10-25',
