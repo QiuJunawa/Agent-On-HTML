@@ -4,9 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI Agent · IndexedDB 虚拟文件系统</title>
+<!-- 默认字体方案：UI 层书写感（Comic Neue + 霞鹜文楷），正文无衬线（Inter + 思源黑体）；用户可在设置 → 界面里自定义并持久化到 VFS /config/fonts.json -->
+<link rel="preconnect" href="https://miaoda.feishu.cn">
+<link href="https://miaoda.feishu.cn/fonts/css2?family=Comic+Neue:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@callmebill/lxgw-wenkai-web@latest/style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cn-fontsource-source-han-sans-sc-vf/font.css">
 <style>
   /* ===== 主题变量（深色默认） ===== */
   :root {
+    /* 默认字体方案（设置 → 界面可自定义，持久化到 VFS /config/fonts.json） */
+    --font-ui: 'Comic Sans MS', 'Comic Neue', 'LXGW WenKai', 'Kaiti SC', serif;
+    --font-body: 'Inter', 'Source Han Sans SC VF', 'Source Han Sans SC', 'Noto Sans SC', 'Noto Sans CJK SC', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
     --bg-main: #0f1115;
     --bg-sidebar: #13161c;
     --bg-panel: #161a21;
@@ -107,9 +115,11 @@
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-family: var(--font-body);
     background: var(--bg-main); color: var(--text-primary); font-size: 14px; overflow: hidden;
   }
+  /* UI 层书写感字体（标题/按钮/品牌；用户可在设置里自定义覆盖） */
+  .brand, .settings-nav-btn, .ghost-btn, .btn-primary, .send-btn, .new-chat-btn, h2, h3, .msg .name, .file-item { font-family: var(--font-ui); }
   /* 隐藏 VFS 侧栏 */
   body.hide-sidebar .sidebar { display: none; }
   body.hide-sidebar .chat { border-left: none; }
@@ -1065,6 +1075,16 @@
           <input id="cfgAutoPasteLong" type="checkbox" style="width:auto"> 超长输入自动转存（超过 10000 字符存入 /pastes/，输入框留 [文件附件] 标记，省 token）
         </label>
       </div>
+      <div class="field">
+        <label>界面字体（UI 层：标题 / 按钮 / 品牌）</label>
+        <input id="cfgFontUi" type="text" placeholder="Comic Sans MS, Comic Neue, LXGW WenKai, Kaiti SC, serif" style="font-family:var(--font-ui)">
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;line-height:1.6">写入完整 CSS font-family 字符串（逗号分隔，可带引号）。保存后持久化到 VFS /config/fonts.json；留空恢复默认。</div>
+      </div>
+      <div class="field">
+        <label>正文字体（消息气泡 / 输入框）</label>
+        <input id="cfgFontBody" type="text" placeholder="Inter, Source Han Sans SC VF, Noto Sans SC, sans-serif" style="font-family:var(--font-body)">
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;line-height:1.6">同上；保存后立即生效并持久化。</div>
+      </div>
     </div>
 
     <div class="settings-pane" data-pane="mem">
@@ -1659,8 +1679,18 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.10.24.1';
+const APP_VERSION = '2026.10.25.1';
 const APP_CHANGELOG = [
+  {
+    v: '2026.10.25.1',
+    date: '2026-10-25',
+    title: '定版字体方案 + 自定义字体持久化',
+    items: [
+      '默认字体切换为书写感方案：UI 层（标题/按钮/品牌）Comic Sans MS → Comic Neue + 霞鹜文楷；正文（气泡/输入框）Inter + 思源黑体（走自托管镜像与 jsDelivr 字源）',
+      '设置 → 界面新增「界面字体 / 正文字体」输入框：写入完整 CSS font-family 字符串即自定义，保存后立即生效',
+      '字体设置持久化到 VFS /config/fonts.json（IndexedDB，非 localStorage），留空输入框即恢复默认',
+    ],
+  },
   {
     v: '2026.10.24.1',
     date: '2026-10-24',
@@ -4170,6 +4200,39 @@ function loadCfg() {
   updateModelTag();
   setupAutoSync();
 }
+/* ---------- 字体方案（VFS 持久化） ---------- */
+const FONT_DEFAULTS = {
+  ui: "'Comic Sans MS', 'Comic Neue', 'LXGW WenKai', 'Kaiti SC', serif",
+  body: "'Inter', 'Source Han Sans SC VF', 'Source Han Sans SC', 'Noto Sans SC', 'Noto Sans CJK SC', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif"
+};
+let fontCfg = null;   // {ui, body} 读自 /config/fonts.json；null = 用默认
+
+function applyFonts(f) {
+  const r = document.documentElement.style;
+  if (f && f.ui) r.setProperty('--font-ui', f.ui); else r.removeProperty('--font-ui');
+  if (f && f.body) r.setProperty('--font-body', f.body); else r.removeProperty('--font-body');
+}
+
+async function loadFontCfg() {
+  try {
+    await requireVfs();
+    const raw = await VFS.getContent('/config/fonts.json').catch(() => '');
+    if (raw && String(raw).trim()) { try { fontCfg = JSON.parse(raw); } catch (e) { fontCfg = null; } }
+    else { fontCfg = null; }
+  } catch (e) { fontCfg = null; }
+  applyFonts(fontCfg);
+}
+
+async function saveFontCfg() {
+  const ui = (($('cfgFontUi') || {}).value || '').trim();
+  const body = (($('cfgFontBody') || {}).value || '').trim();
+  fontCfg = { ui, body };
+  await VFS.writeFile('/config/fonts.json', JSON.stringify(fontCfg, null, 2));
+  applyFonts(fontCfg);
+  await refreshFS();
+  toast('字体设置已保存到 /config/fonts.json');
+}
+
 async function saveCfg() {
   try {
     const toSave = { ...cfg };
@@ -8337,6 +8400,8 @@ function openSettings() {
     const fsy = $('cfgFullSync'); if (fsy) fsy.checked = !!cfg.fullSync;
     const tpp = $('cfgToastProgressPos'); if (tpp) tpp.value = cfg.toastProgressPos || 'background';
     const apl = $('cfgAutoPasteLong'); if (apl) apl.checked = cfg.autoPasteLong !== false;
+    const fUi = $('cfgFontUi'); if (fUi) fUi.value = (fontCfg && fontCfg.ui) || '';
+    const fBody = $('cfgFontBody'); if (fBody) fBody.value = (fontCfg && fontCfg.body) || '';
     csFillForm();
     renderToolSwitches();
     editingProfileIndex = -1; $('btnSaveProfile').textContent = '存为预设';
@@ -8760,7 +8825,7 @@ function bindEvents() {
     // 主密码处理：如果输入了新密码则设置，留空保持原密码
     const mpw = $('cfgMasterPassword').value || '';
     if (mpw) { masterPassword = mpw; $('cfgMasterPassword').value = ''; }
-    await saveCfg(); closeSettings(); setupAutoSync(); applyTheme(); applyPreviewVisibility(); applySidebarVisibility(); toast('设置已保存');
+    await saveCfg(); await saveFontCfg(); closeSettings(); setupAutoSync(); applyTheme(); applyPreviewVisibility(); applySidebarVisibility(); toast('设置已保存');
   });
   const modal = $('settingsModal'); if (modal) { modal.addEventListener('click', (e) => { if (e.target === modal) closeSettings(); }); }
   on('btnNewChat', 'click', () => { newSession(); toast('已新建对话'); });
@@ -8970,6 +9035,7 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
   try {
     if (!localStorage.getItem('vfs_privacy_noticed')) $('privacyModal').classList.add('open');
     maybeShowUpdateModal();
+    loadFontCfg();   // 应用 VFS /config/fonts.json 里持久化的自定义字体
   } catch (e) {}
   try { await VFS.init(); }
   catch (e) { console.error('VFS.init 异常', e); memoryOnly = true; memoryReason = (e && e.message) ? e.message : String(e); }
