@@ -1060,6 +1060,11 @@
           <option value="none">不显示进度条</option>
         </select>
       </div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+          <input id="cfgAutoPasteLong" type="checkbox" style="width:auto"> 超长输入自动转存（超过 10000 字符存入 /pastes/，输入框留 [文件附件] 标记，省 token）
+        </label>
+      </div>
     </div>
 
     <div class="settings-pane" data-pane="mem">
@@ -4096,7 +4101,7 @@ const DEFAULT_SYSTEM = `你是一个运行在浏览器中的 AI Agent，拥有�
 11. 用户说"记住/以后都/下次/我的习惯是"等明确要求记忆时，调用 remember 工具记录。不要把所有对话都记进 remember——只有用户主动要求、且对跨会话有用的内容才记。
 12. 用户在设置里配置了 GitHub Codespaces 时，你还拥有一个真实 Linux 环境：cs_exec 跑命令/装依赖/跑测试，cs_ls / cs_read / cs_write 操作远程文件，cs_download 把远程文本带回 VFS，cs_serve 起静态服务并返回 app.github.dev 公网预览地址。VFS 在浏览器里、Codespace 在远端，两者不是同一个文件系统，别混着说。`;
 
-let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, vfsOrigins: '', allowAllOrigins: false, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true };
+let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, vfsOrigins: '', allowAllOrigins: false, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', autoPasteLong: true, disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true };
 /* ---------- 密钥加密（主密码 + PBKDF2 + AES-GCM） ---------- */
 const SECRET_FIELDS = ['apiKey', 'giteeToken', 'wdPass', 'gistToken', 'kbToken', 'searchApiKey', 'csToken', 'csBridgeToken'];
 let masterPassword = '';  // 运行时主密码，不存储
@@ -8096,10 +8101,12 @@ async function sendMessage() {
   const imagesToSend = pendingImages.slice();
   const useVision = hasImages && modelSupportsVision();
   let fullText = text;
+  // 超长纯文本自动转存（开关可关）：>10000 字符存 /pastes/，输入框留 [文件附件] 标记
+  if (text && text.length > PASTE_LONG_LIMIT && cfg.autoPasteLong !== false) fullText = await stashLongInput(text);
   let contentValue;
   if (useVision) {
     const parts = [];
-    if (text) parts.push({ type: 'text', text });
+    if (fullText) parts.push({ type: 'text', text: fullText });
     imagesToSend.forEach(im => parts.push({ type: 'image_url', image_url: { url: im.dataUrl } }));
     contentValue = parts;
     // 气泡/存档用的纯文本（附带路径标记，方便引用）
@@ -8108,7 +8115,7 @@ async function sendMessage() {
   } else {
     if (hasImages) {
       const imgMark = imagesToSend.map(im => '[图片附件: ' + im.path + '（可用 describe_image 查看内容，或 route_ai 转交支持视觉的模型）]').join('\n');
-      fullText = text ? (text + '\n\n' + imgMark) : imgMark;
+      fullText = fullText ? (fullText + '\n\n' + imgMark) : imgMark;
     }
     contentValue = fullText;
   }
@@ -8329,6 +8336,7 @@ function openSettings() {
     $('cfgAllowAllOrigins').checked = !!cfg.allowAllOrigins;
     const fsy = $('cfgFullSync'); if (fsy) fsy.checked = !!cfg.fullSync;
     const tpp = $('cfgToastProgressPos'); if (tpp) tpp.value = cfg.toastProgressPos || 'background';
+    const apl = $('cfgAutoPasteLong'); if (apl) apl.checked = cfg.autoPasteLong !== false;
     csFillForm();
     renderToolSwitches();
     editingProfileIndex = -1; $('btnSaveProfile').textContent = '存为预设';
@@ -8373,6 +8381,50 @@ function applyTheme() {
   document.body.classList.toggle('theme-light', cfg.theme === 'light');
 }
 /* 粗略估算 token 数：中文约 1.5 字符/token，英文约 4 字符/token，取混合估算 */
+/* ---------- 输入体验：机械注入检测 + 超长自动转存 ---------- */
+const PASTE_LONG_LIMIT = 10000;   // 输入超过此字符数自动转存 /pastes/，省 token
+const INJ_WINDOW_MS = 500;        // 速率窗口
+const INJ_MAX_RATE = 300;         // 窗口内速率上限（字符/秒）
+const INJ_MAX_BURST = 2000;       // 窗口内累计增量上限
+const INJ_SETTLE_MS = 200;        // 收网静默窗口
+let injState = null;              // { start, sum, prevLen, busy }
+let injSettleTimer = null;
+
+function autoHeight(el, max) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, max || 180) + 'px'; }
+
+// 输入法/剪贴板「机械注入」检测：500ms 窗口内速率 > 300 c/s 或累计增量 > 2000 字符即判定，
+// 期间跳过 scrollHeight 重排与 estimateTokens（防每字符 O(n²) 卡顿），200ms 无新事件后收网补一次
+function onInputText(el, len, maxH) {
+  const now = Date.now();
+  if (!injState || now - injState.start > INJ_WINDOW_MS) injState = { start: now, sum: 0, prevLen: len, busy: false };
+  const delta = Math.max(0, len - injState.prevLen);
+  injState.prevLen = len;
+  injState.sum += delta;
+  const secs = Math.max((now - injState.start) / 1000, 0.1);   // 最小 0.1s，避免微秒级窗口放大速率
+  // 累计增量超限直接判；速率超限需窗口 ≥0.25s 才生效（短窗口只认累计量，防打字节奏误判）
+  if (injState.sum > INJ_MAX_BURST || (secs >= 0.25 && injState.sum / secs > INJ_MAX_RATE)) injState.busy = true;
+  clearTimeout(injSettleTimer);
+  if (!injState.busy) { autoHeight(el, maxH); updateTokenBar(); }
+  injSettleTimer = setTimeout(() => {
+    injState = null;
+    autoHeight(el, maxH); updateTokenBar();
+  }, INJ_SETTLE_MS);
+}
+
+// 超长纯文本转存：写入 /pastes/paste-*.txt，返回 [文件附件: 路径] 标记；失败保持原文
+async function stashLongInput(text) {
+  try {
+    await requireVfs();
+    const ts = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const path = '/pastes/paste-' + ts.getFullYear() + pad(ts.getMonth()+1) + pad(ts.getDate()) + '-' + pad(ts.getHours()) + pad(ts.getMinutes()) + pad(ts.getSeconds()) + '-' + Math.floor(Math.random()*1000) + '.txt';
+    await VFS.writeFile(path, text);
+    await refreshFS();
+    toast('输入超长已自动转存：' + path);
+    return '[文件附件: ' + path + ']';
+  } catch (e) { return text; }
+}
+
 function estimateTokens(text) {
   if (!text) return 0;
   const s = String(text);
@@ -8408,7 +8460,6 @@ function updateCloudFields() {
 
 function on(id, event, handler) { const el = $(id); if (!el) { console.warn('[bindEvents] 未找到元素 #' + id); return; } el.addEventListener(event, handler); }
 
-/* ---------- 更新通知 ---------- */
 /* ---------- 更新通知 ---------- */
 let _updateShownVer = '';   // 弹窗当前展示的版本（可能是云端版本），点"知道了"时记录
 let _updateShownHash = '';  // 弹窗当前展示的云端内容哈希（云端可用时记录，hash 变了即使版本号没变也会再弹）
@@ -8529,7 +8580,7 @@ function bindEvents() {
   const wi = $('welcomeInput');
   if (wi) {
     wi.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessageFromWelcome(); } });
-    wi.addEventListener('input', () => { wi.style.height = 'auto'; wi.style.height = Math.min(wi.scrollHeight, 200) + 'px'; });
+    wi.addEventListener('input', () => { onInputText(wi, wi.value.length, 200); });
     wi.addEventListener('paste', handlePasteImage);
   }
   document.querySelectorAll('.welcome-suggestion').forEach(btn => {
@@ -8609,7 +8660,7 @@ function bindEvents() {
   });
   if (input) {
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessage(); } });
-    input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; updateTokenBar(); });
+    input.addEventListener('input', () => { onInputText(input, input.value.length, 180); });
     input.addEventListener('paste', handlePasteImage);
   }
   on('profileSelect', 'change', (e) => {
@@ -8693,6 +8744,7 @@ function bindEvents() {
     cfg.allowAllOrigins = !!$('cfgAllowAllOrigins').checked;
     const fs = $('cfgFullSync'); if (fs) cfg.fullSync = fs.checked;
     const tp = $('cfgToastProgressPos'); if (tp) cfg.toastProgressPos = tp.value;
+    const apl = $('cfgAutoPasteLong'); if (apl) cfg.autoPasteLong = apl.checked;
     // Codespace 设置（表单是权威来源）
     csReadForm();
     // 收集禁用工具
