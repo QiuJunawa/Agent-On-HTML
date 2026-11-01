@@ -406,9 +406,10 @@
   .session-row:hover { background: var(--bg-hover); }
   /* ===== 滚动缩略导航条 ===== */
   .chat { position: relative; }
-  .scroll-thumbnail { position: absolute; right: 2px; top: 50px; bottom: 120px; width: 20px; z-index: 5; pointer-events: none; opacity: 0; transition: opacity 0.2s; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
+  /* 固定间距 + 超出滚动：点固定 8px 步进，超出容器时导航条自身可滚 */
+  .scroll-thumbnail { position: absolute; right: 2px; top: 50px; bottom: 120px; width: 20px; z-index: 5; pointer-events: none; opacity: 0; transition: opacity 0.2s; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; overscroll-behavior: contain; }
   .scroll-thumbnail::-webkit-scrollbar { display: none; }
-  .scroll-thumbnail .thumb-inner { position: relative; width: 100%; pointer-events: auto; }
+  .scroll-thumbnail .thumb-inner { position: relative; width: 100%; pointer-events: auto; padding: 2px 0; }
   .chat:hover .scroll-thumbnail, .scroll-thumbnail.active { opacity: 1; }
   .scroll-thumb-item { position: absolute; left: 50%; transform: translateX(-50%); width: 4px; height: 6px; border-radius: 2px; pointer-events: auto; cursor: pointer; transition: width 0.15s, opacity 0.15s; opacity: 0.5; }
   .scroll-thumb-item:hover { width: 8px; opacity: 1; }
@@ -1067,6 +1068,39 @@
         <label style="font-size:11.5px;color:var(--text-muted);line-height:1.7">安全提醒：桥接端口设为 Public 后，<b>任何同时拿到该地址和令牌的人都能在你的 Codespace 里执行命令</b>。令牌只存在本地（可配合主密码加密），用完可在设置里清空；不使用时把 Codespace 停掉即可断开。</label>
       </div>
     </div>
+
+    <div class="settings-pane" data-pane="git">
+      <div class="field">
+        <label style="color:#9ec3ff">🔗 Git 仓库（AI 的 git_list / git_read / git_write / git_delete / git_commit_batch 用这套配置）</label>
+        <div style="font-size:11.5px;color:var(--text-muted);line-height:1.7">配置保存在 <code>/config/git.json</code>。AI 调用 git_* 工具时若没传 platform / repo / token / ref，会自动回落到这里。令牌只保存在本地浏览器里，但会随备份和云端同步一起被带走，请注意检查。</div>
+      </div>
+      <div class="field">
+        <label>平台</label>
+        <select id="cfgGitPlatform">
+          <option value="github">GitHub</option>
+          <option value="gitee">Gitee（码云）</option>
+          <option value="gitlab">GitLab</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>仓库（owner/name）</label>
+        <input id="cfgGitRepo" type="text" placeholder="用户名/仓库名，例如 QiuJunawa/Agent-On-HTML" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="row2">
+        <div class="field" style="flex:2">
+          <label>访问令牌（Token）</label>
+          <input id="cfgGitToken" type="text" placeholder="github: ghp_xxx / gitee: 私人令牌 / gitlab: glpat-xxx" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label>分支（可空）</label>
+          <input id="cfgGitBranch" type="text" placeholder="留空=仓库默认分支">
+        </div>
+      </div>
+      <div class="field" style="margin-top:-6px">
+        <label style="font-size:11.5px;color:var(--text-muted);line-height:1.7">权限说明：GitHub classic token 需 <code>repo</code> 权限；Gitee 私人令牌需勾选 <code>projects</code>；GitLab 需 <code>api</code> 范围。令牌一律走请求头，不会拼进 URL。</label>
+      </div>
+    </div>
+
 
     <div class="settings-pane" data-pane="ui">
       <div class="field">
@@ -1932,8 +1966,63 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.01.2';
+const APP_VERSION = '2026.11.01.6';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.01.6',
+    date: '2026-11-01',
+    title: '修复设置页「Git 仓库」面板空白',
+    items: [
+      '设置页导航里有 data-tab="git" 的按钮，但 DOM 中缺少对应的 data-pane="git" 面板，导致点「Git 仓库」一片空白——已补上完整面板',
+      '面板包含：平台下拉（GitHub / Gitee / GitLab）、仓库 owner/name、访问令牌、分支（留空=默认分支）',
+      '四个控件的 id 与已有的读写逻辑对齐（cfgGitPlatform / cfgGitRepo / cfgGitToken / cfgGitBranch），配置继续持久化到 /config/git.json',
+      '补充分平台权限说明与 /config/git.json 明文存储的安全提醒'
+    ]
+  },
+  {
+    v: '2026.11.01.5',
+    date: '2026-11-01',
+    title: '修复并发写同一文件的竞态',
+    items: [
+      '新增 VFS.withLock(path, fn)：按路径细分的写锁，同一路径的「读 → 改 → 写」强制串行，不同文件仍可并行',
+      'edit_file 的「读原文 → 唯一性校验 → 替换 → 写回」整段包进锁内，避免并发编辑时后来者基于旧快照写回、覆盖掉先前的改动',
+      'write_file 的行列级替换、append_file 的定点插入同样持锁（它们都依赖写入前的正文）',
+      '锁在无人排队时自动清理，不会让锁表无限增长',
+      '典型症状：连续两次 edit_file 都返回成功，但实际只有后一次生效——现在不会再出现'
+    ]
+  },
+  {
+    v: '2026.11.01.4',
+    date: '2026-11-01',
+    title: '对话历史跨设备同步',
+    items: [
+      '修复跨设备看不到对话：会话列表原先只存 localStorage（vfs_sessions），不随云端同步；现在双写到 VFS /config/sessions.json，随云端同步跨设备',
+      'saveSessions 拆出 serializeSessions；localStorage 同步写入保证刷新不丢，VFS 侧 1 秒防抖异步写入，内容未变则跳过不产生无意义改动',
+      '新增 mergeSessionsFromVfs()：启动时合并云端会话，同一会话按 updatedAt 取较新者，缺的补进本地并按时间排序',
+      '新增 /conversations/*.md 兜底恢复：云端只有 Markdown 存档、没有 sessions.json 时，按「## 用户 / ## 助手 / ## 思考过程 / ## 工具结果 / ## 调用工具」解析成对话消息，重建会话',
+      'md 解析会丢弃无对应 tool_calls 的孤立 tool 消息，避免合并后发送时 API 400；思考过程挂回对应的 assistant 消息',
+      '会话对象新增 mdFile 字段记录对应存档路径，跨设备后继续归档到同一 Markdown 文件而不是每次新建',
+      '新增删除墓碑（vfs_sessions_deleted）：删除会话后记下 id 与存档路径，防止它随云端同步或 md 兜底被"复活"；墓碑本身也进云端，跨设备删除同样生效',
+      'sessions.json 格式升级为 {version:2, sessions, deleted}，同时兼容旧的裸数组格式'
+    ]
+  },
+  {
+    v: '2026.11.01.3',
+    date: '2026-11-01',
+    title: '修复思考气泡消失、对话历史自动加载、缩略导航条固定间距',
+    items: [
+      '修复思考气泡消失：思考原文改存到 UI 专用字段 _thinking（reasoning_content 仍统一置空不发 API），历史重渲染、切换会话、刷新页面后都能正常回显思考过程',
+      '_thinking 在 trimConversation 两个分支都显式删除，绝不进入请求体；saveSessions 保留但截断到 4000 字符，避免撑爆 localStorage',
+      '存档 Markdown 的「思考过程」段改为优先读 _thinking，否则该段会一直是空的',
+      '对话历史自动加载：新增 AUTO_FULL_LIMIT=200，消息数不超过 200 条直接全量渲染，完全不出现「加载更早」按钮',
+      '顶部/底部占位高度封顶 TOP_SPACER_MAX=480px（原为窗口外消息数 × 120px，几百条时高达成千上万像素，导致滚不到顶部、触发不了自动加载）',
+      '自动翻页触发距离放宽到 AUTO_LOAD_EDGE=300px；scroll 监听抽成 ensureWinScrollBound 只绑定一次（passive）',
+      '翻页改用实际占位高度（offsetHeight）校正 scrollTop，不再靠 EST_MSG_HEIGHT 估算，视口不再跳动',
+      '顶部占位区域本身可点击加载；按钮文案改为「↑ 更早的 N 条（滚到顶部自动加载）」，点一次展开全部更早消息',
+      '每轮回答结束后的窗口压缩逻辑增加 conversation.length > AUTO_FULL_LIMIT 条件，避免全量模式下把用户正在翻看的历史折叠回去',
+      '右侧历史记录条改为固定间距：每个点恒定 8px 步进，不再随消息数拉伸铺满整条；内容超出容器高度时由导航条自身滚动承载'
+    ]
+  },
   {
     v: '2026.11.01.2',
     date: '2026-11-01',
@@ -2043,6 +2132,33 @@ const VFS = {
   meta: {},
   cache: new Map(),
   CACHE_MAX: 15,
+
+  /* ---------- 路径级写锁：同一路径的「读 → 改 → 写」必须串行 ----------
+   * 解决并发编辑竞态：两个 edit_file 同时拿到旧快照，各自替换后整文件写回，
+   * 后落地的那次会覆盖前一次的改动（表现为「改了但没生效」）。
+   * 锁按路径细分，不同文件仍可并行。 */
+  _locks: new Map(),
+  _lockDepth: new Map(),
+  async withLock(path, fn) {
+    const key = this.norm(path);
+    const prev = this._locks.get(key) || Promise.resolve();
+    let release;
+    const next = new Promise(r => { release = r; });
+    // 排队：等前一个持有者释放后再执行
+    const chained = prev.then(() => next);
+    this._locks.set(key, chained);
+    this._lockDepth.set(key, (this._lockDepth.get(key) || 0) + 1);
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      release();
+      const d = (this._lockDepth.get(key) || 1) - 1;
+      this._lockDepth.set(key, d);
+      // 无人排队时清理，避免 Map 无限增长
+      if (d <= 0) { this._lockDepth.delete(key); if (this._locks.get(key) === chained) this._locks.delete(key); }
+    }
+  },
 
   async init() {
     try {
@@ -2832,6 +2948,8 @@ async function executeTool(name, args, onChunk, refCtx) {
         const newStr = String(args.new_string ?? '');
         if (!oldStr) return '错误：old_string 不能为空';
         if (oldStr === newStr) return '错误：old_string 与 new_string 相同，无需编辑';
+        // 读-改-写全程持锁：并发编辑同一文件时后来者必须等前者写完，否则会基于旧快照覆盖掉对方的改动
+        return await VFS.withLock(p, async () => {
         const node = VFS.stat(p);
         if (!node) return `错误：文件不存在 -> ${p}\n建议：先用 list_files 看目录结构确认路径`;
         if (node.type === 'dir') return `错误：${p} 是目录`;
@@ -2871,6 +2989,7 @@ async function executeTool(name, args, onChunk, refCtx) {
         const newLines = newStr.split('\n').length;
         const finalLines = finalContent.split('\n').length;
         return `✅ 已编辑 ${p}（第 ${startLine} 行，${oldLines} 行 → ${newLines} 行，文件共 ${finalLines} 行）\n改动位置附近（±3 行）：\n${snippetAround(finalContent, startLine, startLine + newLines - 1, 3)}\n[如需校验语法请调用 check_code；如需继续改同一文件，继续用 edit_file]`;
+        });
       }
       case 'write_file': {
         const p = VFS.norm(args.path || '');
@@ -2879,6 +2998,8 @@ async function executeTool(name, args, onChunk, refCtx) {
         const hasRange = args.start_line != null || args.start_col != null;
         if (hasRange && isNew) return '错误：行列级替换需要文件已存在，先用 write_file(path, content) 创建。';
         if (!isNew && !(await customConfirm(`文件 ${p} 已存在，确定覆盖吗？`, 'overwrite_file'))) return '已取消写入（用户拒绝覆盖）。';
+        // 读-改-写全程持锁：行列级替换依赖写入前的正文，并发时会基于旧快照覆盖他人改动
+        return await VFS.withLock(p, async () => {
         const beforeContent = isNew ? null : ((await VFS.getContent(p, { bypassCache: true })) || '');
         let newContent;
         let modeDesc = '';
@@ -2908,10 +3029,13 @@ async function executeTool(name, args, onChunk, refCtx) {
           catch (e) { wCheckTip += '\n\n[自动校验] 校验调用失败：' + ((e && e.message) || e); }
         }
         return `✅ 已${isNew ? '创建' : '更新'}文件 ${p}（${newContent.length} 字符）${modeDesc}\n改动位置附近（±3 行）：\n${writeSnippet}${wCheckTip}`;
+        });
       }
       case 'append_file': {
         const p = VFS.norm(args.path || '');
         if (p === '/') return '错误：路径无效。';
+        // 追加/定点插入依赖写入前的正文，与并发编辑同样需要持锁
+        return await VFS.withLock(p, async () => {
         const existed = VFS.exists(p);
         const beforeAppend = (await VFS.getContent(p, { bypassCache: true })) || '';
         const ins = String(args.content ?? '');
@@ -2939,6 +3063,7 @@ async function executeTool(name, args, onChunk, refCtx) {
         await VFS.writeFile(p, after);
         await refreshFS();
         return `✅ 已向 ${p} 追加内容（${ins.length} 字符）${modeDesc}${existed ? '' : '，文件为新建'}\n改动位置附近（±3 行）：\n${args.start_line != null || args.start_col != null ? snippetAround(after, Math.max(1, parseInt(args.start_line) || 1), Math.max(1, parseInt(args.start_line) || 1) + ins.split('\n').length, 3) : headTailSnippet(after, 10)}`;
+        });
       }
       case 'delete_path': {
         const p = VFS.norm(args.path || '');
@@ -5457,6 +5582,7 @@ async function giteeDelete(owner, name, fullPath) {
   const resp = await giteeFetch(url, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ access_token: cfg.giteeToken, sha, message: 'vfs sync remove ' + fullPath }) });
   if (!resp.ok) throw new Error('删除 ' + fullPath + ' 失败 HTTP ' + resp.status + ': ' + (await resp.text()).slice(0, 160));
 }
+
 /* ---------- 通用 Git 平台抽象（github / gitee / gitlab） ---------- */
 const GIT_CONFIG_PATH = '/config/git.json';
 let gitCfgCache = null;
@@ -6459,10 +6585,12 @@ const SESSIONS_KEY = 'vfs_sessions';
 let sessions = [];
 let currentSessionId = null;
 
-function saveSessions() {
+// 序列化会话（脱敏后同时用于 localStorage 与 VFS 双写）
+function serializeSessions() {
   try {
     const data = sessions.map(s => ({
       id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt,
+      mdFile: s.mdFile || '',   // 对应 /conversations/*.md 存档路径，跨设备去重用
       conversation: (s.conversation || []).map(m => {
         // 过滤掉内存级渲染缓存，不占 localStorage
         const { _html, ...rest } = m;
@@ -6490,10 +6618,51 @@ function saveSessions() {
         return out;
       })
     }));
+    return data;
+  } catch (e) { console.warn('序列化会话失败', e); return []; }
+}
+const SESSIONS_VFS_PATH = '/config/sessions.json';
+let _sessionsVfsTimer = null;
+// 删除墓碑：记录被删掉的会话 id / 存档路径，防止它们随云端同步或 md 兜底被"复活"
+const SESSIONS_DELETED_KEY = 'vfs_sessions_deleted';
+let deletedSessionIds = [];
+function loadDeletedSessionIds() {
+  try {
+    const raw = localStorage.getItem(SESSIONS_DELETED_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    deletedSessionIds = Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : [];
+  } catch (e) { deletedSessionIds = []; }
+}
+function markSessionDeleted(id, mdFile) {
+  if (id && !deletedSessionIds.includes(id)) deletedSessionIds.push(id);
+  if (mdFile && !deletedSessionIds.includes(mdFile)) deletedSessionIds.push(mdFile);
+  if (deletedSessionIds.length > 500) deletedSessionIds = deletedSessionIds.slice(-500);
+  try { localStorage.setItem(SESSIONS_DELETED_KEY, JSON.stringify(deletedSessionIds)); } catch (e) {}
+}
+// 会话双写：localStorage 同步保存（刷新不丢）+ VFS /config/sessions.json 防抖异步保存（随云端同步跨设备）
+function saveSessions() {
+  let data = [];
+  try {
+    data = serializeSessions();
     localStorage.setItem(SESSIONS_KEY, JSON.stringify(data));
-  } catch (e) { console.warn('保存会话失败', e); }
+  } catch (e) { console.warn('保存会话失败', e); return; }
+  scheduleSessionsSaveToVfs(data);
+}
+function scheduleSessionsSaveToVfs(data) {
+  if (_sessionsVfsTimer) clearTimeout(_sessionsVfsTimer);
+  _sessionsVfsTimer = setTimeout(async () => {
+    _sessionsVfsTimer = null;
+    try {
+      if (!vfsReady || memoryOnly) return;   // VFS 未就绪或内存模式时跳过
+      const json = JSON.stringify({ version: 2, sessions: data, deleted: deletedSessionIds }, null, 1);
+      const cur = await VFS.getContent(SESSIONS_VFS_PATH, { bypassCache: true });
+      if (cur === json) return;   // 内容未变不重复写，避免制造无意义的云端改动
+      await VFS.writeFile(SESSIONS_VFS_PATH, json);
+    } catch (e) { console.warn('会话写入 VFS 失败', e); }
+  }, 1000);
 }
 function loadSessions() {
+  loadDeletedSessionIds();
   try {
     const raw = localStorage.getItem(SESSIONS_KEY);
     if (raw) {
@@ -6503,6 +6672,7 @@ function loadSessions() {
         currentSessionId = data[0].id;
         conversation = data[0].conversation;
         currentTitle = data[0].title || '';
+        sessionFile = data[0].mdFile || null;
         return;
       }
     }
@@ -6511,6 +6681,133 @@ function loadSessions() {
   sessions = [s];
   currentSessionId = s.id;
   conversation = s.conversation;
+}
+/* ---------- 跨设备会话合并：VFS /config/sessions.json + /conversations/*.md 兜底 ---------- */
+// 把 /conversations/*.md 存档解析成对话消息（旧设备只留下 md 文件时的恢复路径）
+function parseConversationMarkdown(md) {
+  const out = [];
+  const src = String(md || '');
+  // 按 "## 用户 / ## 助手 / ## 思考过程 / ## 工具结果 / ## 调用工具: xx" 切段
+  const re = /^## (用户|助手|思考过程|工具结果|调用工具:\s*(.+?))\s*$/gm;
+  const marks = [];
+  let m;
+  while ((m = re.exec(src)) !== null) marks.push({ kind: m[1], name: m[2] || '', start: m.index, bodyStart: re.lastIndex });
+  for (let i = 0; i < marks.length; i++) {
+    const cur = marks[i];
+    const end = i + 1 < marks.length ? marks[i + 1].start : src.length;
+    let body = src.slice(cur.bodyStart, end).trim();
+    // 去掉代码围栏（工具结果/调用参数被存档成 ```json / ``` 块）
+    const fence = body.match(/^```[a-zA-Z]*\n([\s\S]*?)\n```$/);
+    if (fence && cur.kind !== '助手' && cur.kind !== '用户' && cur.kind !== '思考过程') body = fence[1];
+    if (cur.kind === '用户') out.push({ role: 'user', content: body });
+    else if (cur.kind === '助手') out.push({ role: 'assistant', content: body, reasoning_content: '' });
+    else if (cur.kind === '思考过程') {
+      // 挂到上一条 assistant 上
+      const last = [...out].reverse().find(x => x.role === 'assistant');
+      if (last) last._thinking = (last._thinking ? last._thinking + '\n' : '') + body;
+    } else if (cur.kind === '工具结果') {
+      out.push({ role: 'tool', tool_call_id: 'restored_' + i, content: body });
+    } else if (cur.kind.startsWith('调用工具')) {
+      const last = [...out].reverse().find(x => x.role === 'assistant');
+      const tc = { id: 'restored_tc_' + i, type: 'function', function: { name: cur.name || '', arguments: body || '{}' } };
+      if (last) { (last.tool_calls = last.tool_calls || []).push(tc); }
+    }
+  }
+  // 修复：孤立的 tool 消息（前面没有带 tool_calls 的 assistant）直接丢掉，避免 API 400
+  const fixed = [];
+  for (const msg of out) {
+    if (msg.role === 'tool') {
+      const hasCall = fixed.some(x => x.role === 'assistant' && Array.isArray(x.tool_calls) && x.tool_calls.some(tc => tc.id === msg.tool_call_id));
+      if (!hasCall) continue;
+    }
+    fixed.push(msg);
+  }
+  return fixed;
+}
+// 从 VFS 合并会话：先读 /config/sessions.json，再用 /conversations/*.md 兜底补齐缺失会话
+async function mergeSessionsFromVfs() {
+  try {
+    let changed = false;
+    const byId = new Map(sessions.map(s => [s.id, s]));
+    const byMd = new Map(sessions.filter(s => s.mdFile).map(s => [s.mdFile, s]));
+    // 1. /config/sessions.json（结构化，优先）
+    let remote = null;
+    try {
+      const raw = await VFS.getContent(SESSIONS_VFS_PATH, { bypassCache: true });
+      if (raw && String(raw).trim()) {
+        const j = JSON.parse(raw);
+        // 兼容两种格式：{version, sessions, deleted} 与旧版裸数组
+        if (Array.isArray(j)) remote = j;
+        else if (j && Array.isArray(j.sessions)) {
+          remote = j.sessions;
+          // 云端墓碑（别的设备删掉的会话）并进本地，避免它在本机被 md 兜底复活
+          if (Array.isArray(j.deleted)) {
+            for (const d of j.deleted) {
+              if (typeof d === 'string' && !deletedSessionIds.includes(d)) deletedSessionIds.push(d);
+            }
+            try { localStorage.setItem(SESSIONS_DELETED_KEY, JSON.stringify(deletedSessionIds)); } catch (e) {}
+          }
+        }
+      }
+    } catch (e) { console.warn('读取云端会话失败', e); }
+    if (remote) {
+      for (const r of remote) {
+        if (!r || !r.id) continue;
+        if (deletedSessionIds.includes(r.id)) continue;            // 已删除，不再恢复
+        if (r.mdFile && deletedSessionIds.includes(r.mdFile)) continue;
+        const local = byId.get(r.id);
+        if (!local) {
+          const conv = Array.isArray(r.conversation) ? r.conversation : [];
+          const s = {
+            id: r.id, title: r.title || '新对话', conversation: conv,
+            createdAt: r.createdAt || Date.now(), updatedAt: r.updatedAt || Date.now(),
+            mdFile: r.mdFile || '', fromCloud: true
+          };
+          sessions.push(s); byId.set(s.id, s);
+          if (s.mdFile) byMd.set(s.mdFile, s);
+          changed = true;
+        } else if ((r.updatedAt || 0) > (local.updatedAt || 0) && !isSameConv(r.conversation, local.conversation)) {
+          // 云端更新且内容不同 → 以云端为准（跨设备编辑后回到旧设备的情况）
+          local.conversation = Array.isArray(r.conversation) ? r.conversation : local.conversation;
+          local.title = r.title || local.title;
+          local.updatedAt = r.updatedAt || local.updatedAt;
+          if (r.mdFile) local.mdFile = r.mdFile;
+          if (local.id === currentSessionId) conversation = local.conversation;
+          changed = true;
+        }
+      }
+    }
+    // 2. /conversations/*.md 兜底：本地完全没有对应存档的会话，按文件重建
+    const convPaths = Object.keys(VFS.meta).filter(k => k.startsWith('/conversations/') && k.endsWith('.md') && VFS.meta[k].type === 'file');
+    for (const p of convPaths) {
+      if (byMd.has(p)) continue;
+      if (deletedSessionIds.includes(p)) continue;   // 这条存档已被删过，不再复活
+      let md = '';
+      try { md = (await VFS.getContent(p, { bypassCache: true })) || ''; } catch (e) { continue; }
+      const conv = parseConversationMarkdown(md);
+      if (!conv.length) continue;
+      const mt = VFS.meta[p].mtime || Date.now();
+      const firstUser = conv.find(x => x.role === 'user');
+      const title = (contentToText(firstUser && firstUser.content) || '').replace(/\s+/g, ' ').trim().slice(0, 24) || '历史对话';
+      const s = { id: 'sess_md_' + p.replace(/[^a-zA-Z0-9]/g, '_'), title, conversation: conv, createdAt: mt, updatedAt: mt, mdFile: p, fromCloud: true };
+      if (byId.has(s.id)) continue;
+      sessions.push(s); byId.set(s.id, s); byMd.set(p, s);
+      changed = true;
+    }
+    if (changed) {
+      sessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      renderSessionList();
+      // 当前会话是空白新对话、而合并来了非空历史 → 自动切到最近一条有内容的
+      const cur = sessions.find(x => x.id === currentSessionId);
+      const pick = sessions.find(x => (x.conversation || []).length > 0);
+      if ((!cur || !(cur.conversation || []).length) && pick) switchSession(pick.id);
+      saveSessions();   // 回写合并结果（mdFile 等字段落地）
+      toast('已合并云端对话历史（' + sessions.length + ' 个对话）');
+    }
+  } catch (e) { console.warn('合并云端会话失败', e); }
+}
+function isSameConv(a, b) {
+  try { return JSON.stringify(a || []) === JSON.stringify(b || []); } catch (e) { return false; }
 }
 function newSession() {
   const s = { id: 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2,6), title: '新对话', conversation: [], createdAt: Date.now(), updatedAt: Date.now() };
@@ -6532,7 +6829,7 @@ function switchSession(id) {
   currentSessionId = id;
   conversation = s.conversation;
   currentTitle = s.title || '';
-  sessionFile = null;
+  sessionFile = s.mdFile || null;   // 恢复会话对应的存档路径（跨设备后仍能继续归档到同一文件）
   windowStart = 0;
   renderConversation();
   const titleEl = document.querySelector('.chat-head .title');
@@ -6544,6 +6841,8 @@ function deleteSession(id) {
   if (sessions.length <= 1) { toast('至少保留一个对话', 'err'); return; }
   const idx = sessions.findIndex(x => x.id === id);
   if (idx < 0) return;
+  const gone = sessions[idx];
+  markSessionDeleted(id, gone && gone.mdFile);   // 留墓碑，防止云端/md 兜底把它复活
   sessions.splice(idx, 1);
   if (currentSessionId === id) {
     const next = sessions[Math.min(idx, sessions.length - 1)];
@@ -6575,31 +6874,50 @@ let windowStart = 0;       // 当前窗口起始索引
 let winMoving = false;     // 窗口移动锁，防止重复触发
 let winScrollBound = false; // scroll 监听器是否已绑定
 
-// 加载更早的消息（窗口向上移动）
+// 加载更早的消息（窗口向上移动）：用实际占位高度校正滚动位置，避免估算误差导致的跳动
 function loadOlderMessages() {
   if (winMoving || windowStart <= 0) return;
   winMoving = true;
-  const prevTopH = windowStart * EST_MSG_HEIGHT;
-  const prevScroll = messagesEl.scrollTop;
+  const prevSpacer = messagesEl.querySelector('.top-spacer');
+  const keep = { keepScrollTop: messagesEl.scrollTop, prevSpacerH: prevSpacer ? prevSpacer.offsetHeight : 0 };
   windowStart = Math.max(0, windowStart - WINDOW_STEP);
-  renderConversation();
-  const newTopH = windowStart * EST_MSG_HEIGHT;
-  messagesEl.scrollTop = prevScroll + (newTopH - prevTopH);
-  setTimeout(() => { winMoving = false; }, 150);
+  renderConversation(keep);
+  setTimeout(() => { winMoving = false; }, 120);
 }
 // 加载更新的消息（窗口向下移动）
 function loadNewerMessages() {
   if (winMoving) return;
-  const maxStart = conversation.length - WINDOW_SIZE;
+  const maxStart = Math.max(0, conversation.length - WINDOW_SIZE);
   if (windowStart >= maxStart) return;
   winMoving = true;
-  const prevTopH = windowStart * EST_MSG_HEIGHT;
-  const prevScroll = messagesEl.scrollTop;
+  const prevSpacer = messagesEl.querySelector('.top-spacer');
+  const keep = { keepScrollTop: messagesEl.scrollTop, prevSpacerH: prevSpacer ? prevSpacer.offsetHeight : 0 };
   windowStart = Math.min(maxStart, windowStart + WINDOW_STEP);
-  renderConversation();
-  const newTopH = windowStart * EST_MSG_HEIGHT;
-  messagesEl.scrollTop = prevScroll + (newTopH - prevTopH);
-  setTimeout(() => { winMoving = false; }, 150);
+  renderConversation(keep);
+  setTimeout(() => { winMoving = false; }, 120);
+}
+// 一次性把剩余更早消息全部展开（“加载全部”按钮 / 自动连续翻页用）
+function loadAllOlderMessages() {
+  if (winMoving || windowStart <= 0) return;
+  winMoving = true;
+  const prevSpacer = messagesEl.querySelector('.top-spacer');
+  const keep = { keepScrollTop: messagesEl.scrollTop, prevSpacerH: prevSpacer ? prevSpacer.offsetHeight : 0 };
+  windowStart = 0;
+  renderConversation(keep);
+  setTimeout(() => { winMoving = false; }, 120);
+}
+// scroll 监听只需绑定一次：滚到上下边缘附近自动翻页，不再要求用户点按钮
+function ensureWinScrollBound() {
+  if (winScrollBound) return;
+  winScrollBound = true;
+  messagesEl.addEventListener('scroll', () => {
+    if (winMoving) return;
+    const st = messagesEl.scrollTop;
+    const nearTop = st < AUTO_LOAD_EDGE;
+    const nearBottom = st + messagesEl.clientHeight > messagesEl.scrollHeight - AUTO_LOAD_EDGE;
+    if (nearTop && windowStart > 0) loadOlderMessages();
+    else if (nearBottom) loadNewerMessages();
+  }, { passive: true });
 }
 let typewriterTimer = null;
 const WELCOME_TITLES = [
@@ -6647,7 +6965,9 @@ function hideWelcomeScreen() {
   if (messagesEl) messagesEl.style.display = '';
   if (typewriterTimer) { clearInterval(typewriterTimer); typewriterTimer = null; }
 }
-function renderConversation() {
+const SPACER_BTN_CSS = 'padding:6px 16px;background:#1a2030;border:1px solid #2d3748;border-radius:16px;color:#7d8798;font-size:12px;cursor:pointer;';
+// keep：翻页时传入 { keepScrollTop, prevSpacerH }，渲染后按实际占位高度校正滚动位置
+function renderConversation(keep) {
   messagesEl.innerHTML = '';
   if (conversation.length === 0) {
     showWelcomeScreen();
@@ -6655,67 +6975,72 @@ function renderConversation() {
   }
   hideWelcomeScreen();
   const total = conversation.length;
-  // 消息数不超过窗口大小，全渲染
-  if (total <= WINDOW_SIZE) {
+  // 消息数不多：直接全量渲染，不需要任何“加载更早/更新”的交互
+  if (total <= AUTO_FULL_LIMIT) {
     windowStart = 0;
     renderMsgRange(0, total);
-    scrollBottom();
+    if (keep) messagesEl.scrollTop = Math.max(0, keep.keepScrollTop - keep.prevSpacerH);
+    else scrollBottom();
     scheduleThumbUpdate();
+    ensureWinScrollBound();
     return;
   }
   // 窗口初始在底部
   if (windowStart === 0 || windowStart > total - WINDOW_SIZE) windowStart = total - WINDOW_SIZE;
   const winEnd = Math.min(total, windowStart + WINDOW_SIZE);
-  // 顶部空白占位（窗口外的更早消息）—— 可点击加载
+  // 顶部占位（窗口外的更早消息）：高度封顶，保证用户一定滚得到顶部并触发自动加载
   if (windowStart > 0) {
     const topSpacer = document.createElement('div');
     topSpacer.className = 'win-spacer top-spacer';
-    topSpacer.style.height = (windowStart * EST_MSG_HEIGHT) + 'px';
+    topSpacer.dataset.winStart = String(windowStart);
+    topSpacer.style.height = Math.min(TOP_SPACER_MAX, windowStart * EST_MSG_HEIGHT) + 'px';
     topSpacer.style.display = 'flex';
     topSpacer.style.alignItems = 'flex-end';
     topSpacer.style.justifyContent = 'center';
+    // 顶部占位本身也可点击（滚轮/触控用户不一定能找到按钮）
+    topSpacer.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
+      loadOlderMessages();
+    });
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'load-more-btn';
-    btn.textContent = '↑ 加载更早的 ' + windowStart + ' 条消息';
-    btn.style.cssText = 'margin-bottom:12px;padding:6px 16px;background:#1a2030;border:1px solid #2d3748;border-radius:16px;color:#7d8798;font-size:12px;cursor:pointer;';
-    btn.addEventListener('click', loadOlderMessages);
+    btn.textContent = '↑ 更早的 ' + windowStart + ' 条（滚到顶部自动加载）';
+    btn.style.cssText = 'margin-bottom:12px;' + SPACER_BTN_CSS;
+    btn.addEventListener('click', (e) => { e.stopPropagation(); loadAllOlderMessages(); });
+    btn.title = '点击一次展开全部更早消息';
     topSpacer.appendChild(btn);
     messagesEl.appendChild(topSpacer);
   }
   // 渲染窗口内的消息
   renderMsgRange(windowStart, winEnd);
-  // 底部空白占位（窗口外的更新消息，通常为0）
+  // 底部空白占位（窗口外的更新消息，通常为 0）
   const bottomCount = total - winEnd;
   if (bottomCount > 0) {
     const botSpacer = document.createElement('div');
     botSpacer.className = 'win-spacer bottom-spacer';
-    botSpacer.style.height = (bottomCount * EST_MSG_HEIGHT) + 'px';
+    botSpacer.style.height = Math.min(TOP_SPACER_MAX, bottomCount * EST_MSG_HEIGHT) + 'px';
     botSpacer.style.display = 'flex';
     botSpacer.style.alignItems = 'flex-start';
     botSpacer.style.justifyContent = 'center';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'load-more-btn';
-    btn.textContent = '↓ 加载更新的 ' + bottomCount + ' 条消息';
-    btn.style.cssText = 'margin-top:12px;padding:6px 16px;background:#1a2030;border:1px solid #2d3748;border-radius:16px;color:#7d8798;font-size:12px;cursor:pointer;';
+    btn.textContent = '↓ 更新的 ' + bottomCount + ' 条（滚到底部自动加载）';
+    btn.style.cssText = 'margin-top:12px;' + SPACER_BTN_CSS;
     btn.addEventListener('click', loadNewerMessages);
     botSpacer.appendChild(btn);
     messagesEl.appendChild(botSpacer);
   }
-  // scroll 事件监听：滚到顶部/底部附近时自动加载
-  if (!winScrollBound) {
-    winScrollBound = true;
-    messagesEl.addEventListener('scroll', () => {
-      if (winMoving) return;
-      if (messagesEl.scrollTop < 80 && windowStart > 0) {
-        loadOlderMessages();
-      } else if (messagesEl.scrollTop + messagesEl.clientHeight > messagesEl.scrollHeight - 80) {
-        loadNewerMessages();
-      }
-    });
+  ensureWinScrollBound();
+  // 翻页时保持视口内容不动；首次渲染才滚到底部
+  if (keep) {
+    const newSpacer = messagesEl.querySelector('.top-spacer');
+    const newSpacerH = newSpacer ? newSpacer.offsetHeight : 0;
+    messagesEl.scrollTop = Math.max(0, keep.keepScrollTop + (newSpacerH - keep.prevSpacerH));
+  } else {
+    scrollBottom();
   }
-  scrollBottom();
   scheduleThumbUpdate();
 }
 // 渲染指定范围内的消息（被 renderConversation 调用）
@@ -6764,8 +7089,10 @@ function getMsgHtml(m) {
   if (m.role === 'user') {
     html = mdToHtml(expandRefsOutsideCode(contentToText(m.content)));
   } else if (m.role === 'assistant') {
-    if (m.reasoning_content && m.reasoning_content.trim()) {
-      html += '<div class="thinking-block"><div class="thinking-label">思考过程</div><div class="thinking-text">' + escapeHtml(m.reasoning_content) + '</div></div>';
+    // 思考内容只用于 UI 展示：优先取 _thinking（不参与上下文裁剪），旧存档消息回落到 reasoning_content
+    const thinkText = (m._thinking && m._thinking.trim()) ? m._thinking : (m.reasoning_content || '');
+    if (thinkText && thinkText.trim()) {
+      html += '<div class="thinking-block"><div class="thinking-label">思考过程</div><div class="thinking-text">' + escapeHtml(thinkText) + '</div></div>';
     }
     if (m.content && m.content.trim()) html += mdToHtml(m.content);
   }
@@ -7286,9 +7613,10 @@ async function regenerateFrom(idx) {
     isRunning = false; $('btnSend').disabled = false; $('btnSend').textContent = '发送';
     setStopBtn(false); chatAbort = null;
     // 一轮结束后，如果 DOM 消息数超过窗口 2 倍，压缩窗口（只在用户停在底部附近时做，避免跳动）
+    // 总消息数不超过 AUTO_FULL_LIMIT 时走全量渲染，不压缩，否则会把用户正在翻看的历史“折叠”回去
     try {
       const domCount = messagesEl.querySelectorAll('.msg').length;
-      if (domCount > WINDOW_SIZE * 2) {
+      if (conversation.length > AUTO_FULL_LIMIT && domCount > WINDOW_SIZE * 2) {
         const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 150;
         if (nearBottom) {
           windowStart = Math.max(0, conversation.length - WINDOW_SIZE);
@@ -7534,6 +7862,7 @@ function trimConversation(msgs) {
       // 早期轮次：只折叠内容，结构与 id 全部保留
       if (m.role === 'assistant') {
         const folded = { ...m, reasoning_content: '' };
+        delete folded._thinking;   // _thinking 只给 UI 用，绝不发给 API
         if (Array.isArray(m.tool_calls)) {
           folded.tool_calls = m.tool_calls.map(tc => ({
             id: tc.id,
@@ -8781,7 +9110,8 @@ function convToMarkdown() {
     if (m.role === 'user') {
       lines.push('## 用户\n\n' + contentToText(m.content));
     } else if (m.role === 'assistant') {
-      if (m.reasoning_content && m.reasoning_content.trim()) lines.push('## 思考过程\n\n' + contentToText(m.reasoning_content));
+      const thinkForArchive = (m._thinking && m._thinking.trim()) ? m._thinking : (m.reasoning_content || '');
+      if (thinkForArchive && thinkForArchive.trim()) lines.push('## 思考过程\n\n' + contentToText(thinkForArchive));
       if (m.content) lines.push('## 助手\n\n' + contentToText(m.content));
       if (m.tool_calls) {
         for (const tc of m.tool_calls) {
@@ -8836,6 +9166,11 @@ async function saveConversation() {
     const pad = n => String(n).padStart(2, '0');
     sessionFile = '/conversations/chat-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.md';
   }
+  // 把存档路径记到会话上，供跨设备去重（下次 saveSessions 一并持久化）
+  try {
+    const _cur = sessions.find(x => x.id === currentSessionId);
+    if (_cur && _cur.mdFile !== sessionFile) { _cur.mdFile = sessionFile; saveSessions(); }
+  } catch (e) {}
   const head = '# 对话记录 ' + new Date().toLocaleString('zh-CN') + '\n\n';
   const secrets = await collectSensitiveSecrets();
   await VFS.writeFile(sessionFile, head + redactText(convToMarkdown(), secrets));
@@ -9824,6 +10159,8 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
   catch (e) { console.error('VFS.init 异常', e); memoryOnly = true; memoryReason = (e && e.message) ? e.message : String(e); }
   finally { vfsReady = true; vfsReadyResolve(); }
   try { await loadProfiles(); } catch (e) { console.error('loadProfiles 失败', e); }
+  // 跨设备会话同步：合并 VFS 里的 /config/sessions.json 与 /conversations/*.md 到本地会话列表
+  try { await mergeSessionsFromVfs(); } catch (e) { console.warn('合并云端会话失败', e); }
   try { await loadTodos(); } catch (e) { console.error('loadTodos 失败', e); }
   try { renderTree(); } catch (e) { console.error('renderTree 失败', e); }
   if (memoryOnly) toast('IndexedDB 不可用，已降级为内存模式（关闭页面后数据会丢失）', 'err');
