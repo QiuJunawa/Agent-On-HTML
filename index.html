@@ -795,6 +795,7 @@
         <button type="button" class="settings-nav-btn active" data-tab="ai">AI 模型</button>
         <button type="button" class="settings-nav-btn" data-tab="cloud">云端同步</button>
         <button type="button" class="settings-nav-btn" data-tab="cs">Codespace</button>
+        <button type="button" class="settings-nav-btn" data-tab="git">Git 仓库</button>
         <button type="button" class="settings-nav-btn" data-tab="ui">界面</button>
         <button type="button" class="settings-nav-btn" data-tab="mem">记忆</button>
         <button type="button" class="settings-nav-btn" data-tab="tools">工具</button>
@@ -1096,7 +1097,7 @@
       </div>
       <div class="field">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
-          <input id="cfgAutoPasteLong" type="checkbox" style="width:auto"> 超长输入自动转存（超过 10000 字符存入 /pastes/，输入框留 [文件附件] 标记，省 token）
+          <input id="cfgAutoPasteLong" type="checkbox" style="width:auto"> 超长输入自动转存（超过 10000 字符存入 /pastes/，输入框留 [ref:/pastes/…] 闭合标记，省 token）
         </label>
       </div>
       <div class="field">
@@ -1931,8 +1932,26 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.01.1';
+const APP_VERSION = '2026.11.01.2';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.01.2',
+    date: '2026-11-01',
+    title: '新增 Git 仓库工具、写码自动校验、上下文预算修正',
+    items: [
+      '新增 Git 平台抽象（gitApi / gitFetch / gitTree / gitFetchFileContent / gitCommit），统一支持 GitHub / Gitee / GitLab，令牌一律走请求头不进 URL',
+      '新增 5 个工具：git_list（列目录）、git_read（读文件，可指定行范围）、git_write（单文件写入）、git_delete（删除文件）、git_commit_batch（批量提交）',
+      '设置页新增「Git 仓库」面板：平台下拉 / owner/name / 访问令牌 / 分支，配置持久化到 VFS /config/git.json；工具调用时参数为空自动回落到该配置',
+      'write_file / edit_file 新增 check 参数，传 true 时写完自动做语法校验，结果以「[自动校验] ...」追加到返回值（校验失败不阻断写入）',
+      '修复 HTML 校验器误报：可选闭合标签（p / li / tr / td / option / dt / dd / thead / tbody / tfoot / colgroup / caption 等）不再判为「未闭合」，并按 HTML5 内容模型做隐式弹栈',
+      '修复 run_js 无返回值：代码没写 return 时（如 1+1）退一步按单表达式求值，仍无结果才显示「(无返回值)」',
+      '工具卡片新增「准备中」状态：卡片在调度队列排队时显示准备中，真正开始执行才变为「执行中…」',
+      '修正对话预算计算：getChatBudget 去掉重复的字符/token 换算系数，改为纯 token 预算（窗口 × 0.6）',
+      '超长输入转存改为 [ref:/pastes/xxx.txt] 闭合标记（原来是无意义的 [文件附件: ...]），AI 可按需展开、UI 渲染为文件卡片',
+      '修复右键菜单图标显示为代码：ctx-item 的 label 由 textContent 改为 innerHTML，复制/删除图标正常渲染',
+      '修复上下文爆炸的问题（没修完，但是能用）',
+    ],
+  },
   {
     v: '2026.11.01.1',
     date: '2026-11-01',
@@ -2344,8 +2363,8 @@ const VFS = {
 const TOOLS = [
   { type: 'function', function: { name: 'list_files', description: '列出目录内容', parameters: { type: 'object', properties: { path: { type: 'string', description: '目录，默认 /' }, limit: { type: 'integer', description: '可选，最多返回多少条，默认 100' } } } } },
   { type: 'function', function: { name: 'read_file', description: '读文件（可搜关键词）', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, query: { type: 'string', description: '可选，关键词定位' }, regex: { type: 'boolean', description: '可选，正则' }, context_lines: { type: 'integer', description: '可选，上下行数，默认 3' }, ignore_case: { type: 'boolean', description: '可选，默认 true' }, start_line: { type: 'integer', description: '可选，起始行（1-based）' }, end_line: { type: 'integer', description: '可选，结束行（1-based 含）' }, start_col: { type: 'integer', description: '可选，起始列（1-based），对每行做列窗口截取，读超长单行时配合 start_line 使用' }, end_col: { type: 'integer', description: '可选，结束列（1-based 含）' } }, required: ['path'] } } },
-  { type: 'function', function: { name: 'edit_file', description: '按原文替换，无需行号（old_string 不要带 read_file 返回的行号前缀）。old_string/new_string 都支持 [ref:/path:10-20] 占位符，可避免重新输出长段代码', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, old_string: { type: 'string', description: '原文，须唯一匹配；或 [ref:/path:a-b]' }, new_string: { type: 'string', description: '新内容；或 [ref:/path:a-b]' } }, required: ['path', 'old_string', 'new_string'] } } },
-  { type: 'function', function: { name: 'write_file', description: '整文件写入覆盖（content 不要带 "42| " 行号前缀）；改局部请用 edit_file 或本工具的行列级替换。content 可以是 [ref:/源文件路径] 或 [ref:msg:N] 占位符，工具层会展开为真实内容（用于复制文件/引用对话，无需重新输出长文本）', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '完整内容，或 [ref:/path]、[ref:msg:N] 占位符' }, start_line: { type: 'integer', description: '可选，行级替换起始行（1-based）；文件已存在时生效' }, end_line: { type: 'integer', description: '可选，行级替换结束行（1-based 含）' }, start_col: { type: 'integer', description: '可选，列级替换起始列（1-based），对 start_line..end_line 每一行替换该列区间；内容不允许含换行' }, end_col: { type: 'integer', description: '可选，列级替换结束列（1-based 含）' } }, required: ['path', 'content'] } } },
+  { type: 'function', function: { name: 'edit_file', description: '按原文替换，无需行号（old_string 不要带 read_file 返回的行号前缀）。old_string/new_string 都支持 [ref:/path:10-20] 占位符，可避免重新输出长段代码', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, old_string: { type: 'string', description: '原文，须唯一匹配；或 [ref:/path:a-b]' }, new_string: { type: 'string', description: '新内容；或 [ref:/path:a-b]' }, check: { type: 'boolean', description: '可选，true=写完后自动做语法校验' } }, required: ['path', 'old_string', 'new_string'] } } },
+  { type: 'function', function: { name: 'write_file', description: '整文件写入覆盖（content 不要带 "42| " 行号前缀）；改局部请用 edit_file 或本工具的行列级替换。content 可以是 [ref:/源文件路径] 或 [ref:msg:N] 占位符，工具层会展开为真实内容（用于复制文件/引用对话，无需重新输出长文本）', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '完整内容，或 [ref:/path]、[ref:msg:N] 占位符' }, start_line: { type: 'integer', description: '可选，行级替换起始行（1-based）；文件已存在时生效' }, end_line: { type: 'integer', description: '可选，行级替换结束行（1-based 含）' }, start_col: { type: 'integer', description: '可选，列级替换起始列（1-based），对 start_line..end_line 每一行替换该列区间；内容不允许含换行' }, end_col: { type: 'integer', description: '可选，列级替换结束列（1-based 含）' }, check: { type: 'boolean', description: '可选，true=写完后自动做语法校验' } }, required: ['path', 'content'] } } },
   { type: 'function', function: { name: 'append_file', description: '末尾追加内容；传 start_line 可在指定行后定点插入。content 支持 [ref:/path]（可带行号 [ref:/path:10-20]）和 [ref:msg:N] 占位符', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '追加内容，或 [ref:/path]、[ref:msg:N] 占位符' }, start_line: { type: 'integer', description: '可选，在该行后插入（1-based）；缺省为文件末尾' }, start_col: { type: 'integer', description: '可选，配合 start_line 在该行指定列后插入单行（1-based）；内容不允许含换行' } }, required: ['path', 'content'] } } },
   { type: 'function', function: { name: 'delete_path', description: '删除文件/目录（不可撤销）', parameters: { type: 'object', properties: { path: { type: 'string', description: '路径' } }, required: ['path'] } } },
   { type: 'function', function: { name: 'move_path', description: '移动或重命名', parameters: { type: 'object', properties: { from: { type: 'string', description: '源路径' }, to: { type: 'string', description: '目标路径' } }, required: ['from', 'to'] } } },
@@ -2385,6 +2404,11 @@ const TOOLS = [
   { type: 'function', function: { name: 'cs_write', description: '写入/覆盖 Codespace 里的文件，content 支持 [ref:/vfs路径] 占位符，省去重复输出', parameters: { type: 'object', properties: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '完整内容，或 [ref:/path] 占位符' }, append: { type: 'boolean', description: '可选，true=追加写入' } }, required: ['path', 'content'] } } },
   { type: 'function', function: { name: 'cs_download', description: '把 Codespace 里的文本文件拉进虚拟文件系统', parameters: { type: 'object', properties: { path: { type: 'string', description: '远程文件路径' }, vfs_path: { type: 'string', description: '保存到 VFS 的路径，如 /downloads/a.txt' }, max_bytes: { type: 'integer', description: '可选，最大读取字节数' } }, required: ['path', 'vfs_path'] } } },
   { type: 'function', function: { name: 'cs_serve', description: '在 Codespace 里起静态文件服务，返回 app.github.dev 公网预览地址', parameters: { type: 'object', properties: { dir: { type: 'string', description: '要发布的目录' }, port: { type: 'integer', description: '可选，端口默认 8000' } }, required: [] } } },
+  { type: 'function', function: { name: 'git_list', description: '列出 Git 仓库（GitHub/Gitee/GitLab）某目录下的文件与子目录。platform/repo/token/branch 缺省时读设置→Git 仓库配置', parameters: { type: 'object', properties: { platform: { type: 'string', description: '平台：github / gitee / gitlab' }, repo: { type: 'string', description: 'owner/name，如 QiuJunawa/Agent-On-HTML' }, path: { type: 'string', description: '可选，目录路径，默认 /' }, ref: { type: 'string', description: '可选，分支/ref，默认仓库默认分支' }, token: { type: 'string', description: '可选，访问令牌，缺省读设置' } }, required: [] } } },
+  { type: 'function', function: { name: 'git_read', description: '读 Git 仓库里的文件内容（可指定行范围）', parameters: { type: 'object', properties: { platform: { type: 'string', description: '平台：github / gitee / gitlab' }, repo: { type: 'string', description: 'owner/name' }, path: { type: 'string', description: '文件路径' }, ref: { type: 'string', description: '可选，分支/ref' }, start_line: { type: 'integer', description: '可选，起始行（1-based）' }, end_line: { type: 'integer', description: '可选，结束行（1-based 含）' } }, required: ['path'] } } },
+  { type: 'function', function: { name: 'git_write', description: '写单个文件到 Git 仓库（自动判断新建/更新并提交）', parameters: { type: 'object', properties: { platform: { type: 'string', description: '平台：github / gitee / gitlab' }, repo: { type: 'string', description: 'owner/name' }, path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '完整内容，支持 [ref:/path] 占位符' }, message: { type: 'string', description: '可选，提交说明' }, ref: { type: 'string', description: '可选，分支/ref' } }, required: ['path', 'content'] } } },
+  { type: 'function', function: { name: 'git_delete', description: '删除 Git 仓库里的单个文件并提交', parameters: { type: 'object', properties: { platform: { type: 'string', description: '平台：github / gitee / gitlab' }, repo: { type: 'string', description: 'owner/name' }, path: { type: 'string', description: '文件路径' }, message: { type: 'string', description: '可选，提交说明' }, ref: { type: 'string', description: '可选，分支/ref' } }, required: ['path'] } } },
+  { type: 'function', function: { name: 'git_commit_batch', description: '批量提交多个文件变更到 Git 仓库（一次提交）', parameters: { type: 'object', properties: { platform: { type: 'string', description: '平台：github / gitee / gitlab' }, repo: { type: 'string', description: 'owner/name' }, actions: { type: 'array', items: { type: 'object', properties: { action: { type: 'string', description: 'create / update / delete' }, path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '内容（delete 时省略）' } }, required: ['path'] }, description: '变更列表' }, message: { type: 'string', description: '可选，提交说明' }, ref: { type: 'string', description: '可选，分支/ref' } }, required: ['actions'] } } },
 ];
 
 const MAX_READ = 30000;
@@ -2871,7 +2895,19 @@ async function executeTool(name, args, onChunk, refCtx) {
         pushUndo({ type: 'write_file', path: p, before: beforeContent, after: newContent, desc: `${isNew ? '创建' : '更新'} ${p}${modeDesc}` });
         await VFS.writeFile(p, newContent);
         await refreshFS();
-        return `✅ 已${isNew ? '创建' : '更新'}文件 ${p}（${newContent.length} 字符）${modeDesc}\n[改局部请用 edit_file]`;
+        // 回传改动区域附近内容，让 AI 无需再补一次 read_file 自验
+        const segSL = Math.max(1, parseInt(args.start_line) || 1);
+        const segEL = segSL + Math.max(0, String(args.content ?? '').split('\n').length - 1);
+        const writeSnippet = hasRange
+          ? snippetAround(newContent, segSL, segEL, 3)
+          : headTailSnippet(newContent, 10);
+        let wCheckTip = '\n[改局部请用 edit_file]';
+        if (args.check === true) {
+          // 校验失败不阻断写入（文件已落盘），只把结果追加到返回值
+          try { wCheckTip += '\n\n[自动校验] ' + (await toolCheckCode({ path: p })); }
+          catch (e) { wCheckTip += '\n\n[自动校验] 校验调用失败：' + ((e && e.message) || e); }
+        }
+        return `✅ 已${isNew ? '创建' : '更新'}文件 ${p}（${newContent.length} 字符）${modeDesc}\n改动位置附近（±3 行）：\n${writeSnippet}${wCheckTip}`;
       }
       case 'append_file': {
         const p = VFS.norm(args.path || '');
@@ -3781,6 +3817,14 @@ self.onmessage = function(e) {
     var wrapped = '"use strict";' + NL + 'return (function(){' + NL + code + NL + '})();';
     var fn = Function.apply(null, paramNames.concat([wrapped]));
     var result = fn.apply(null, paramValues);
+    // 没写 return 的代码（如 1+1）：退一步按单表达式求值
+    if (typeof result === 'undefined') {
+      try {
+        var exprFn = Function.apply(null, paramNames.concat(['"use strict";' + NL + 'return (' + NL + code + NL + ');']));
+        var exprResult = exprFn.apply(null, paramValues);
+        if (typeof exprResult !== 'undefined') result = exprResult;
+      } catch (exprErr) { /* 语句块不是表达式，忽略 */ }
+    }
     var resultStr;
     try {
       resultStr = (typeof result === 'undefined') ? '(无返回值)' : ((typeof result === 'object' && result !== null) ? JSON.stringify(result, null, 2) : String(result));
@@ -4774,7 +4818,7 @@ function showCtxMenu(x, y, child) {
     if (it.sep) { const s = document.createElement('div'); s.className = 'ctx-sep'; m.appendChild(s); continue; }
     const d = document.createElement('div');
     d.className = 'ctx-item' + (it.danger ? ' danger' : '');
-    d.textContent = it.label;
+    d.innerHTML = it.label;
     d.addEventListener('click', (e) => { e.stopPropagation(); hideCtxMenu(); it.action(); });
     m.appendChild(d);
   }
@@ -5412,6 +5456,651 @@ async function giteeDelete(owner, name, fullPath) {
   const sha = (await exist.json()).sha;
   const resp = await giteeFetch(url, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ access_token: cfg.giteeToken, sha, message: 'vfs sync remove ' + fullPath }) });
   if (!resp.ok) throw new Error('删除 ' + fullPath + ' 失败 HTTP ' + resp.status + ': ' + (await resp.text()).slice(0, 160));
+}
+/* ---------- 通用 Git 平台抽象（github / gitee / gitlab） ---------- */
+const GIT_CONFIG_PATH = '/config/git.json';
+let gitCfgCache = null;
+async function loadGitConfig(force) {
+  if (gitCfgCache && !force) return gitCfgCache;
+  let c = {};
+  try {
+    const raw = await VFS.getContent(GIT_CONFIG_PATH);
+    if (raw) c = JSON.parse(raw) || {};
+  } catch (e) { c = {}; }
+  gitCfgCache = c;
+  return c;
+}
+function gitNormalizePlatform(p) {
+  const s = String(p || '').trim().toLowerCase();
+  return (s === 'github' || s === 'gitee' || s === 'gitlab') ? s : '';
+}
+// 参数优先，缺省回落到 /config/git.json
+async function gitResolve(args) {
+  args = args || {};
+  const c = await loadGitConfig();
+  const platform = gitNormalizePlatform(args.platform || c.platform || 'github');
+  if (!platform) return { error: '不支持的平台：' + args.platform + '（支持 github / gitee / gitlab）' };
+  let repo = String(args.repo || c.repo || '').trim()
+    .replace(/^https?:\/\/[^/]+\//, '').replace(/\.git$/i, '').replace(/\/+$/, '').replace(/^\/+/, '');
+  if (!repo || repo.split('/').length < 2) return { error: 'repo 格式应为 owner/name，当前：' + (repo || '(空)') };
+  const token = String(args.token || c.token || (platform === 'gitee' ? cfg.giteeToken : '') || '').trim();
+  if (!token) return { error: '缺少 token：请在设置→Git 仓库里填写，或直接传 token 参数' };
+  const branch = String(args.ref || c.branch || '').trim();
+  return { platform, repo, token, branch, owner: repo.split('/')[0], name: repo.split('/').slice(1).join('/') };
+}
+function gitApi(platform, owner, name, rest) {
+  if (platform === 'github') return 'https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(name) + rest;
+  if (platform === 'gitee') return 'https://gitee.com/api/v5/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(name) + rest;
+  return 'https://gitlab.com/api/v4/projects/' + encodeURIComponent(owner + '/' + name) + rest;
+}
+function gitFetch(url, opts, token, platform) {
+  opts = opts || {};
+  const headers = Object.assign({}, opts.headers || {});
+  if (platform === 'github') {
+    headers['Authorization'] = 'token ' + token;
+    headers['Accept'] = 'application/vnd.github.v3+json';
+  } else if (platform === 'gitlab') {
+    headers['PRIVATE-TOKEN'] = token;
+  } else {
+    headers['Authorization'] = 'token ' + token;
+  }
+  return fetch(url, Object.assign({}, opts, { headers }));
+}
+async function gitTree(r, ref) {
+  let branch = ref || r.branch;
+  if (r.platform === 'gitlab') {
+    const q = '?recursive=true&per_page=100' + (branch ? '&ref=' + encodeURIComponent(branch) : '');
+    const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/repository/tree' + q), {}, r.token, r.platform);
+    if (!resp.ok) return { error: '读取仓库树失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 160) };
+    const arr = await resp.json();
+    return { files: (Array.isArray(arr) ? arr : []).filter(t => t.type === 'blob').map(t => ({ path: t.path, sha: t.id })) };
+  }
+  if (!branch) {
+    const meta = await gitFetch(gitApi(r.platform, r.owner, r.name, ''), {}, r.token, r.platform);
+    if (!meta.ok) return { error: '仓库不存在或令牌无权限 HTTP ' + meta.status };
+    branch = (await meta.json()).default_branch || '';
+  }
+  const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/git/trees/' + encodeURIComponent(branch) + '?recursive=1'), {}, r.token, r.platform);
+  if (!resp.ok) return { error: '读取仓库树失败 HTTP ' + resp.status };
+  const j = await resp.json();
+  return { files: (j.tree || []).filter(t => t.type === 'blob').map(t => ({ path: t.path, sha: t.sha })) };
+}
+async function gitFetchFileContent(r, path, ref) {
+  const p = String(path || '').replace(/^\/+/, '');
+  const br = ref || r.branch;
+  const q = br ? '?ref=' + encodeURIComponent(br) : '';
+  if (r.platform === 'gitlab') {
+    const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/repository/files/' + encodeURIComponent(p) + q), {}, r.token, r.platform);
+    if (!resp.ok) return { error: '读取失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 160) };
+    const j = await resp.json();
+    return { content: b64ToUtf8(j.content || '') };
+  }
+  const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/contents/' + p.split('/').map(encodeURIComponent).join('/') + q), {}, r.token, r.platform);
+  if (!resp.ok) return { error: '读取失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 160) };
+  const j = await resp.json();
+  if (Array.isArray(j)) return { error: p + ' 是目录，请用 git_list' };
+  if (j.content) return { content: b64ToUtf8(j.content) };
+  return { error: '无法获取 ' + p + ' 的内容' };
+}
+// actions: [{ action:'create'|'update'|'delete', path, content }]
+async function gitCommit(r, branch, message, actions) {
+  const br = branch || r.branch;
+  const msg = message || 'update via agent';
+  if (r.platform === 'gitee') {
+    const acts = actions.map(a => {
+      const o = { action: a.action, path: a.path };
+      if (a.action !== 'delete') { o.content = utf8ToB64(String(a.content == null ? '' : a.content)); o.encoding = 'base64'; }
+      return o;
+    });
+    const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/commits'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token: r.token, branch: br || 'master', message: msg, actions: acts })
+    }, r.token, r.platform);
+    if (!resp.ok) return { error: '提交失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 200) };
+    return { ok: true, count: acts.length };
+  }
+  if (r.platform === 'gitlab') {
+    const acts = actions.map(a => {
+      const o = { action: a.action === 'delete' ? 'delete' : a.action, file_path: a.path };
+      if (a.action !== 'delete') o.content = String(a.content == null ? '' : a.content);
+      return o;
+    });
+    const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/repository/commits'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch: br || 'main', commit_message: msg, actions: acts })
+    }, r.token, r.platform);
+    if (!resp.ok) return { error: '提交失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 200) };
+    return { ok: true, count: acts.length };
+  }
+  // GitHub：无多文件原子提交的简单通路，逐个文件走 Contents API
+  const done = [];
+  for (const a of actions) {
+    const p = String(a.path || '').replace(/^\/+/, '');
+    const url = gitApi(r.platform, r.owner, r.name, '/contents/' + p.split('/').map(encodeURIComponent).join('/'));
+    let sha = null;
+    const ex = await gitFetch(url + (br ? '?ref=' + encodeURIComponent(br) : ''), {}, r.token, r.platform);
+    if (ex.ok) { try { const j = await ex.json(); if (j && j.sha) sha = j.sha; } catch (e) {} }
+    if (a.action === 'delete') {
+      if (!sha) { done.push(p + '（原本不存在，跳过）'); continue; }
+      const resp = await gitFetch(url, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg, sha, branch: br }) }, r.token, r.platform);
+      if (!resp.ok) return { error: '删除 ' + p + ' 失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 200) };
+    } else {
+      const body = { message: msg, content: utf8ToB64(String(a.content == null ? '' : a.content)) };
+      if (br) body.branch = br;
+      if (sha) body.sha = sha;
+      const resp = await gitFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, r.token, r.platform);
+      if (!resp.ok) return { error: '写入 ' + p + ' 失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 200) };
+    }
+    done.push(p);
+  }
+  return { ok: true, count: done.length, done };
+}
+async function toolGitList(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  const t = await gitTree(r, args.ref);
+  if (t.error) return '错误：' + t.error;
+  const prefix = String(args.path || '/').replace(/^\/+/, '').replace(/\/?$/, '/').replace(/^\/$/, '');
+  const dirs = new Set();
+  const files = [];
+  for (const f of t.files) {
+    if (prefix && !f.path.startsWith(prefix)) continue;
+    const rel = prefix ? f.path.slice(prefix.length) : f.path;
+    if (!rel) continue;
+    const seg = rel.split('/');
+    if (seg.length > 1) dirs.add(seg[0] + '/');
+    else files.push(f.path);
+  }
+  const lines = [];
+  Array.from(dirs).sort().forEach(d => lines.push('[目录] ' + prefix + d));
+  files.sort().forEach(f => lines.push('[文件] ' + f));
+  return '仓库 ' + r.repo + '（' + r.platform + '）' + (prefix ? ' 目录 ' + prefix : ' 根目录') + ' 共 ' + lines.length + ' 项：\n' + (lines.slice(0, 200).join('\n') || '(空)');
+}
+async function toolGitRead(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  if (!args.path) return '错误：path 不能为空';
+  const f = await gitFetchFileContent(r, args.path, args.ref);
+  if (f.error) return '错误：' + f.error;
+  const text = String(f.content || '');
+  const sl = Math.max(1, parseInt(args.start_line) || 1);
+  const el = args.end_line != null ? Math.max(sl, parseInt(args.end_line) || sl) : null;
+  if (el || sl > 1) {
+    const lines = text.split('\n');
+    const seg = lines.slice(sl - 1, el || lines.length);
+    return '文件：' + args.path + '（第 ' + sl + '-' + (el || lines.length) + ' 行）\n```\n' + withLineNumbers(seg.join('\n'), sl) + '\n```';
+  }
+  const pruned = pruneToolResult(text, { thresholdChars: MAX_READ, headChars: Math.floor(MAX_READ * 0.8), tailChars: Math.floor(MAX_READ * 0.2) });
+  return '文件：' + args.path + '\n```\n' + pruned + '\n```';
+}
+async function toolGitWrite(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  if (!args.path) return '错误：path 不能为空';
+  if (args.content === undefined) return '错误：content 不能为空';
+  const exists = await gitFetchFileContent(r, args.path, args.ref);
+  const action = exists.error ? 'create' : 'update';
+  const res = await gitCommit(r, args.ref, args.message, [{ action, path: args.path, content: String(args.content) }]);
+  if (res.error) return '错误：' + res.error;
+  return '✅ 已' + (action === 'create' ? '创建' : '更新') + ' ' + args.path + '（' + r.platform + ' ' + r.repo + '）';
+}
+async function toolGitDelete(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  if (!args.path) return '错误：path 不能为空';
+  const res = await gitCommit(r, args.ref, args.message, [{ action: 'delete', path: args.path }]);
+  if (res.error) return '错误：' + res.error;
+  return '✅ 已删除 ' + args.path + '（' + r.platform + ' ' + r.repo + '）';
+}
+async function toolGitCommitBatch(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  const acts = Array.isArray(args.actions) ? args.actions : [];
+  if (!acts.length) return '错误：actions 不能为空';
+  const mapped = [];
+  for (const a of acts) {
+    const p = String((a && a.path) || '').replace(/^\/+/, '');
+    if (!p) return '错误：actions 里存在空 path';
+    let action = a.action === 'delete' ? 'delete' : (a.action === 'create' ? 'create' : 'update');
+    if (action !== 'delete' && a.action !== 'create' && a.action !== 'update') {
+      const ex = await gitFetchFileContent(r, p, args.ref);
+      action = ex.error ? 'create' : 'update';
+    }
+    mapped.push({ action, path: p, content: a.content });
+  }
+  const res = await gitCommit(r, args.ref, args.message, mapped);
+  if (res.error) return '错误：' + res.error;
+  return '✅ 已提交 ' + res.count + ' 个变更到 ' + r.platform + ' ' + r.repo + '\n' + mapped.map(a => '  ' + a.action + ' ' + a.path).join('\n');
+}
+/* ---------- 通用 Git 平台抽象（github / gitee / gitlab） ---------- */
+const GIT_CONFIG_PATH = '/config/git.json';
+let gitCfgCache = null;
+async function loadGitConfig(force) {
+  if (gitCfgCache && !force) return gitCfgCache;
+  let c = {};
+  try {
+    const raw = await VFS.getContent(GIT_CONFIG_PATH);
+    if (raw) c = JSON.parse(raw) || {};
+  } catch (e) { c = {}; }
+  gitCfgCache = c;
+  return c;
+}
+function gitNormalizePlatform(p) {
+  const s = String(p || '').trim().toLowerCase();
+  return (s === 'github' || s === 'gitee' || s === 'gitlab') ? s : '';
+}
+// 参数优先，缺省回落到 /config/git.json
+async function gitResolve(args) {
+  args = args || {};
+  const c = await loadGitConfig();
+  const platform = gitNormalizePlatform(args.platform || c.platform || 'github');
+  if (!platform) return { error: '不支持的平台：' + args.platform + '（支持 github / gitee / gitlab）' };
+  let repo = String(args.repo || c.repo || '').trim()
+    .replace(/^https?:\/\/[^/]+\//, '').replace(/\.git$/i, '').replace(/\/+$/, '').replace(/^\/+/, '');
+  if (!repo || repo.split('/').length < 2) return { error: 'repo 格式应为 owner/name，当前：' + (repo || '(空)') };
+  const token = String(args.token || c.token || (platform === 'gitee' ? cfg.giteeToken : '') || '').trim();
+  if (!token) return { error: '缺少 token：请在设置→Git 仓库里填写，或直接传 token 参数' };
+  const branch = String(args.ref || c.branch || '').trim();
+  return { platform, repo, token, branch, owner: repo.split('/')[0], name: repo.split('/').slice(1).join('/') };
+}
+function gitApi(platform, owner, name, rest) {
+  if (platform === 'github') return 'https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(name) + rest;
+  if (platform === 'gitee') return 'https://gitee.com/api/v5/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(name) + rest;
+  return 'https://gitlab.com/api/v4/projects/' + encodeURIComponent(owner + '/' + name) + rest;
+}
+function gitFetch(url, opts, token, platform) {
+  opts = opts || {};
+  const headers = Object.assign({}, opts.headers || {});
+  if (platform === 'github') {
+    headers['Authorization'] = 'token ' + token;
+    headers['Accept'] = 'application/vnd.github.v3+json';
+  } else if (platform === 'gitlab') {
+    headers['PRIVATE-TOKEN'] = token;
+  } else {
+    headers['Authorization'] = 'token ' + token;
+  }
+  return fetch(url, Object.assign({}, opts, { headers }));
+}
+async function gitTree(r, ref) {
+  let branch = ref || r.branch;
+  if (r.platform === 'gitlab') {
+    const q = '?recursive=true&per_page=100' + (branch ? '&ref=' + encodeURIComponent(branch) : '');
+    const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/repository/tree' + q), {}, r.token, r.platform);
+    if (!resp.ok) return { error: '读取仓库树失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 160) };
+    const arr = await resp.json();
+    return { files: (Array.isArray(arr) ? arr : []).filter(t => t.type === 'blob').map(t => ({ path: t.path, sha: t.id })) };
+  }
+  if (!branch) {
+    const meta = await gitFetch(gitApi(r.platform, r.owner, r.name, ''), {}, r.token, r.platform);
+    if (!meta.ok) return { error: '仓库不存在或令牌无权限 HTTP ' + meta.status };
+    branch = (await meta.json()).default_branch || '';
+  }
+  const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/git/trees/' + encodeURIComponent(branch) + '?recursive=1'), {}, r.token, r.platform);
+  if (!resp.ok) return { error: '读取仓库树失败 HTTP ' + resp.status };
+  const j = await resp.json();
+  return { files: (j.tree || []).filter(t => t.type === 'blob').map(t => ({ path: t.path, sha: t.sha })) };
+}
+async function gitFetchFileContent(r, path, ref) {
+  const p = String(path || '').replace(/^\/+/, '');
+  const br = ref || r.branch;
+  const q = br ? '?ref=' + encodeURIComponent(br) : '';
+  if (r.platform === 'gitlab') {
+    const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/repository/files/' + encodeURIComponent(p) + q), {}, r.token, r.platform);
+    if (!resp.ok) return { error: '读取失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 160) };
+    const j = await resp.json();
+    return { content: b64ToUtf8(j.content || '') };
+  }
+  const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/contents/' + p.split('/').map(encodeURIComponent).join('/') + q), {}, r.token, r.platform);
+  if (!resp.ok) return { error: '读取失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 160) };
+  const j = await resp.json();
+  if (Array.isArray(j)) return { error: p + ' 是目录，请用 git_list' };
+  if (j.content) return { content: b64ToUtf8(j.content) };
+  return { error: '无法获取 ' + p + ' 的内容' };
+}
+// actions: [{ action:'create'|'update'|'delete', path, content }]
+async function gitCommit(r, branch, message, actions) {
+  const br = branch || r.branch;
+  const msg = message || 'update via agent';
+  if (r.platform === 'gitee') {
+    const acts = actions.map(a => {
+      const o = { action: a.action, path: a.path };
+      if (a.action !== 'delete') { o.content = utf8ToB64(String(a.content == null ? '' : a.content)); o.encoding = 'base64'; }
+      return o;
+    });
+    const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/commits'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token: r.token, branch: br || 'master', message: msg, actions: acts })
+    }, r.token, r.platform);
+    if (!resp.ok) return { error: '提交失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 200) };
+    return { ok: true, count: acts.length };
+  }
+  if (r.platform === 'gitlab') {
+    const acts = actions.map(a => {
+      const o = { action: a.action === 'delete' ? 'delete' : a.action, file_path: a.path };
+      if (a.action !== 'delete') o.content = String(a.content == null ? '' : a.content);
+      return o;
+    });
+    const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/repository/commits'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch: br || 'main', commit_message: msg, actions: acts })
+    }, r.token, r.platform);
+    if (!resp.ok) return { error: '提交失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 200) };
+    return { ok: true, count: acts.length };
+  }
+  // GitHub：无多文件原子提交的简单通路，逐个文件走 Contents API
+  const done = [];
+  for (const a of actions) {
+    const p = String(a.path || '').replace(/^\/+/, '');
+    const url = gitApi(r.platform, r.owner, r.name, '/contents/' + p.split('/').map(encodeURIComponent).join('/'));
+    let sha = null;
+    const ex = await gitFetch(url + (br ? '?ref=' + encodeURIComponent(br) : ''), {}, r.token, r.platform);
+    if (ex.ok) { try { const j = await ex.json(); if (j && j.sha) sha = j.sha; } catch (e) {} }
+    if (a.action === 'delete') {
+      if (!sha) { done.push(p + '（原本不存在，跳过）'); continue; }
+      const resp = await gitFetch(url, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg, sha, branch: br }) }, r.token, r.platform);
+      if (!resp.ok) return { error: '删除 ' + p + ' 失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 200) };
+    } else {
+      const body = { message: msg, content: utf8ToB64(String(a.content == null ? '' : a.content)) };
+      if (br) body.branch = br;
+      if (sha) body.sha = sha;
+      const resp = await gitFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, r.token, r.platform);
+      if (!resp.ok) return { error: '写入 ' + p + ' 失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 200) };
+    }
+    done.push(p);
+  }
+  return { ok: true, count: done.length, done };
+}
+async function toolGitList(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  const t = await gitTree(r, args.ref);
+  if (t.error) return '错误：' + t.error;
+  const prefix = String(args.path || '/').replace(/^\/+/, '').replace(/\/?$/, '/').replace(/^\/$/, '');
+  const dirs = new Set();
+  const files = [];
+  for (const f of t.files) {
+    if (prefix && !f.path.startsWith(prefix)) continue;
+    const rel = prefix ? f.path.slice(prefix.length) : f.path;
+    if (!rel) continue;
+    const seg = rel.split('/');
+    if (seg.length > 1) dirs.add(seg[0] + '/');
+    else files.push(f.path);
+  }
+  const lines = [];
+  Array.from(dirs).sort().forEach(d => lines.push('[目录] ' + prefix + d));
+  files.sort().forEach(f => lines.push('[文件] ' + f));
+  return '仓库 ' + r.repo + '（' + r.platform + '）' + (prefix ? ' 目录 ' + prefix : ' 根目录') + ' 共 ' + lines.length + ' 项：\n' + (lines.slice(0, 200).join('\n') || '(空)');
+}
+async function toolGitRead(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  if (!args.path) return '错误：path 不能为空';
+  const f = await gitFetchFileContent(r, args.path, args.ref);
+  if (f.error) return '错误：' + f.error;
+  const text = String(f.content || '');
+  const sl = Math.max(1, parseInt(args.start_line) || 1);
+  const el = args.end_line != null ? Math.max(sl, parseInt(args.end_line) || sl) : null;
+  if (el || sl > 1) {
+    const lines = text.split('\n');
+    const seg = lines.slice(sl - 1, el || lines.length);
+    return '文件：' + args.path + '（第 ' + sl + '-' + (el || lines.length) + ' 行）\n```\n' + withLineNumbers(seg.join('\n'), sl) + '\n```';
+  }
+  const pruned = pruneToolResult(text, { thresholdChars: MAX_READ, headChars: Math.floor(MAX_READ * 0.8), tailChars: Math.floor(MAX_READ * 0.2) });
+  return '文件：' + args.path + '\n```\n' + pruned + '\n```';
+}
+async function toolGitWrite(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  if (!args.path) return '错误：path 不能为空';
+  if (args.content === undefined) return '错误：content 不能为空';
+  const exists = await gitFetchFileContent(r, args.path, args.ref);
+  const action = exists.error ? 'create' : 'update';
+  const res = await gitCommit(r, args.ref, args.message, [{ action, path: args.path, content: String(args.content) }]);
+  if (res.error) return '错误：' + res.error;
+  return '✅ 已' + (action === 'create' ? '创建' : '更新') + ' ' + args.path + '（' + r.platform + ' ' + r.repo + '）';
+}
+async function toolGitDelete(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  if (!args.path) return '错误：path 不能为空';
+  const res = await gitCommit(r, args.ref, args.message, [{ action: 'delete', path: args.path }]);
+  if (res.error) return '错误：' + res.error;
+  return '✅ 已删除 ' + args.path + '（' + r.platform + ' ' + r.repo + '）';
+}
+async function toolGitCommitBatch(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  const acts = Array.isArray(args.actions) ? args.actions : [];
+  if (!acts.length) return '错误：actions 不能为空';
+  const mapped = [];
+  for (const a of acts) {
+    const p = String((a && a.path) || '').replace(/^\/+/, '');
+    if (!p) return '错误：actions 里存在空 path';
+    let action = a.action === 'delete' ? 'delete' : (a.action === 'create' ? 'create' : 'update');
+    if (action !== 'delete' && a.action !== 'create' && a.action !== 'update') {
+      const ex = await gitFetchFileContent(r, p, args.ref);
+      action = ex.error ? 'create' : 'update';
+    }
+    mapped.push({ action, path: p, content: a.content });
+  }
+  const res = await gitCommit(r, args.ref, args.message, mapped);
+  if (res.error) return '错误：' + res.error;
+  return '✅ 已提交 ' + res.count + ' 个变更到 ' + r.platform + ' ' + r.repo + '\n' + mapped.map(a => '  ' + a.action + ' ' + a.path).join('\n');
+}
+/* ---------- 通用 Git 平台抽象（github / gitee / gitlab） ---------- */
+const GIT_CONFIG_PATH = '/config/git.json';
+let gitCfgCache = null;
+async function loadGitConfig(force) {
+  if (gitCfgCache && !force) return gitCfgCache;
+  let c = {};
+  try {
+    const raw = await VFS.getContent(GIT_CONFIG_PATH);
+    if (raw) c = JSON.parse(raw) || {};
+  } catch (e) { c = {}; }
+  gitCfgCache = c;
+  return c;
+}
+function gitNormalizePlatform(p) {
+  const s = String(p || '').trim().toLowerCase();
+  return (s === 'github' || s === 'gitee' || s === 'gitlab') ? s : '';
+}
+// 参数优先，缺省回落到 /config/git.json
+async function gitResolve(args) {
+  args = args || {};
+  const c = await loadGitConfig();
+  const platform = gitNormalizePlatform(args.platform || c.platform || 'github');
+  if (!platform) return { error: '不支持的平台：' + args.platform + '（支持 github / gitee / gitlab）' };
+  let repo = String(args.repo || c.repo || '').trim()
+    .replace(/^https?:\/\/[^/]+\//, '').replace(/\.git$/i, '').replace(/\/+$/, '').replace(/^\/+/, '');
+  if (!repo || repo.split('/').length < 2) return { error: 'repo 格式应为 owner/name，当前：' + (repo || '(空)') };
+  const token = String(args.token || c.token || (platform === 'gitee' ? cfg.giteeToken : '') || '').trim();
+  if (!token) return { error: '缺少 token：请在设置→Git 仓库里填写，或直接传 token 参数' };
+  const branch = String(args.ref || c.branch || '').trim();
+  return { platform, repo, token, branch, owner: repo.split('/')[0], name: repo.split('/').slice(1).join('/') };
+}
+function gitApi(platform, owner, name, rest) {
+  if (platform === 'github') return 'https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(name) + rest;
+  if (platform === 'gitee') return 'https://gitee.com/api/v5/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(name) + rest;
+  return 'https://gitlab.com/api/v4/projects/' + encodeURIComponent(owner + '/' + name) + rest;
+}
+function gitFetch(url, opts, token, platform) {
+  opts = opts || {};
+  const headers = Object.assign({}, opts.headers || {});
+  if (platform === 'github') {
+    headers['Authorization'] = 'token ' + token;
+    headers['Accept'] = 'application/vnd.github.v3+json';
+  } else if (platform === 'gitlab') {
+    headers['PRIVATE-TOKEN'] = token;
+  } else {
+    headers['Authorization'] = 'token ' + token;
+  }
+  return fetch(url, Object.assign({}, opts, { headers }));
+}
+async function gitTree(r, ref) {
+  let branch = ref || r.branch;
+  if (r.platform === 'gitlab') {
+    const q = '?recursive=true&per_page=100' + (branch ? '&ref=' + encodeURIComponent(branch) : '');
+    const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/repository/tree' + q), {}, r.token, r.platform);
+    if (!resp.ok) return { error: '读取仓库树失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 160) };
+    const arr = await resp.json();
+    return { files: (Array.isArray(arr) ? arr : []).filter(t => t.type === 'blob').map(t => ({ path: t.path, sha: t.id })) };
+  }
+  if (!branch) {
+    const meta = await gitFetch(gitApi(r.platform, r.owner, r.name, ''), {}, r.token, r.platform);
+    if (!meta.ok) return { error: '仓库不存在或令牌无权限 HTTP ' + meta.status };
+    branch = (await meta.json()).default_branch || '';
+  }
+  const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/git/trees/' + encodeURIComponent(branch) + '?recursive=1'), {}, r.token, r.platform);
+  if (!resp.ok) return { error: '读取仓库树失败 HTTP ' + resp.status };
+  const j = await resp.json();
+  return { files: (j.tree || []).filter(t => t.type === 'blob').map(t => ({ path: t.path, sha: t.sha })) };
+}
+async function gitFetchFileContent(r, path, ref) {
+  const p = String(path || '').replace(/^\/+/, '');
+  const br = ref || r.branch;
+  const q = br ? '?ref=' + encodeURIComponent(br) : '';
+  if (r.platform === 'gitlab') {
+    const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/repository/files/' + encodeURIComponent(p) + q), {}, r.token, r.platform);
+    if (!resp.ok) return { error: '读取失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 160) };
+    const j = await resp.json();
+    return { content: b64ToUtf8(j.content || '') };
+  }
+  const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/contents/' + p.split('/').map(encodeURIComponent).join('/') + q), {}, r.token, r.platform);
+  if (!resp.ok) return { error: '读取失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 160) };
+  const j = await resp.json();
+  if (Array.isArray(j)) return { error: p + ' 是目录，请用 git_list' };
+  if (j.content) return { content: b64ToUtf8(j.content) };
+  return { error: '无法获取 ' + p + ' 的内容' };
+}
+// actions: [{ action:'create'|'update'|'delete', path, content }]
+async function gitCommit(r, branch, message, actions) {
+  const br = branch || r.branch;
+  const msg = message || 'update via agent';
+  if (r.platform === 'gitee') {
+    const acts = actions.map(a => {
+      const o = { action: a.action, path: a.path };
+      if (a.action !== 'delete') { o.content = utf8ToB64(String(a.content == null ? '' : a.content)); o.encoding = 'base64'; }
+      return o;
+    });
+    const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/commits'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token: r.token, branch: br || 'master', message: msg, actions: acts })
+    }, r.token, r.platform);
+    if (!resp.ok) return { error: '提交失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 200) };
+    return { ok: true, count: acts.length };
+  }
+  if (r.platform === 'gitlab') {
+    const acts = actions.map(a => {
+      const o = { action: a.action === 'delete' ? 'delete' : a.action, file_path: a.path };
+      if (a.action !== 'delete') o.content = String(a.content == null ? '' : a.content);
+      return o;
+    });
+    const resp = await gitFetch(gitApi(r.platform, r.owner, r.name, '/repository/commits'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch: br || 'main', commit_message: msg, actions: acts })
+    }, r.token, r.platform);
+    if (!resp.ok) return { error: '提交失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 200) };
+    return { ok: true, count: acts.length };
+  }
+  // GitHub：无多文件原子提交的简单通路，逐个文件走 Contents API
+  const done = [];
+  for (const a of actions) {
+    const p = String(a.path || '').replace(/^\/+/, '');
+    const url = gitApi(r.platform, r.owner, r.name, '/contents/' + p.split('/').map(encodeURIComponent).join('/'));
+    let sha = null;
+    const ex = await gitFetch(url + (br ? '?ref=' + encodeURIComponent(br) : ''), {}, r.token, r.platform);
+    if (ex.ok) { try { const j = await ex.json(); if (j && j.sha) sha = j.sha; } catch (e) {} }
+    if (a.action === 'delete') {
+      if (!sha) { done.push(p + '（原本不存在，跳过）'); continue; }
+      const resp = await gitFetch(url, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg, sha, branch: br }) }, r.token, r.platform);
+      if (!resp.ok) return { error: '删除 ' + p + ' 失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 200) };
+    } else {
+      const body = { message: msg, content: utf8ToB64(String(a.content == null ? '' : a.content)) };
+      if (br) body.branch = br;
+      if (sha) body.sha = sha;
+      const resp = await gitFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, r.token, r.platform);
+      if (!resp.ok) return { error: '写入 ' + p + ' 失败 HTTP ' + resp.status + '：' + (await resp.text()).slice(0, 200) };
+    }
+    done.push(p);
+  }
+  return { ok: true, count: done.length, done };
+}
+async function toolGitList(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  const t = await gitTree(r, args.ref);
+  if (t.error) return '错误：' + t.error;
+  const prefix = String(args.path || '/').replace(/^\/+/, '').replace(/\/?$/, '/').replace(/^\/$/, '');
+  const dirs = new Set();
+  const files = [];
+  for (const f of t.files) {
+    if (prefix && !f.path.startsWith(prefix)) continue;
+    const rel = prefix ? f.path.slice(prefix.length) : f.path;
+    if (!rel) continue;
+    const seg = rel.split('/');
+    if (seg.length > 1) dirs.add(seg[0] + '/');
+    else files.push(f.path);
+  }
+  const lines = [];
+  Array.from(dirs).sort().forEach(d => lines.push('[目录] ' + prefix + d));
+  files.sort().forEach(f => lines.push('[文件] ' + f));
+  return '仓库 ' + r.repo + '（' + r.platform + '）' + (prefix ? ' 目录 ' + prefix : ' 根目录') + ' 共 ' + lines.length + ' 项：\n' + (lines.slice(0, 200).join('\n') || '(空)');
+}
+async function toolGitRead(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  if (!args.path) return '错误：path 不能为空';
+  const f = await gitFetchFileContent(r, args.path, args.ref);
+  if (f.error) return '错误：' + f.error;
+  const text = String(f.content || '');
+  const sl = Math.max(1, parseInt(args.start_line) || 1);
+  const el = args.end_line != null ? Math.max(sl, parseInt(args.end_line) || sl) : null;
+  if (el || sl > 1) {
+    const lines = text.split('\n');
+    const seg = lines.slice(sl - 1, el || lines.length);
+    return '文件：' + args.path + '（第 ' + sl + '-' + (el || lines.length) + ' 行）\n```\n' + withLineNumbers(seg.join('\n'), sl) + '\n```';
+  }
+  const pruned = pruneToolResult(text, { thresholdChars: MAX_READ, headChars: Math.floor(MAX_READ * 0.8), tailChars: Math.floor(MAX_READ * 0.2) });
+  return '文件：' + args.path + '\n```\n' + pruned + '\n```';
+}
+async function toolGitWrite(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  if (!args.path) return '错误：path 不能为空';
+  if (args.content === undefined) return '错误：content 不能为空';
+  const exists = await gitFetchFileContent(r, args.path, args.ref);
+  const action = exists.error ? 'create' : 'update';
+  const res = await gitCommit(r, args.ref, args.message, [{ action, path: args.path, content: String(args.content) }]);
+  if (res.error) return '错误：' + res.error;
+  return '✅ 已' + (action === 'create' ? '创建' : '更新') + ' ' + args.path + '（' + r.platform + ' ' + r.repo + '）';
+}
+async function toolGitDelete(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  if (!args.path) return '错误：path 不能为空';
+  const res = await gitCommit(r, args.ref, args.message, [{ action: 'delete', path: args.path }]);
+  if (res.error) return '错误：' + res.error;
+  return '✅ 已删除 ' + args.path + '（' + r.platform + ' ' + r.repo + '）';
+}
+async function toolGitCommitBatch(args) {
+  const r = await gitResolve(args);
+  if (r.error) return '错误：' + r.error;
+  const acts = Array.isArray(args.actions) ? args.actions : [];
+  if (!acts.length) return '错误：actions 不能为空';
+  const mapped = [];
+  for (const a of acts) {
+    const p = String((a && a.path) || '').replace(/^\/+/, '');
+    if (!p) return '错误：actions 里存在空 path';
+    let action = a.action === 'delete' ? 'delete' : (a.action === 'create' ? 'create' : 'update');
+    if (action !== 'delete' && a.action !== 'create' && a.action !== 'update') {
+      const ex = await gitFetchFileContent(r, p, args.ref);
+      action = ex.error ? 'create' : 'update';
+    }
+    mapped.push({ action, path: p, content: a.content });
+  }
+  const res = await gitCommit(r, args.ref, args.message, mapped);
+  if (res.error) return '错误：' + res.error;
+  return '✅ 已提交 ' + res.count + ' 个变更到 ' + r.platform + ' ' + r.repo + '\n' + mapped.map(a => '  ' + a.action + ' ' + a.path).join('\n');
 }
 async function uploadGitee() {
   const { repo, sub } = giteeParts();
@@ -7177,7 +7866,7 @@ function getChatBudget() {
   else if (m.includes('16k')) ctx = 16000;
   else if (m.includes('8k')) ctx = 8000;
   else if (m.includes('128k') || m.includes('deepseek') || m.includes('glm') || m.includes('qwen') || m.includes('gpt-4o') || m.includes('kimi')) ctx = 128000;
-  return Math.floor(ctx * 0.6 * 1.5 * contextBudgetScale);  // 中文约 1.5 字符/token（第一批）
+  return Math.floor(ctx * 0.6 * contextBudgetScale);  // 单位：token（estMsgsTokens 用 estimateTokens 估算）
 }
 // 判定 LLM 请求错误是否为"上下文窗口超限"（HTTP 400/413 + context/token 关键词）
 function isContextOverflowError(err) {
@@ -8470,6 +9159,9 @@ async function agentLoop() {
         if (chatAbort && chatAbort.signal.aborted) return { tc, result: '已停止' };
         let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch (e) {}
         const card = addToolCard(tc.function.name, args);
+        // 出队真正开始执行时才置为「执行中…」（之前可能一直在队列里排队）
+        const preStatusEl = card.querySelector('.tool-status');
+        if (preStatusEl) preStatusEl.textContent = '执行中…';
         let livePre = null;
         try {
           const result = await executeTool(tc.function.name, args, (chunk) => {
@@ -8652,7 +9344,7 @@ async function sendMessage() {
   const imagesToSend = pendingImages.slice();
   const useVision = hasImages && modelSupportsVision();
   let fullText = text;
-  // 超长纯文本自动转存（开关可关）：>10000 字符存 /pastes/，输入框留 [文件附件] 标记
+  // 超长纯文本自动转存（开关可关）：>10000 字符存 /pastes/，输入框留 [ref:/pastes/xxx.txt] 闭合标记
   if (text && text.length > PASTE_LONG_LIMIT && cfg.autoPasteLong !== false) fullText = await stashLongInput(text);
   let contentValue;
   if (useVision) {
@@ -8850,7 +9542,7 @@ function refreshModelSuggestions(provider) {
   const models = (AI_PROVIDERS[provider] || {}).models || [];
   for (const m of models) { const o = document.createElement('option'); o.value = m; dl.appendChild(o); }
 }
-function openSettings() {
+async function openSettings() {
   try {
     refreshModelSuggestions(detectProvider(cfg.baseUrl));
     $('cfgBaseUrl').value = cfg.baseUrl || ''; $('cfgApiKey').value = cfg.apiKey || '';
@@ -8875,6 +9567,12 @@ function openSettings() {
     $('cfgWdPath').value = cfg.wdPath || '/apps/agent_vfs/backup.json';
     $('cfgGiteeRepo').value = cfg.giteeRepo || ''; $('cfgGiteeToken').value = cfg.giteeToken || '';
     $('cfgGiteePath').value = cfg.giteePath || '';
+    { const gc = await loadGitConfig(true);
+      const gp = $('cfgGitPlatform'); if (gp) gp.value = gc.platform || 'github';
+      const gr = $('cfgGitRepo'); if (gr) gr.value = gc.repo || '';
+      const gt = $('cfgGitToken'); if (gt) gt.value = gc.token || '';
+      const gb = $('cfgGitBranch'); if (gb) gb.value = gc.branch || '';
+    }
     $('cfgGistToken').value = cfg.gistToken || ''; $('cfgGistId').value = cfg.gistId || '';
     $('cfgGistFilename').value = cfg.gistFilename || 'vfs-backup.json';
     $('cfgAutoSync').value = Number(cfg.autoSyncMinutes) || 0;
@@ -8975,7 +9673,8 @@ async function stashLongInput(text) {
     await VFS.writeFile(path, text);
     await refreshFS();
     toast('输入超长已自动转存：' + path);
-    return '[文件附件: ' + path + ']';
+    // 闭合形式：AI 看到 [ref:path]，需要内容时用 read_file 或 [ref:] 占位符展开；UI 渲染时展开成文件卡片
+    return '[ref:' + path + ']';
   } catch (e) { return text; }
 }
 
@@ -9293,6 +9992,23 @@ function bindEvents() {
     cfg.giteeRepo = $('cfgGiteeRepo').value.trim().replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '');
     cfg.giteeToken = $('cfgGiteeToken').value.trim();
     cfg.giteePath = $('cfgGiteePath').value.trim().replace(/^\//, '').replace(/\/+$/, '');
+    // Git 仓库配置存到 /config/git.json（不进 cfg，避免和 Gitee 同步配置混淆）
+    {
+      const gp = $('cfgGitPlatform'), gr = $('cfgGitRepo'), gt = $('cfgGitToken'), gb = $('cfgGitBranch');
+      const gitConfig = {
+        platform: (gp && gp.value) || 'github',
+        repo: ((gr && gr.value) || '').trim().replace(/^https?:\/\/[^/]+\//, '').replace(/\.git$/i, '').replace(/^\/+/, '').replace(/\/+$/, ''),
+        token: ((gt && gt.value) || '').trim(),
+        branch: ((gb && gb.value) || '').trim()
+      };
+      try {
+        const old = JSON.stringify(await loadGitConfig()) || '';
+        if (old !== JSON.stringify(gitConfig)) {
+          await VFS.writeFile(GIT_CONFIG_PATH, JSON.stringify(gitConfig, null, 2));
+          gitCfgCache = gitConfig;
+        }
+      } catch (e) { console.warn('[git config] 保存失败', e); }
+    }
     if (/\.json$/i.test(cfg.giteePath)) { cfg.giteePath = ''; toast('仓库子目录不能是文件路径（如 vfs-backup.json），已改为仓库根目录', 'err'); }
     cfg.gistToken = $('cfgGistToken').value.trim(); cfg.gistId = $('cfgGistId').value.trim();
     cfg.gistFilename = $('cfgGistFilename').value.trim() || 'vfs-backup.json';
