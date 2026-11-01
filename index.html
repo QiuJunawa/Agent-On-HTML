@@ -1966,8 +1966,21 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.01.6';
+const APP_VERSION = '2026.11.01.7';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.01.7',
+    date: '2026-11-01',
+    title: '修复切换对话后对话区整屏空白',
+    items: [
+      '根因：renderConversation 用到了 AUTO_FULL_LIMIT / TOP_SPACER_MAX / AUTO_LOAD_EDGE 三个常量，但只在更新日志的文字里写过，代码里从未定义 → 切到有内容的对话时抛 ReferenceError，messagesEl 已被清空，于是整屏变白（空对话走欢迎页分支，提前 return，所以欢迎页正常）',
+      '补齐三个常量：AUTO_FULL_LIMIT=200、TOP_SPACER_MAX=480、AUTO_LOAD_EDGE=300（与日志描述的设计值一致）',
+      'renderConversation 开头加 Array.isArray 兜底：会话缺 conversation 字段时按空数组处理，不再整屏报错',
+      'switchSession 切会话时同样兜底 conversation 字段，避免旧数据/云端合并来的会话没有该字段',
+      'renderMsgRange 渲染包 try/catch：单条消息渲染异常只跳过，不再让整屏清空后中断',
+      '注意：切换会话会清空 DOM，若渲染中途报错就会看到白屏，这类问题以后统一按「先兜底再渲染」处理'
+    ]
+  },
   {
     v: '2026.11.01.6',
     date: '2026-11-01',
@@ -6827,6 +6840,7 @@ function switchSession(id) {
     }
   }
   currentSessionId = id;
+  if (!Array.isArray(s.conversation)) s.conversation = [];   // 防御：旧数据/云端合并可能没有 conversation 字段
   conversation = s.conversation;
   currentTitle = s.title || '';
   sessionFile = s.mdFile || null;   // 恢复会话对应的存档路径（跨设备后仍能继续归档到同一文件）
@@ -6870,6 +6884,9 @@ function cloneSession(id) {
 const WINDOW_SIZE = 80;    // 滑动窗口大小：始终只渲染这么多条消息
 const WINDOW_STEP = 40;    // 滚动时窗口移动步长
 const EST_MSG_HEIGHT = 120; // 单条消息估算高度（用于占位）
+const AUTO_FULL_LIMIT = 200;  // 消息数不超过这个值 → 直接全量渲染，不出现「加载更早」
+const TOP_SPACER_MAX = 480;   // 顶部/底部占位块的最大像素高度
+const AUTO_LOAD_EDGE = 300;   // 距离上下边缘多少像素触发自动翻页
 let windowStart = 0;       // 当前窗口起始索引
 let winMoving = false;     // 窗口移动锁，防止重复触发
 let winScrollBound = false; // scroll 监听器是否已绑定
@@ -6968,6 +6985,7 @@ function hideWelcomeScreen() {
 const SPACER_BTN_CSS = 'padding:6px 16px;background:#1a2030;border:1px solid #2d3748;border-radius:16px;color:#7d8798;font-size:12px;cursor:pointer;';
 // keep：翻页时传入 { keepScrollTop, prevSpacerH }，渲染后按实际占位高度校正滚动位置
 function renderConversation(keep) {
+  if (!Array.isArray(conversation)) conversation = [];   // 防御：会话缺 conversation 字段时不整屏报错
   messagesEl.innerHTML = '';
   if (conversation.length === 0) {
     showWelcomeScreen();
@@ -6978,7 +6996,7 @@ function renderConversation(keep) {
   // 消息数不多：直接全量渲染，不需要任何“加载更早/更新”的交互
   if (total <= AUTO_FULL_LIMIT) {
     windowStart = 0;
-    renderMsgRange(0, total);
+    try { renderMsgRange(0, total); } catch (e) { console.warn('渲染消息失败', e); }
     if (keep) messagesEl.scrollTop = Math.max(0, keep.keepScrollTop - keep.prevSpacerH);
     else scrollBottom();
     scheduleThumbUpdate();
@@ -7013,7 +7031,7 @@ function renderConversation(keep) {
     messagesEl.appendChild(topSpacer);
   }
   // 渲染窗口内的消息
-  renderMsgRange(windowStart, winEnd);
+  try { renderMsgRange(windowStart, winEnd); } catch (e) { console.warn('渲染消息失败', e); }
   // 底部空白占位（窗口外的更新消息，通常为 0）
   const bottomCount = total - winEnd;
   if (bottomCount > 0) {
