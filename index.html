@@ -714,6 +714,7 @@
       <button class="ghost-btn" id="btnClear" type="button">清空对话</button>
       <button class="ghost-btn" id="btnToggleSidebar" type="button">隐藏侧栏</button>
       <button class="ghost-btn" id="btnTogglePreview" type="button">隐藏预览</button>
+      <button class="ghost-btn" id="btnDebug" type="button" title="查看发出去的请求上下文">🐞 调试</button>
       <button class="ghost-btn" id="btnSettings" type="button"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> 设置</button>
       <div class="session-list" id="sessionList" style="display:none"></div>
     </header>
@@ -1211,6 +1212,23 @@
   </div>
 </div>
 
+<!-- 请求上下文调试窗口 -->
+<div class="modal" id="debugModal" style="z-index:3100">
+  <div class="modal-box" style="width:min(1100px,94vw);height:min(780px,88vh);display:flex;flex-direction:column;overflow:hidden;padding:0">
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)">
+      <h2 style="margin:0;font-size:15px">🐞 请求上下文调试</h2>
+      <span id="debugCount" style="font-size:12px;color:var(--text-muted)"></span>
+      <div style="flex:1"></div>
+      <button class="ghost-btn" id="btnDebugClear" type="button">清空记录</button>
+      <button class="ghost-btn" id="btnDebugClose" type="button">关闭</button>
+    </div>
+    <div style="display:flex;flex:1;min-height:0">
+      <div id="debugList" style="width:280px;flex:0 0 280px;border-right:1px solid var(--border);overflow-y:auto"></div>
+      <div id="debugDetail" style="flex:1;min-width:0;overflow-y:auto;padding:14px 18px"></div>
+    </div>
+  </div>
+</div>
+
 <!-- 自定义确认弹窗 -->
 <div class="modal" id="confirmModal" style="z-index:3000">
   <div class="modal-box" style="width:420px">
@@ -1438,6 +1456,158 @@ function toastProgress(msg, opts) {
       setTimeout(() => t.remove(), 300);
     }
   };
+}
+
+function openDebugModal() {
+  const m = $('debugModal');
+  if (!m) return;
+  if (!debugSelectedId && debugLog.length) debugSelectedId = debugLog[0].id;
+  renderDebugModal();
+  m.classList.add('open');
+}
+
+function renderDebugModal() {
+  const listEl = $('debugList');
+  const detailEl = $('debugDetail');
+  const countEl = $('debugCount');
+  if (!listEl || !detailEl) return;
+  if (countEl) countEl.textContent = '共 ' + debugLog.length + ' 条（最多保留 ' + DEBUG_LOG_MAX + ' 条，仅内存）';
+
+  // 左侧列表
+  listEl.innerHTML = '';
+  if (!debugLog.length) {
+    listEl.innerHTML = '<div style="padding:20px;color:var(--text-muted);font-size:12px;text-align:center">暂无请求记录</div>';
+  } else {
+    for (const rec of debugLog) {
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;line-height:1.5;' +
+        (rec.id === debugSelectedId ? 'background:var(--bg-active)' : '');
+      const t = new Date(rec.ts);
+      const timeStr = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0') + ':' + String(t.getSeconds()).padStart(2, '0');
+      const msgCount = rec.payload && Array.isArray(rec.payload.messages) ? rec.payload.messages.length : 0;
+      const tokEst = rec.payload && Array.isArray(rec.payload.messages) ? estimateTokens(JSON.stringify(rec.payload.messages)) : 0;
+      const statusColor = rec.status === 'ok' ? 'var(--text-success)' : rec.status === 'error' ? 'var(--text-error)' : 'var(--text-muted)';
+      row.innerHTML =
+        '<div style="display:flex;justify-content:space-between;gap:6px">' +
+          '<span style="color:var(--accent);font-weight:600">' + escapeHtml(rec.source) + '</span>' +
+          '<span style="color:' + statusColor + '">' + escapeHtml(rec.status) + '</span>' +
+        '</div>' +
+        '<div style="color:var(--text-secondary)">' + escapeHtml(rec.model || '') + '</div>' +
+        '<div style="color:var(--text-muted)">' + timeStr + ' · ' + msgCount + ' 条 · ~' + tokEst + ' tok' + (rec.duration != null ? ' · ' + rec.duration + 'ms' : '') + '</div>';
+      row.addEventListener('click', () => { debugSelectedId = rec.id; renderDebugModal(); });
+      listEl.appendChild(row);
+    }
+  }
+
+  // 右侧详情
+  const rec = debugLog.find(r => r.id === debugSelectedId);
+  if (!rec) {
+    detailEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px">选择左侧一条记录查看详情</div>';
+    return;
+  }
+  detailEl.innerHTML = formatPayloadForDisplay(rec);
+  // 绑定复制按钮
+  detailEl.querySelectorAll('[data-copy]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const text = btn.dataset.copy === 'payload' ? JSON.stringify(rec.payload, null, 2) : String(rec.response || '');
+      copyTextToClipboard(text);
+    });
+  });
+  // 绑定 message 折叠
+  detailEl.querySelectorAll('details').forEach(d => {
+    d.addEventListener('toggle', () => {
+      const pre = d.querySelector('pre');
+      if (pre && d.open && !pre.dataset.filled) {
+        pre.textContent = pre.dataset.full || '';
+        pre.dataset.filled = '1';
+      }
+    });
+  });
+}
+
+function formatPayloadForDisplay(rec) {
+  const parts = [];
+  const t = new Date(rec.ts);
+  parts.push('<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">' +
+    t.toLocaleString('zh-CN') + ' · source=' + escapeHtml(rec.source) +
+    (rec.roundId ? ' · round=' + escapeHtml(rec.roundId) : '') +
+    (rec.duration != null ? ' · 耗时 ' + rec.duration + 'ms' : '') +
+    ' · status=' + escapeHtml(rec.status) + '</div>');
+
+  // 请求 payload 其他字段（非 messages/tools）
+  if (rec.payload) {
+    const others = {};
+    for (const k of Object.keys(rec.payload)) {
+      if (k === 'messages' || k === 'tools') continue;
+      others[k] = rec.payload[k];
+    }
+    if (Object.keys(others).length) {
+      parts.push('<div style="font-size:12px;color:var(--text-secondary);margin:8px 0 4px">请求参数（非 messages/tools）</div>');
+      parts.push('<pre style="background:var(--bg-deep);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:11.5px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow:auto">' + escapeHtml(JSON.stringify(others, null, 2)) + '</pre>');
+    }
+
+    // messages 逐条渲染
+    if (Array.isArray(rec.payload.messages)) {
+      parts.push('<div style="font-size:12px;color:var(--text-secondary);margin:12px 0 4px">messages（共 ' + rec.payload.messages.length + ' 条）</div>');
+      rec.payload.messages.forEach((m, i) => {
+        let contentText;
+        if (Array.isArray(m.content)) {
+          contentText = m.content.map(p => {
+            if (p && p.type === 'text') return p.text || '';
+            if (p && p.type === 'image_url') return '[image_url: ' + String((p.image_url && p.image_url.url) || '').slice(0, 80) + '…]';
+            return '[' + (p && p.type || '?') + ']';
+          }).join('\n');
+        } else {
+          contentText = String(m.content == null ? '' : m.content);
+        }
+        const preview = contentText.slice(0, 200).replace(/\s+/g, ' ');
+        const toolInfo = Array.isArray(m.tool_calls) && m.tool_calls.length
+          ? ' · tool_calls=[' + m.tool_calls.map(tc => (tc.function && tc.function.name) || '?').join(', ') + ']'
+          : '';
+        const rcInfo = m.reasoning_content ? ' · reasoning=' + String(m.reasoning_content).length + '字符' : '';
+        const roleColor = m.role === 'system' ? 'var(--text-warning)' : m.role === 'user' ? 'var(--text-link)' : m.role === 'tool' ? 'var(--text-success)' : 'var(--text-primary)';
+        parts.push('<details style="margin:4px 0;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--bg-panel)">');
+        parts.push('<summary style="cursor:pointer;font-size:12px;color:' + roleColor + '">#' + (i + 1) + ' ' + escapeHtml(m.role || '?') +
+          (m.name ? ' (' + escapeHtml(m.name) + ')' : '') +
+          (m.tool_call_id ? ' [' + escapeHtml(m.tool_call_id) + ']' : '') +
+          toolInfo + rcInfo + ' · ' + contentText.length + '字符</summary>');
+        parts.push('<div style="font-size:11.5px;color:var(--text-muted);margin-top:4px">' + escapeHtml(preview) + (contentText.length > 200 ? '…' : '') + '</div>');
+        parts.push('<pre data-full="' + escapeHtml(contentText) + '" style="margin:6px 0 0;background:var(--bg-deep);border-radius:4px;padding:8px;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow:auto"></pre>');
+        parts.push('</details>');
+      });
+    }
+
+    // tools 定义
+    if (Array.isArray(rec.payload.tools) && rec.payload.tools.length) {
+      parts.push('<details style="margin:12px 0 4px">');
+      parts.push('<summary style="cursor:pointer;font-size:12px;color:var(--text-secondary)">tools 定义（共 ' + rec.payload.tools.length + ' 个）</summary>');
+      parts.push('<pre style="background:var(--bg-deep);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;white-space:pre-wrap;max-height:300px;overflow:auto">' + escapeHtml(JSON.stringify(rec.payload.tools.map(t => ({ name: t.function && t.function.name, description: (t.function && t.function.description || '').slice(0, 100) })), null, 2)) + '</pre>');
+      parts.push('</details>');
+    }
+  }
+
+  // 响应
+  if (rec.response) {
+    parts.push('<div style="font-size:12px;color:var(--text-secondary);margin:12px 0 4px">响应（' + rec.response.length + ' 字符）</div>');
+    parts.push('<details><summary style="cursor:pointer;font-size:12px;color:var(--text-link)">展开查看</summary>');
+    parts.push('<pre data-full="' + escapeHtml(rec.response) + '" style="margin:6px 0 0;background:var(--bg-deep);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow:auto"></pre></details>');
+  }
+  if (rec.usage) {
+    parts.push('<div style="font-size:12px;color:var(--text-secondary);margin:8px 0 4px">usage</div>');
+    parts.push('<pre style="background:var(--bg-deep);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px">' + escapeHtml(JSON.stringify(rec.usage, null, 2)) + '</pre>');
+  }
+  if (rec.error) {
+    parts.push('<div style="font-size:12px;color:var(--text-error);margin:8px 0 4px">错误</div>');
+    parts.push('<pre style="background:var(--bg-deep);border:1px solid var(--bg-error);border-radius:6px;padding:8px;font-size:11px;color:var(--text-error);white-space:pre-wrap">' + escapeHtml(rec.error) + '</pre>');
+  }
+
+  // 复制按钮
+  parts.push('<div style="margin-top:14px;display:flex;gap:8px">');
+  parts.push('<button class="ghost-btn" data-copy="payload" type="button">复制完整请求 JSON</button>');
+  if (rec.response) parts.push('<button class="ghost-btn" data-copy="response" type="button">复制响应</button>');
+  parts.push('</div>');
+
+  return parts.join('');
 }
 
 // 自定义确认弹窗（替代原生 confirm），支持"本次会话不再询问"
@@ -3042,6 +3212,7 @@ async function toolWebSearch(args) {
       lines.push('');
     });
     const output = lines.join('\n');
+    _dbg.status = 'ok'; _dbg.response = output.slice(0, 5000); _dbg.duration = Date.now() - _dbgStart;
     if (output.length > 8000) {
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const savePath = '/tmp/search_' + ts + '.txt';
@@ -3069,22 +3240,27 @@ async function toolWebFetch(args) {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 30000);
+    const _wfPayload = { url };
+    const _dbg = recordDebug({ source: 'web_fetch', payload: { model: '(deepseek-fetch)', messages: [{ role: 'user', content: url }], _raw: _wfPayload }, streaming: false });
+    const _dbgStart = Date.now();
     const resp = await fetch('https://api.deepseek.com/v1/tools/fetch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + searchKey },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify(_wfPayload),
       signal: ctrl.signal
     });
     clearTimeout(timer);
     if (!resp.ok) {
       const errText = await resp.text().catch(() => '');
+      _dbg.status = 'error'; _dbg.error = 'HTTP ' + resp.status + ' ' + errText.slice(0, 200); _dbg.duration = Date.now() - _dbgStart;
       return '抓取失败：HTTP ' + resp.status + ' ' + errText.slice(0, 200);
     }
     const data = await resp.json();
     const title = data.title || '';
     const content = data.content || '';
-    if (!content.trim()) return '抓取完成，但页面无可提取的 Markdown 正文（不计费）。';
+    if (!content.trim()) { _dbg.status = 'ok'; _dbg.response = '(页面无可提取正文)'; _dbg.duration = Date.now() - _dbgStart; return '抓取完成，但页面无可提取的 Markdown 正文（不计费）。'; }
     const output = (title ? '# ' + title + '\n\n' : '') + content;
+    _dbg.status = 'ok'; _dbg.response = output.slice(0, 5000); _dbg.duration = Date.now() - _dbgStart;
     if (output.length > 8000) {
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const savePath = '/tmp/fetch_' + ts + '.md';
@@ -3165,21 +3341,28 @@ async function toolRouteAi(args, onChunk) {
     let b = String(target.baseUrl || '').trim().replace(/\/+$/, '');
     if (!b) throw new Error('目标预设缺少 Base URL');
     if (!/\/chat\/completions$/.test(b)) { if (!/\/v\d+[a-z0-9]*$/i.test(b)) b += '/v1'; b += '/chat/completions'; }
+    const _routePayload = {
+      model: target.model || 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: '你是被请求协助的 AI 助手，请直接、完整地回答下面的问题。' },
+        { role: 'user', content: query }
+      ],
+      temperature: typeof target.temperature === 'number' ? target.temperature : 0.3,
+      stream: true
+    };
+    const _dbg = recordDebug({ source: 'route_ai', payload: _routePayload, streaming: true });
+    const _dbgStart = Date.now();
     const resp = await fetch(b, {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        model: target.model || 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: '你是被请求协助的 AI 助手，请直接、完整地回答下面的问题。' },
-          { role: 'user', content: query }
-        ],
-        temperature: typeof target.temperature === 'number' ? target.temperature : 0.3,
-        stream: true
-      }),
+      body: JSON.stringify(_routePayload),
       signal: ctrl.signal
     });
-    if (!resp.ok) return '其他 AI 返回错误：HTTP ' + resp.status + ' ' + (await resp.text()).slice(0, 200);
+    if (!resp.ok) {
+      const _errBody = (await resp.text()).slice(0, 200);
+      _dbg.status = 'error'; _dbg.error = 'HTTP ' + resp.status + ' ' + _errBody; _dbg.duration = Date.now() - _dbgStart;
+      return '其他 AI 返回错误：HTTP ' + resp.status + ' ' + _errBody;
+    }
     // 流式 SSE 解析，持续累积输出；每次收到数据重置空闲计时
     const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
     let out = '';
@@ -3214,10 +3397,12 @@ async function toolRouteAi(args, onChunk) {
       out = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
     }
     clearTimeout(idleTimer);
-    if (!String(out).trim()) return '其他 AI 返回了空内容';
+    if (!String(out).trim()) { _dbg.status = 'error'; _dbg.error = '其他 AI 返回了空内容'; _dbg.duration = Date.now() - _dbgStart; return '其他 AI 返回了空内容'; }
+    _dbg.status = 'ok'; _dbg.response = out; _dbg.duration = Date.now() - _dbgStart;
     return '【' + tname + ' 的回答】\n' + truncateToolResult(out);
   } catch (e) {
     clearTimeout(idleTimer);
+    if (typeof _dbg !== 'undefined' && _dbg) { _dbg.status = 'error'; _dbg.error = String(e && e.message || e); if (_dbg.duration == null) _dbg.duration = Date.now() - _dbgStart; }
     if (e.name === 'AbortError') return '其他 AI 连续 30 秒无输出，已超时（对方可能已断开或思考过久）';
     return '路由失败：' + e.message;
   }
@@ -4207,17 +4392,20 @@ async function describeImage(path, prompt) {
     stream: false,
     temperature: 0.3
   };
+  const _dbg = recordDebug({ source: 'describe_image', payload, streaming: false });
+  const _dbgStart = Date.now();
   let resp;
   try { resp = await fetch(buildEndpoint(), { method: 'POST', headers, body: JSON.stringify(payload) }); }
-  catch (e) { return '请求失败：' + e.message; }
-  if (!resp.ok) { let d = ''; try { d = await resp.text(); } catch (e) {} return 'API 返回 ' + resp.status + ' ' + resp.statusText + '\n' + d.slice(0, 500); }
+  catch (e) { _dbg.status = 'error'; _dbg.error = String(e && e.message || e); _dbg.duration = Date.now() - _dbgStart; return '请求失败：' + e.message; }
+  if (!resp.ok) { let d = ''; try { d = await resp.text(); } catch (e) {} _dbg.status = 'error'; _dbg.error = 'HTTP ' + resp.status + ' ' + d.slice(0, 500); _dbg.duration = Date.now() - _dbgStart; return 'API 返回 ' + resp.status + ' ' + resp.statusText + '\n' + d.slice(0, 500); }
   try {
     const j = await resp.json();
-    if (j.error) return 'API 错误：' + (j.error.message || JSON.stringify(j.error));
+    if (j.error) { _dbg.status = 'error'; _dbg.error = String(j.error.message || JSON.stringify(j.error)); _dbg.duration = Date.now() - _dbgStart; return 'API 错误：' + (j.error.message || JSON.stringify(j.error)); }
     const text = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-    if (!text) return '模型未返回描述（可能当前模型不支持视觉输入，或该图片格式不被支持）。';
+    if (!text) { _dbg.status = 'error'; _dbg.error = '模型未返回描述'; _dbg.duration = Date.now() - _dbgStart; return '模型未返回描述（可能当前模型不支持视觉输入，或该图片格式不被支持）。'; }
+    _dbg.status = 'ok'; _dbg.response = text; _dbg.usage = j.usage || null; _dbg.duration = Date.now() - _dbgStart;
     return '图片 ' + p + ' 的描述：\n' + text;
-  } catch (e) { return '解析响应失败：' + e.message; }
+  } catch (e) { _dbg.status = 'error'; _dbg.error = '解析响应失败：' + e.message; _dbg.duration = Date.now() - _dbgStart; return '解析响应失败：' + e.message; }
 }
 
 /* =========================================================
@@ -6853,6 +7041,35 @@ function finishToolCard(el, ok, resultText) {
   scrollBottom();
 }
 
+/* ---------- 请求上下文调试（旁路记录器，仅内存） ---------- */
+const DEBUG_LOG_MAX = 50;
+const debugLog = [];   // [{ id, ts, roundId, source, model, payload, response, usage, duration, error, streaming, status }]
+let debugSelectedId = null;
+
+function recordDebug(entry) {
+  // 深拷贝 payload，避免 conversation 后续修改污染日志
+  let safePayload = null;
+  try { safePayload = entry.payload ? JSON.parse(JSON.stringify(entry.payload)) : null; }
+  catch (e) { safePayload = { __stringifyError: String(e && e.message || e) }; }
+  const rec = {
+    id: 'dbg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    ts: Date.now(),
+    roundId: entry.roundId || currentRoundId || '',
+    source: entry.source || 'chat',
+    model: (entry.payload && entry.payload.model) || cfg.model || '',
+    payload: safePayload,
+    response: '',
+    usage: null,
+    duration: null,
+    error: null,
+    streaming: !!entry.streaming,
+    status: 'pending'
+  };
+  debugLog.unshift(rec);
+  if (debugLog.length > DEBUG_LOG_MAX) debugLog.length = DEBUG_LOG_MAX;
+  return rec;
+}
+
 function buildEndpoint() {
   let b = String(cfg.baseUrl || '').trim().replace(/\/+$/, '');
   if (!b) throw new Error('请先在设置中填写 API Base URL');
@@ -7524,16 +7741,22 @@ async function streamChat() {
     payload.thinking = { type: 'enabled' };
   }   // 思考模式显式开关；不传则默认 high
 
+  const _dbg = recordDebug({ source: 'chat', payload, streaming: true, roundId: currentRoundId });
+  const _dbgStart = Date.now();
   let resp;
   const fetchCtrl = new AbortController();
   const fetchTimer = setTimeout(() => fetchCtrl.abort(), 120000);  // 单请求 2 分钟上限，防假死
   if (chatAbort) chatAbort.signal.addEventListener('abort', () => fetchCtrl.abort(), { once: true });
   try { resp = await fetch(buildEndpoint(), { method: 'POST', headers, body: JSON.stringify(payload), signal: fetchCtrl.signal }); }
-  catch (e) { clearTimeout(fetchTimer); msgEl.remove(); if (e.name === 'AbortError') throw new Error(chatAbort && chatAbort.signal.aborted ? '__STOPPED__' : '请求超时（2分钟无响应）'); throw new Error('网络请求失败：' + e.message); }
+  catch (e) {
+    _dbg.status = 'error'; _dbg.error = String(e && e.message || e); _dbg.duration = Date.now() - _dbgStart;
+    clearTimeout(fetchTimer); msgEl.remove(); if (e.name === 'AbortError') throw new Error(chatAbort && chatAbort.signal.aborted ? '__STOPPED__' : '请求超时（2分钟无响应）'); throw new Error('网络请求失败：' + e.message);
+  }
   clearTimeout(fetchTimer);
 
   if (!resp.ok) {
     let detail = ''; try { detail = await resp.text(); } catch (e) {}
+    _dbg.status = 'error'; _dbg.error = detail.slice(0, 2000); _dbg.duration = Date.now() - _dbgStart;
     msgEl.remove(); throw new Error(`API 返回 ${resp.status} ${resp.statusText}\n${detail.slice(0, 800)}`);
   }
   status('正在请求模型回复…');
@@ -7700,6 +7923,10 @@ async function streamChat() {
   }
   if (thinking || text) renderBubble();   // 结束前确保最终内容已渲染（含被 rAF 合并的尾部）
   scrollBottom();
+  _dbg.status = 'ok';
+  _dbg.response = text || '';
+  _dbg.usage = usage || null;
+  _dbg.duration = Date.now() - _dbgStart;
   return { content: text, toolCalls, usage, thinking };
 }
 
@@ -7740,6 +7967,8 @@ async function generateTitle(firstUserMsg) {
       stream: true
     };
     console.log('[generateTitle] 请求 →', buildEndpoint(), JSON.parse(JSON.stringify(reqBody)));
+    const _dbg = recordDebug({ source: 'title', payload: reqBody, streaming: true });
+    const _dbgStart = Date.now();
     const resp = await fetch(buildEndpoint(), {
       method: 'POST',
       headers,
@@ -7747,8 +7976,10 @@ async function generateTitle(firstUserMsg) {
       body: JSON.stringify(reqBody)
     });
     clearTimeout(timer);
+    _dbg.duration = Date.now() - _dbgStart;
     if (!resp.ok) {
       const errText = await resp.text().catch(() => '');
+      _dbg.status = 'error'; _dbg.error = 'HTTP ' + resp.status + ' ' + errText.slice(0, 500);
       toast('标题生成失败：HTTP ' + resp.status + (errText ? ' ' + errText.slice(0, 80) : ''), 'err');
       return;
     }
@@ -7789,6 +8020,7 @@ async function generateTitle(firstUserMsg) {
         if (l.length >= 2 && l.length <= 25 && !junk.test(l)) { title = l; break; }
       }
     }
+    _dbg.status = 'ok'; _dbg.response = title || ('[thinking] ' + thinking);
     title = title.trim().replace(/^["'「『]+|["'」』]+$/g, '').slice(0, 30);
     console.log('[generateTitle] 收到标题:', JSON.stringify(title));
     if (title) {
@@ -7802,6 +8034,7 @@ async function generateTitle(firstUserMsg) {
       toast('标题生成失败：API 返回空内容（完整响应已打印到 Console）', 'err');
     }
   } catch (e) {
+    if (typeof _dbg !== 'undefined' && _dbg) { _dbg.status = 'error'; _dbg.error = String(e && e.message || e); if (_dbg.duration == null) _dbg.duration = Date.now() - _dbgStart; }
     if (e && e.name === 'AbortError') toast('标题生成超时（20秒）', 'err');
     else toast('标题生成失败：' + (e && e.message ? e.message : e), 'err');
   }
@@ -8763,6 +8996,14 @@ function bindEvents() {
     });
   });
   on('btnSettings', 'click', (e) => { e.preventDefault(); e.stopPropagation(); openSettings(); });
+  on('btnDebug', 'click', () => openDebugModal());
+  on('btnDebugClose', 'click', () => $('debugModal').classList.remove('open'));
+  on('btnDebugClear', 'click', async () => {
+    if (!(await customConfirm('清空所有调试记录？（仅清空内存日志，不影响对话）', 'clear_debug_log'))) return;
+    debugLog.length = 0; debugSelectedId = null; renderDebugModal();
+  });
+  const dbgModal = $('debugModal');
+  if (dbgModal) dbgModal.addEventListener('click', (e) => { if (e.target === dbgModal) dbgModal.classList.remove('open'); });
   on('btnFeedback', 'click', () => { window.open('https://gitee.com/qiujunawa/ai-agent-on-html/issues', '_blank', 'noopener'); });
   document.querySelectorAll('.settings-nav-btn').forEach(t => t.addEventListener('click', () => switchSettingsTab(t.dataset.tab)));
   on('btnMemClear', 'click', async () => {
