@@ -746,10 +746,10 @@
         <button class="quote-cancel" type="button" id="btnQuoteCancel"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
       </div>
       <div class="input-row">
-        <button id="btnUploadFile" class="icon-btn" type="button" title="上传文件到 VFS 并在消息中引用" style="flex:0 0 auto;align-self:flex-end;margin-bottom:6px">📎</button>
+        <button id="btnUploadFile" class="icon-btn" type="button" title="上传文件到 VFS 并在消息中引用" style="flex:0 0 auto;align-self:flex-end;margin-bottom:6px"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg></button>
         <input type="file" id="fileInput" multiple style="display:none">
         <textarea id="input" rows="1" placeholder="给 AI 下达指令…（Enter 发送，Shift+Enter 换行，可直接粘贴图片）"></textarea>
-        <button id="btnStop" class="stop-btn" type="button" style="display:none" title="停止生成">⏹</button>
+        <button id="btnStop" class="stop-btn" type="button" style="display:none" title="停止生成"></button>
         <button id="btnSend" class="send-btn" type="button">发送</button>
       </div>
       <div class="token-bar"><span id="tokenInput">输入 0 tokens</span><span id="tokenContext">对话 0 tokens</span></div>
@@ -1754,8 +1754,20 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.10.26.1';
+const APP_VERSION = '2026.11.01.1';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.01.1',
+    date: '2026-11-01',
+    title: '补齐遗漏图标、修正重复的上传按钮图标',
+    items: [
+      '修复：侧栏「上传文件」按钮与「新建文件夹」按钮图标完全相同（都是一样的文件夹图形），现改为标准上传图标（向上箭头 + 托盘），title 明确写为「同名文件会覆盖」',
+      '补齐状态栏图标：底部文件统计的 🗄 / 📄 emoji 改为数据库图标与文件图标',
+      '补齐输入区图标：附件按钮 📎 改为回形针 SVG；停止按钮 ⏹ 改为方块 SVG，并同步修改运行时按钮文案的绘制方式（textContent → innerHTML）',
+      '清理所有提示文案中的 emoji 残留：停止生成提示、未配置 Key 的引导 toast（「⚙ 设置」改为「设置」）',
+      '新增 .stop-btn .ico-svg 尺寸样式，保证停止按钮内图标对齐',
+    ],
+  },
   {
     v: '2026.10.26.1',
     date: '2026-10-26',
@@ -4488,8 +4500,8 @@ function updateStat() {
   if (!el) return;
   const files = VFS.allFiles().length;
   const cacheInfo = `${VFS.cache.size}/${VFS.CACHE_MAX}`;
-  let line2 = `🗄 IndexedDB${memoryOnly ? '（已降级为内存）' : ''}`;
-  el.innerHTML = `📄 <b>${files}</b> 个文件 · 共 <b>${fmtSize(VFS.totalSize())}</b><br>${line2} · 缓存 <b>${cacheInfo}</b>`;
+  let line2 = `${icon('database')} IndexedDB${memoryOnly ? '（已降级为内存）' : ''}`;
+  el.innerHTML = `${icon('file')} <b>${files}</b> 个文件 · 共 <b>${fmtSize(VFS.totalSize())}</b><br>${line2} · 缓存 <b>${cacheInfo}</b>`;
   if (memoryOnly && memoryReason) el.title = 'IndexedDB 不可用：' + memoryReason + '\n（关闭页面后数据会丢失，请及时导出备份）';
 }
 
@@ -6469,7 +6481,7 @@ async function memRemember(userText, aiText) {
 function setStopBtn(on, busy) {
   const b = $('btnStop');
   if (!b) return;
-  if (on) { b.style.display = ''; b.disabled = !!busy; b.textContent = busy ? '停止中…' : '⏹ 停止'; }
+  if (on) { b.style.display = ''; b.disabled = !!busy; b.innerHTML = busy ? '停止中…' : icon('stop') + ' 停止'; }
   else { b.style.display = 'none'; b.disabled = false; }
 }
 
@@ -6738,9 +6750,9 @@ async function regenerateFrom(idx) {
   catch (e) {
     if (chatAbort && chatAbort.signal.aborted) {
       // 用户停止：按钮点击时已写过留痕，这里只在未留痕时补一条
-      if (!chatAbort._stopNoted) addErrorMsg('⏹ 用户手动停止。已执行的工具结果保留，可点「重新生成」继续。');
+      if (!chatAbort._stopNoted) addErrorMsg('用户手动停止。已执行的工具结果保留，可点「重新生成」继续。');
     } else if (e && e.message === '__STOPPED__') {
-      addErrorMsg('⏹ 生成被中断（可能是网络层断开或服务端主动关闭）。可点「重新生成」重试。');
+      addErrorMsg('生成被中断（可能是网络层断开或服务端主动关闭）。可点「重新生成」重试。');
     } else {
       addErrorMsg((e && e.message) || String(e));
     }
@@ -8309,9 +8321,9 @@ async function sendMessage() {
   try { await agentLoop(); }
   catch (e) {
     if (chatAbort && chatAbort.signal.aborted) {
-      if (!chatAbort._stopNoted) addErrorMsg('⏹ 用户手动停止。已执行的工具结果保留，可点「重新生成」继续。');
+      if (!chatAbort._stopNoted) addErrorMsg('用户手动停止。已执行的工具结果保留，可点「重新生成」继续。');
     } else if (e && e.message === '__STOPPED__') {
-      addErrorMsg('⏹ 生成被中断（可能是网络层断开或服务端主动关闭）。可点「重新生成」重试。');
+      addErrorMsg('生成被中断（可能是网络层断开或服务端主动关闭）。可点「重新生成」重试。');
     } else {
       addErrorMsg((e && e.message) || String(e));
     }
@@ -8720,7 +8732,7 @@ function bindEvents() {
       if (messagesEl && messagesEl.lastElementChild) {
         const tip = document.createElement('div');
         tip.className = 'msg error';
-        tip.innerHTML = '<div class="avatar">!</div><div class="bubble">⏹ 用户手动停止生成。已执行的工具结果保留，可点「重新生成」继续。</div>';
+        tip.innerHTML = '<div class="avatar">!</div><div class="bubble">用户手动停止生成。已执行的工具结果保留，可点「重新生成」继续。</div>';
         messagesEl.appendChild(tip);
         scrollBottom();
         noted = true;
@@ -9141,7 +9153,7 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
   try { await loadTodos(); } catch (e) { console.error('loadTodos 失败', e); }
   try { renderTree(); } catch (e) { console.error('renderTree 失败', e); }
   if (memoryOnly) toast('IndexedDB 不可用，已降级为内存模式（关闭页面后数据会丢失）', 'err');
-  if (!cfg.apiKey) setTimeout(() => toast('点击右上角 ⚙ 设置 API Key 后即可开始'), 600);
+  if (!cfg.apiKey) setTimeout(() => toast('点击右上角「设置」填写 API Key 后即可开始'), 600);
 })();
 </script>
 </body>
