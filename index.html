@@ -231,6 +231,13 @@
   .paste-thumb img { width: 100%; height: 100%; object-fit: cover; }
   .paste-thumb .paste-remove { position: absolute; top: 1px; right: 1px; width: 16px; height: 16px; line-height: 14px; text-align: center; background: var(--overlay); color: var(--text-inverse); border-radius: 50%; font-size: 11px; cursor: pointer; }
   .paste-thumb .paste-remove:hover { background: var(--text-error); }
+  /* [ref:/path] 文件卡片（用户消息内联展示） */
+  .ref-card { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 9px; margin: 3px 4px 3px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-panel); font-size: 12px; vertical-align: middle; }
+  .ref-card .ref-icon { flex: 0 0 auto; font-size: 13px; }
+  .ref-card .ref-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+  .ref-card.ref-img { padding: 4px; }
+  .ref-card .ref-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 5px; display: block; background: var(--bg-hover); }
+  .ref-card.ref-missing { opacity: .55; }
 
   .side-foot {
     padding: 8px 12px; border-top: 1px solid var(--border);
@@ -2522,6 +2529,39 @@ function withLineNumbers(text, startLine = 1, highlightLineSet = null) {
   }).join('\n');
 }
 
+// 写工具返回值里的「改动位置附近内容」：超长时保留头尾各 800 字符
+function capSnippet(s) {
+  const str = String(s == null ? '' : s);
+  const CAP = 2000, HALF = 800;
+  if (str.length <= CAP) return str;
+  const pts = Array.from(str);
+  const omitted = Math.max(0, pts.length - HALF * 2);
+  return pts.slice(0, HALF).join('') + '\n…[省略 ' + omitted + ' 字符]…\n' + pts.slice(pts.length - HALF).join('');
+}
+// 改动区域 ± pad 行、带行号的片段
+function snippetAround(fullText, startLine, endLine, pad) {
+  const lines = String(fullText == null ? '' : fullText).split('\n');
+  const p = pad == null ? 3 : pad;
+  const from = Math.max(1, (parseInt(startLine) || 1) - p);
+  const to = Math.min(lines.length, (parseInt(endLine != null ? endLine : startLine) || 1) + p);
+  const seg = lines.slice(from - 1, to).join('\n');
+  return '```\n' + capSnippet(withLineNumbers(seg, from)) + '\n```';
+}
+// 整写场景：头尾各 n 行、带行号
+function headTailSnippet(fullText, n) {
+  const lines = String(fullText == null ? '' : fullText).split('\n');
+  const k = n == null ? 10 : n;
+  let body;
+  if (lines.length <= k * 2) {
+    body = withLineNumbers(lines.join('\n'), 1);
+  } else {
+    body = withLineNumbers(lines.slice(0, k).join('\n'), 1) +
+      '\n…[' + (lines.length - k * 2) + ' 行省略]…\n' +
+      withLineNumbers(lines.slice(lines.length - k).join('\n'), lines.length - k + 1);
+  }
+  return '```\n' + capSnippet(body) + '\n```';
+}
+
 // 大文件结果裁剪：存 VFS，回填结构 + 前 2000 字
 async function trimLargeFileResult(p, content, lines) {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -2806,7 +2846,7 @@ async function executeTool(name, args, onChunk, refCtx) {
         const oldLines = oldStr.split('\n').length;
         const newLines = newStr.split('\n').length;
         const finalLines = finalContent.split('\n').length;
-        return `✅ 已编辑 ${p}（第 ${startLine} 行，${oldLines} 行 → ${newLines} 行，文件共 ${finalLines} 行）\n[如需校验语法请调用 check_code；如需继续改同一文件，继续用 edit_file]`;
+        return `✅ 已编辑 ${p}（第 ${startLine} 行，${oldLines} 行 → ${newLines} 行，文件共 ${finalLines} 行）\n改动位置附近（±3 行）：\n${snippetAround(finalContent, startLine, startLine + newLines - 1, 3)}\n[如需校验语法请调用 check_code；如需继续改同一文件，继续用 edit_file]`;
       }
       case 'write_file': {
         const p = VFS.norm(args.path || '');
@@ -2862,7 +2902,7 @@ async function executeTool(name, args, onChunk, refCtx) {
         pushUndo({ type: 'append_file', path: p, before: beforeAppend, after, desc: `追加 ${p}${modeDesc}` });
         await VFS.writeFile(p, after);
         await refreshFS();
-        return `✅ 已向 ${p} 追加内容（${ins.length} 字符）${modeDesc}${existed ? '' : '，文件为新建'}`;
+        return `✅ 已向 ${p} 追加内容（${ins.length} 字符）${modeDesc}${existed ? '' : '，文件为新建'}\n改动位置附近（±3 行）：\n${args.start_line != null || args.start_col != null ? snippetAround(after, Math.max(1, parseInt(args.start_line) || 1), Math.max(1, parseInt(args.start_line) || 1) + ins.split('\n').length, 3) : headTailSnippet(after, 10)}`;
       }
       case 'delete_path': {
         const p = VFS.norm(args.path || '');
@@ -6421,11 +6461,49 @@ function renderConversation() {
 }
 // 渲染指定范围内的消息（被 renderConversation 调用）
 // 消息 HTML 缓存：避免切换对话时重复 mdToHtml
+/* ---------- [ref:/path] 闭合占位符：UI 渲染时展开成文件卡片 ---------- */
+const REF_MARK_RE = /\[ref:\s*([^\]\s]+)\s*\]/g;
+function refCardHtml(path) {
+  const name = String(path).split('/').pop() || path;
+  let size = '';
+  try {
+    const meta = (typeof VFS !== 'undefined' && VFS.meta && VFS.meta[path]) || null;
+    if (meta && meta.size) size = fmtSize(meta.size);
+  } catch (e) {}
+  const label = escapeHtml(name) + (size ? ' · ' + escapeHtml(size) : '');
+  if (isImagePath(path)) {
+    return '<span class="ref-card ref-img" data-ref-path="' + escapeHtml(path) + '" title="' + escapeHtml(path) + '">' +
+      '<img class="ref-thumb" alt="' + escapeHtml(name) + '"><span class="ref-meta">' + label + '</span></span>';
+  }
+  return '<span class="ref-card" data-ref-path="' + escapeHtml(path) + '" title="' + escapeHtml(path) + '">' +
+    '<span class="ref-icon">📄</span><span class="ref-meta">' + label + '</span></span>';
+}
+// 只在代码块外把 [ref:] 换成卡片：按 ``` 切段，代码段原样保留
+function expandRefsOutsideCode(text) {
+  const parts = String(text == null ? '' : text).split(/(```[\s\S]*?```)/);
+  return parts.map((seg, i) => (i % 2 === 1) ? seg : seg.replace(REF_MARK_RE, (mm, p) => refCardHtml(p))).join('');
+}
+// 图片卡片懒加载：插入 DOM 后按需从 VFS 取 dataURL
+async function hydrateRefCards(root) {
+  if (!root) return;
+  const imgs = root.querySelectorAll('img.ref-thumb:not([data-loaded])');
+  for (const img of imgs) {
+    img.dataset.loaded = '1';
+    const card = img.closest('.ref-card');
+    const p = card && card.dataset.refPath;
+    if (!p) continue;
+    try {
+      const dataUrl = await VFS.getContent(p);
+      if (dataUrl && typeof dataUrl === 'string') img.src = dataUrl;
+      else card.classList.add('ref-missing');
+    } catch (e) { card.classList.add('ref-missing'); }
+  }
+}
 function getMsgHtml(m) {
   if (m._html) return m._html;
   let html = '';
   if (m.role === 'user') {
-    html = mdToHtml(contentToText(m.content));
+    html = mdToHtml(expandRefsOutsideCode(contentToText(m.content)));
   } else if (m.role === 'assistant') {
     if (m.reasoning_content && m.reasoning_content.trim()) {
       html += '<div class="thinking-block"><div class="thinking-label">思考过程</div><div class="thinking-text">' + escapeHtml(m.reasoning_content) + '</div></div>';
@@ -6983,7 +7061,16 @@ async function regenerateFrom(idx) {
 }
 
 function addUserMsg(text, images) {
-  const bubble = appendMsg('user', mdToHtml(text));
+  // 已附带的图片由下方缩略图直接展示，剥掉对应的 [ref:] 行避免与卡片重复
+  let shownText = String(text == null ? '' : text);
+  if (images && images.length) {
+    const imgPaths = images.map(im => im.path);
+    shownText = shownText.split('\n').filter(line => {
+      const mm = line.trim().match(/^\[ref:\s*([^\]]+?)\s*\]$/);
+      return !(mm && imgPaths.indexOf(mm[1]) >= 0);
+    }).join('\n').trim();
+  }
+  const bubble = appendMsg('user', mdToHtml(expandRefsOutsideCode(shownText)));
   if (images && images.length) {
     const wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;';
@@ -7120,60 +7207,98 @@ function contentToText(c) {
   }
   return String(c || '');
 }
-function trimConversation(msgs) {
-  let total = 0;
-  const kept = [];
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    // 过滤卡片消息（ask/deliver/chart）：它们只是 UI 渲染数据，不是协议消息，
-    // 且插在 assistant(tool_calls) 与 tool 之间会破坏 API 要求的消息序列
-    const m = msgs[i];
-    if (m && (m.ask || m.deliver || m.chart)) continue;
-    // 推理模型 assistant 消息带 reasoning_content（可能几千~几万字符），必须计入预算，
-    // 否则上下文实际超预算、请求被 400 context 截断（对齐 deepseek-harness token-meter 的 reasoning 计费）
-    const rc = m.reasoning_content;
-    const reasonLen = rc ? (Array.isArray(rc) ? rc.map(x => String(x.text || x || '')).join('\n') : String(rc)).length : 0;
-    const len = contentToText(m.content).length + reasonLen + 160;   // 每条消息估算开销
-    if (total + len > getChatBudget() && kept.length) break;
-    total += len;
-    kept.unshift(m);
-  }
-  const dropped = msgs.length - kept.length;
-  if (dropped > 0) {
-    kept.unshift({ role: 'system', content: '【较早的消息因过长已被省略。如需早期信息，可用 read_file 查看 /conversations/ 目录下的对话记录。】' });
-  }
-  // 序列修复：tool 消息必须紧跟在带对应 tool_call_id 的 assistant(tool_calls) 之后；
-  // 多工具并行时连续的 tool 响应块只要第一条合法就全部保留
-  const fixed = [];
-  let inToolBatch = false;
-  for (const m of kept) {
-    if (m.role === 'tool') {
-      if (inToolBatch) { fixed.push(m); continue; }
-      const prev = fixed[fixed.length - 1];
-      const ok = prev && prev.role === 'assistant' && prev.tool_calls &&
-        prev.tool_calls.some(tc => tc.id === m.tool_call_id);
-      if (ok) { fixed.push(m); inToolBatch = true; }
-      // 孤立的 tool 消息（前面的 assistant(tool_calls) 被裁掉了）：丢弃，避免 API 400
-    } else {
-      inToolBatch = false;
-      fixed.push(m);
-    }
-  }
-  // DeepSeek 等推理模型要求多轮对话时 assistant 消息必须带 reasoning_content 字段（即使为空字符串），
-  // 否则报 400 "The reasoning_content in the thinking mode must be passed back to the API"。
-  // 老对话/云端恢复的消息可能缺这个字段，这里补全。
-  const normalized = fixed.map(m => (m.role === 'assistant' && m.reasoning_content == null) ? { ...m, reasoning_content: '' } : m);
-  // 只保留最近 3 轮的 reasoning_content，更早的清空（DeepSeek 多轮对话允许空字符串）
-  const KEEP_REASONING_ROUNDS = 3;
-  let assistantCount = 0;
-  for (let i = normalized.length - 1; i >= 0; i--) {
-    if (normalized[i].role === 'assistant') {
-      assistantCount++;
-      if (assistantCount > KEEP_REASONING_ROUNDS) {
-        normalized[i] = { ...normalized[i], reasoning_content: '' };
+// 折叠超长文本：保留头尾各 n 字符，中间替换为标记
+function foldMid(text, n) {
+  const k = n == null ? 200 : n;
+  const s = String(text == null ? '' : text);
+  if (s.length <= k * 2 + 60) return s;
+  return s.slice(0, k) + '\n[…工具结果已折叠，共 ' + s.length + ' 字符…]\n' + s.slice(s.length - k);
+}
+// 估算一组消息的 token 数（含 tool_calls 参数）
+function estMsgsTokens(list) {
+  let t = 0;
+  for (const m of list) {
+    t += 12;   // 每条消息结构开销
+    t += estimateTokens(contentToText(m.content));
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls) {
+        t += estimateTokens(((tc.function && tc.function.name) || '') + ((tc.function && tc.function.arguments) || ''));
       }
     }
   }
-  return normalized;
+  return t;
+}
+// 早期对话摘要（role:'system'，插在 messages 最前，STATIC_SYSTEM 之后）
+function buildEarlySummary(dropped) {
+  const users = [];
+  const tools = [];
+  const seen = new Set();
+  for (const m of dropped) {
+    if (m.role === 'user') {
+      const txt = contentToText(m.content).replace(/\s+/g, ' ').trim();
+      if (txt) users.push(txt.slice(0, 80));
+    } else if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls) {
+        const n = tc.function && tc.function.name;
+        if (n && !seen.has(n)) { seen.add(n); tools.push(n); }
+      }
+    }
+  }
+  const parts = ['【早期对话摘要】'];
+  if (users.length) parts.push('用户问过：' + users.slice(0, 3).map((u, i) => (i + 1) + ') ' + u).join('；'));
+  if (tools.length) parts.push('AI 做过：' + tools.slice(0, 20).join('、'));
+  const f = (typeof sessionFile !== 'undefined' && sessionFile) ? sessionFile : '';
+  parts.push('完整记录见' + (f ? ' ' + f : ' /conversations/ 目录。'));
+  return { role: 'system', content: parts.join('\n') };
+}
+// 最近 3 轮完整保留；更早轮次只折叠参数与工具结果，不删消息、不删 tool_call_id（否则 API 400）
+const TRIM_KEEP_ROUNDS = 3;
+function trimConversation(msgs) {
+  // 过滤卡片消息（ask/deliver/chart）：它们只是 UI 渲染数据，不是协议消息
+  const src = msgs.filter(m => !(m && (m.ask || m.deliver || m.chart)));
+  // 找"最近 3 轮"的起点：从尾部数第 4 条 user 消息之后
+  let keepFrom = 0;
+  let users = 0;
+  for (let i = src.length - 1; i >= 0; i--) {
+    if (src[i].role === 'user') {
+      users++;
+      if (users > TRIM_KEEP_ROUNDS) { keepFrom = i + 1; break; }
+    }
+  }
+  // 边界修正：不能切在 assistant(tool_calls) 与它的 tool 之间
+  while (keepFrom < src.length && src[keepFrom].role === 'tool') keepFrom++;
+  const early = [];
+  const recent = [];
+  for (let i = 0; i < src.length; i++) {
+    const m = src[i];
+    if (i < keepFrom) {
+      // 早期轮次：只折叠内容，结构与 id 全部保留
+      if (m.role === 'assistant') {
+        const folded = { ...m, reasoning_content: '' };
+        if (Array.isArray(m.tool_calls)) {
+          folded.tool_calls = m.tool_calls.map(tc => ({
+            id: tc.id,
+            type: tc.type || 'function',
+            function: { name: (tc.function && tc.function.name) || '', arguments: '{}' }
+          }));
+        }
+        early.push(folded);
+      } else if (m.role === 'tool') {
+        early.push({ ...m, content: foldMid(contentToText(m.content), 200) });
+      } else {
+        early.push(m);
+      }
+    } else {
+      // 最近 3 轮：完整保留，仅 reasoning_content 置空
+      recent.push(m.role === 'assistant' ? { ...m, reasoning_content: '' } : m);
+    }
+  }
+  let out = early.concat(recent);
+  // 仍超预算：早期轮次整体压缩成一条 system 摘要（不逐条丢弃，避免 tool/assistant 对断裂）
+  if (early.length && estMsgsTokens(out) > getChatBudget()) {
+    out = [buildEarlySummary(early), ...recent];
+  }
+  return out;
 }
 
 /* ---------- DeepSeek DSML 工具调用解析（跨 chunk 流式状态机） ----------
@@ -8115,9 +8240,28 @@ function pruneToolResult(text, opts) {
   }
   return points.slice(0, headEnd).join('') + PRUNE_MARKER + points.slice(tailStart).join('');
 }
-function truncateToolResult(text) {
+/* ---------- 重复工具结果自动占位（sha1 比对，短结果不参与） ---------- */
+let toolResultHashMap = new Map();   // sha1 -> 该结果在 conversation 中的 1-based 序号
+function resetToolResultHashMap() { toolResultHashMap = new Map(); }
+async function sha1Hex(str) {
+  const data = new TextEncoder().encode(String(str));
+  const digest = await crypto.subtle.digest('SHA-1', data);
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function truncateToolResult(text) {
   // 统一入口：入 conversation 的工具结果上限
-  return pruneToolResult(text, { thresholdChars: 30000, headChars: 24000, tailChars: 6000 });
+  const pruned = pruneToolResult(text, { thresholdChars: 30000, headChars: 24000, tailChars: 6000 });
+  // 只对 >500 字符的结果做去重占位（避免短结果误判丢信息）
+  if (pruned.length <= 500) return pruned;
+  let h = '';
+  try { h = await sha1Hex(pruned); } catch (e) { return pruned; }
+  const prevIdx = toolResultHashMap.get(h);
+  if (prevIdx != null) {
+    return '[与第 ' + prevIdx + ' 条工具结果完全相同，已省略（sha1: ' + h.slice(0, 8) + '）]';
+  }
+  // 即将 push 到下一条，其 1-based 序号 = 当前长度 + 1
+  toolResultHashMap.set(h, conversation.length + 1);
+  return pruned;
 }
 
 // 带指数退避重试的执行
@@ -8243,6 +8387,7 @@ function estimateCost(inputTokens, outputTokens) {
 
 async function agentLoop() {
   let loops = 0;
+  resetToolResultHashMap();   // 每轮 agentLoop 重置工具结果去重表
   const maxLoops = Math.max(1, Number(cfg.maxLoops) || 20);
   // 预算追踪（调度层硬控，不靠模型自觉）
   const budget = {
@@ -8254,9 +8399,17 @@ async function agentLoop() {
   };
   while (loops < maxLoops) {
     if (chatAbort && chatAbort.signal.aborted) return;
-    // 预算检查：发起新请求前先查
+    // 预算检查（发起新请求前）：此时没有待执行工具，直接停是安全的
     const over = checkBudget(budget);
     if (over.length > 0) {
+      // 兜底：确保最后一批 tool_calls 都有对应 tool 消息，避免「有 tool_calls 无 tool」的 400
+      const lastA = [...conversation].reverse().find(m => m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length);
+      if (lastA) {
+        const have = new Set(conversation.filter(m => m.role === 'tool').map(m => m.tool_call_id));
+        for (const tc of lastA.tool_calls) {
+          if (!have.has(tc.id)) conversation.push({ role: 'tool', tool_call_id: tc.id, content: '预算超限，未执行' });
+        }
+      }
       addErrorMsg('⛔ 调度层预算超限，已停止：' + over.join('；') + '。已完成 ' + loops + ' 轮、' + budget.toolCalls + ' 次工具调用。');
       return;
     }
@@ -8294,17 +8447,10 @@ async function agentLoop() {
       }
     }
     if (toolCalls.length > 0) {
-      conversation.push({ role: 'assistant', content: content || null, tool_calls: toolCalls, reasoning_content: thinking || '' });
-      // 预算检查：工具调用数
+      conversation.push({ role: 'assistant', content: content || null, tool_calls: toolCalls, reasoning_content: '' });
+      // 预算检查（工具调用数）：本批工具照常执行完，超限留到下一轮 while 开头再停，
+      // 这样不会出现「有 tool_calls 但缺对应 tool 消息」的断裂序列
       budget.toolCalls += toolCalls.length;
-      const over2 = checkBudget(budget);
-      if (over2.length > 0) {
-        for (const tc of toolCalls) {
-          conversation.push({ role: 'tool', tool_call_id: tc.id, content: '预算超限，未执行' });
-        }
-        addErrorMsg('⛔ 调度层预算超限，已停止：' + over2.join('；') + '。本批 ' + toolCalls.length + ' 次工具调用未执行。');
-        return;
-      }
       // 收集本轮所有写入目标路径，作为占位符展开的"并发写冲突"守卫依据
       const roundWritePaths = new Set();
       for (const tc of toolCalls) {
@@ -8351,11 +8497,11 @@ async function agentLoop() {
       const resultMap = new Map(results.filter(Boolean).map(r => [r.tc.id, r]));
       for (const tc of toolCalls) {
         const r = resultMap.get(tc.id);
-        conversation.push({ role: 'tool', tool_call_id: tc.id, content: truncateToolResult(r ? r.result : '已停止') });
+        conversation.push({ role: 'tool', tool_call_id: tc.id, content: await truncateToolResult(r ? r.result : '已停止') });
       }
       continue;
     }
-    conversation.push({ role: 'assistant', content: content || '', reasoning_content: thinking || '' });
+    conversation.push({ role: 'assistant', content: content || '', reasoning_content: '' });
     break;
   }
   if (loops >= maxLoops) addErrorMsg(`⚠️ 已达到最大工具循环次数（${maxLoops}），任务可能未完成。可在设置中调大该值。`);
@@ -8511,15 +8657,16 @@ async function sendMessage() {
   let contentValue;
   if (useVision) {
     const parts = [];
-    if (fullText) parts.push({ type: 'text', text: fullText });
+    // 气泡/存档用的闭合形式标记：AI 看到的是 [ref:path]，需要内容时用 read_file / [ref:] 展开
+    const imgMark = imagesToSend.map(im => '[ref:' + im.path + ']').join('\n');
+    const visionText = fullText ? (fullText + '\n\n' + imgMark) : imgMark;
+    parts.push({ type: 'text', text: visionText });
     imagesToSend.forEach(im => parts.push({ type: 'image_url', image_url: { url: im.dataUrl } }));
     contentValue = parts;
-    // 气泡/存档用的纯文本（附带路径标记，方便引用）
-    const imgMark = imagesToSend.map(im => '[图片附件: ' + im.path + ']').join('\n');
-    fullText = text ? (text + '\n\n' + imgMark) : imgMark;
+    fullText = visionText;
   } else {
     if (hasImages) {
-      const imgMark = imagesToSend.map(im => '[图片附件: ' + im.path + '（可用 describe_image 查看内容，或 route_ai 转交支持视觉的模型）]').join('\n');
+      const imgMark = imagesToSend.map(im => '[ref:' + im.path + ']').join('\n');
       fullText = fullText ? (fullText + '\n\n' + imgMark) : imgMark;
     }
     contentValue = fullText;
@@ -8818,7 +8965,7 @@ function onInputText(el, len, maxH) {
   }, INJ_SETTLE_MS);
 }
 
-// 超长纯文本转存：写入 /pastes/paste-*.txt，返回 [文件附件: 路径] 标记；失败保持原文
+// 超长纯文本转存：写入 /pastes/paste-*.txt，返回闭合标记 [ref:路径]；失败保持原文
 async function stashLongInput(text) {
   try {
     await requireVfs();
@@ -9064,7 +9211,7 @@ function bindEvents() {
           const text = await file.text().catch(() => '');
           await VFS.writeFile(path, text);
         }
-        const mark = '[文件附件: ' + path + ']';
+        const mark = '[ref:' + path + ']';
         inp.value = inp.value ? (inp.value + '\n' + mark) : mark;
         inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 180) + 'px';
         toast('已上传：' + path);
