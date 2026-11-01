@@ -1966,8 +1966,20 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.01.7';
+const APP_VERSION = '2026.11.01.8';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.01.8',
+    date: '2026-11-01',
+    title: '修复切对话后思考过程丢失 + 部分 AI 消息不渲染',
+    items: [
+      '根因：streamChat 返回的 thinking 在 agentLoop 里被解构，但 push 到 conversation 时两个分支（带工具调用 / 纯文本）都没存到消息对象的 _thinking 字段 → 切对话后 getMsgHtml 读不到思考过程，DOM 不渲染 thinking-block',
+      '带工具调用的 assistant 消息 content=null + 无 _thinking → getMsgHtml 返回空串 → 空气泡几乎不可见，看起来像"只显示了一条 AI 消息，剩下全是用户消息"',
+      '修复：两个 push 点都补上 _thinking: thinking || \'\'，切对话后思考过程正常回显，带思考的 AI 消息气泡有内容不再隐形',
+      '附：switchSession 运行中切对话时先 abort 当前生成、等 finally 保存完原会话再真正切换，避免回复串台；空对话删除时留墓碑防 md 兜底复活',
+      '注意：旧对话（本版本之前产生的消息）没有 _thinking 字段，思考过程无法从 localStorage 恢复；新对话开始后正常'
+    ]
+  },
   {
     v: '2026.11.01.7',
     date: '2026-11-01',
@@ -6831,12 +6843,23 @@ function newSession() {
 function switchSession(id) {
   const s = sessions.find(x => x.id === id);
   if (!s) return;
+  // AI 正在回复中：先 abort 当前生成，等 finally 保存完原会话后再真正切换，
+  // 避免全局 conversation 引用换绑后、后续回复被 push 到新会话（原会话丢回复、新会话串台）
+  if (isRunning && chatAbort && currentSessionId && currentSessionId !== id) {
+    try { chatAbort.abort(); } catch (e) {}
+    pendingSwitchId = id;
+    toast('正在回复中，已停止当前生成后切换');
+    return;
+  }
   // 自动删除当前空对话（0条消息且不是目标对话）
   if (currentSessionId && currentSessionId !== id) {
     const cur = sessions.find(x => x.id === currentSessionId);
     if (cur && (!cur.conversation || cur.conversation.length === 0) && sessions.length > 1) {
       const idx = sessions.findIndex(x => x.id === currentSessionId);
-      if (idx >= 0) sessions.splice(idx, 1);
+      if (idx >= 0) {
+        markSessionDeleted(cur.id, cur.mdFile);   // 留墓碑，防止 /conversations/*.md 兜底把它复活
+        sessions.splice(idx, 1);
+      }
     }
   }
   currentSessionId = id;
@@ -6850,6 +6873,7 @@ function switchSession(id) {
   if (titleEl) titleEl.textContent = s.title || '新对话';
   updateTokenBar();
   hideSessionList();
+  saveSessions();   // 持久化空对话删除、currentSessionId 切换等变更，避免刷新后丢失
 }
 function deleteSession(id) {
   if (sessions.length <= 1) { toast('至少保留一个对话', 'err'); return; }
@@ -7211,6 +7235,7 @@ function showSessionList() { const panel = $('sessionList'); if (panel) { render
 function hideSessionList() { const panel = $('sessionList'); if (panel) panel.style.display = 'none'; }
 let isRunning = false;
 let chatAbort = null;   // 停止按钮对应的 AbortController
+let pendingSwitchId = null;   // 运行中切对话时记录目标 id，等当前轮次 finally 保存完原会话后再真正切换，避免回复串台
 let currentAssistantEl = null;  // 当前正在输出的 assistant 消息元素（工具卡片挂到它下面）
 
 /* ---------- 长期记忆（本地语义检索，IndexedDB + 词向量余弦） ---------- */
@@ -9053,7 +9078,7 @@ async function agentLoop() {
       }
     }
     if (toolCalls.length > 0) {
-      conversation.push({ role: 'assistant', content: content || null, tool_calls: toolCalls, reasoning_content: '' });
+      conversation.push({ role: 'assistant', content: content || null, tool_calls: toolCalls, reasoning_content: '', _thinking: thinking || '' });
       // 预算检查（工具调用数）：本批工具照常执行完，超限留到下一轮 while 开头再停，
       // 这样不会出现「有 tool_calls 但缺对应 tool 消息」的断裂序列
       budget.toolCalls += toolCalls.length;
@@ -9110,7 +9135,7 @@ async function agentLoop() {
       }
       continue;
     }
-    conversation.push({ role: 'assistant', content: content || '', reasoning_content: '' });
+    conversation.push({ role: 'assistant', content: content || '', reasoning_content: '', _thinking: thinking || '' });
     break;
   }
   if (loops >= maxLoops) addErrorMsg(`⚠️ 已达到最大工具循环次数（${maxLoops}），任务可能未完成。可在设置中调大该值。`);
@@ -9364,6 +9389,12 @@ async function sendMessage() {
     if (isFirstRound && fullText) generateTitle(fullText);
     const s = sessions.find(x => x.id === currentSessionId);
     if (s) { s.updatedAt = Date.now(); saveSessions(); }
+    // 运行中切对话：原会话已保存完毕，现在执行真正的切换
+    if (pendingSwitchId) {
+      const targetId = pendingSwitchId;
+      pendingSwitchId = null;
+      switchSession(targetId);
+    }
   }
 }
 
