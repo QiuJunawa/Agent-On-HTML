@@ -1966,18 +1966,43 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.01.8';
+const APP_VERSION = '2026.11.02.2';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.02.2',
+    date: '2026-11-02',
+    title: '修复 edit_file 未纳入 vfs 资源池导致的调度错乱',
+    items: [
+      '根因：extractResource 的资源分类里漏掉了 edit_file，它落到兜底分支变成 indep:edit_file:随机串，被调度层当成「与人无冲突的独立资源」并行派发',
+      '后果一：同一轮里 write_file 先覆盖了文件，edit_file 拿着旧的 old_string 去找，必然报「未找到」（VFS.withLock 只保证单次读改写原子，管不了派发顺序）',
+      '后果二：同一轮里 delete_path / move_path 持 vfs:__tree__ 全树锁时，edit_file 却落在并行组，出现「一边删文件一边改文件」',
+      '修复：edit_file 加入 vfs 前缀分类，与 write_file / append_file / read_file / create_dir 同池，自动受「同路径串行 + 全树锁」保护'
+    ]
+  },
+  {
+    v: '2026.11.02.1',
+    date: '2026-11-02',
+    title: '修复联网搜索崩溃、文件卡片显示成源码、工具卡片断层',
+    items: [
+      '致命修复：toolWebSearch 里 _dbg / _dbgStart 从未定义，调用 web_search 必定抛 ReferenceError 中断整轮对话——已按 web_fetch 的写法补上 recordDebug 记录器',
+      '致命修复：用户消息里的 [ref:/path] 卡片被 mdToHtml 内部的 escapeHtml 转义成源码文字——新增 mdWithRefCards()，先把卡片换成占位符再渲染 Markdown，最后回填卡片 HTML，代码块内的 [ref:] 仍保持原样',
+      'getMsgHtml 重写 user 分支：兼容视觉模型的数组 content（text 走 Markdown，image_url 单独拼成 img），历史记录里的图片不再消失',
+      'renderConversation 的滑动窗口边界强制对齐：起点落在 tool 消息上时向前回溯到所属 assistant，终点后紧跟的 tool 消息一并纳入，避免出现「工具卡片只有参数没有结果」的断层',
+      'renderMsgRange 的兜底结果卡片会反查 assistant.tool_calls 补出工具名，不再统一显示「工具结果」',
+      'agentLoop 两处 conversation.push 把 thinking 存进 UI 专用字段 _thinking，刷新页面 / 切换会话后思考气泡不再丢失（trimConversation 仍会显式删除，不进请求体）',
+      '文件树删除按钮改为暂存并还原 innerHTML，点一次「确认?」后 SVG 图标不会再永久丢失'
+    ]
+  },
   {
     v: '2026.11.01.8',
     date: '2026-11-01',
-    title: '修复切对话后思考过程丢失 + 部分 AI 消息不渲染',
+    title: '对话渲染回退到旧版实现',
     items: [
-      '根因：streamChat 返回的 thinking 在 agentLoop 里被解构，但 push 到 conversation 时两个分支（带工具调用 / 纯文本）都没存到消息对象的 _thinking 字段 → 切对话后 getMsgHtml 读不到思考过程，DOM 不渲染 thinking-block',
-      '带工具调用的 assistant 消息 content=null + 无 _thinking → getMsgHtml 返回空串 → 空气泡几乎不可见，看起来像"只显示了一条 AI 消息，剩下全是用户消息"',
-      '修复：两个 push 点都补上 _thinking: thinking || \'\'，切对话后思考过程正常回显，带思考的 AI 消息气泡有内容不再隐形',
-      '附：switchSession 运行中切对话时先 abort 当前生成、等 finally 保存完原会话再真正切换，避免回复串台；空对话删除时留墓碑防 md 兜底复活',
-      '注意：旧对话（本版本之前产生的消息）没有 _thinking 字段，思考过程无法从 localStorage 恢复；新对话开始后正常'
+      '按用户要求，renderConversation / loadOlderMessages / loadNewerMessages 全部照搬旧版：超过 80 条才启用滑动窗口，窗口外按「消息数 × 120px」估算占位，翻页按估算高度校正 scrollTop',
+      '删掉上一版新加的 AUTO_FULL_LIMIT 全量渲染分支、TOP_SPACER_MAX 占位封顶、AUTO_LOAD_EDGE 自动翻页距离、ensureWinScrollBound 抽离绑定、keep 视口保持、loadAllOlderMessages 一次性展开',
+      '占位按钮文案与点击行为恢复为「↑ 加载更早的 N 条消息」/「↓ 加载更新的 N 条消息」，滚动触发阈值恢复为距边缘 80px',
+      '一轮结束后的窗口压缩条件恢复为 domCount > WINDOW_SIZE * 2（不再带 AUTO_FULL_LIMIT 前置判断）',
+      '保留的兜底：renderConversation 开头 Array.isArray(conversation)、switchSession 的 conversation 字段兜底，仅防整屏报错，不改变渲染行为'
     ]
   },
   {
@@ -3409,6 +3434,9 @@ async function toolWebSearch(args) {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 30000);
+    // 补上缺失的调试记录器定义，否则下文 _dbg.status = 'ok' 会抛 ReferenceError
+    const _dbg = recordDebug({ source: 'web_search', payload: { model: '(deepseek-search)', messages: [{ role: 'user', content: query }], _raw: { query, count, need_content: needContent } }, streaming: false });
+    const _dbgStart = Date.now();
     const resp = await fetch('https://api.deepseek.com/v1/tools/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + searchKey },
@@ -5036,10 +5064,16 @@ function renderChildren(node, depth) {
       }
       toast(hint, 'warn');
       delBtn.dataset.armed = child.path;
-      delBtn.textContent = '确认?';
+      // 图标已改成 SVG，用 textContent 赋值会杀掉图标且无法恢复，改为暂存/还原 innerHTML
+      if (!delBtn.dataset.origHtml) delBtn.dataset.origHtml = delBtn.innerHTML;
+      delBtn.innerHTML = '<span style="font-size:11px">确认?</span>';
       delBtn.classList.add('armed');
       setTimeout(() => {
-        if (delBtn.dataset.armed === child.path) { delete delBtn.dataset.armed; delBtn.textContent = '✕'; delBtn.classList.remove('armed'); }
+        if (delBtn.dataset.armed === child.path) {
+          delete delBtn.dataset.armed;
+          delBtn.innerHTML = delBtn.dataset.origHtml || '✕';
+          delBtn.classList.remove('armed');
+        }
       }, 5000);
     });
     frag.appendChild(row);
@@ -6621,6 +6655,10 @@ function serializeSessions() {
         const { _html, ...rest } = m;
         // 脱敏（对齐 saveConversation 的存档策略）：内容文本和工具调用参数里的密钥 → ****
         const out = { ...rest };
+        // 思考过程只用于 UI 回显：截断到 4000 字符，避免把 localStorage 5MB 配额撑爆（撑爆后会整段持久化失败）
+        if (typeof out._thinking === 'string' && out._thinking.length > 4000) {
+          out._thinking = out._thinking.slice(0, 4000) + '\n…（思考过程过长，已截断存档）';
+        }
         if (typeof out.content === 'string') out.content = redactCached(out.content);
         else if (Array.isArray(out.content)) {
           out.content = out.content.map(p => (p && p.type === 'text') ? { ...p, text: redactCached(String(p.text || '')) } : p);
@@ -6843,23 +6881,12 @@ function newSession() {
 function switchSession(id) {
   const s = sessions.find(x => x.id === id);
   if (!s) return;
-  // AI 正在回复中：先 abort 当前生成，等 finally 保存完原会话后再真正切换，
-  // 避免全局 conversation 引用换绑后、后续回复被 push 到新会话（原会话丢回复、新会话串台）
-  if (isRunning && chatAbort && currentSessionId && currentSessionId !== id) {
-    try { chatAbort.abort(); } catch (e) {}
-    pendingSwitchId = id;
-    toast('正在回复中，已停止当前生成后切换');
-    return;
-  }
   // 自动删除当前空对话（0条消息且不是目标对话）
   if (currentSessionId && currentSessionId !== id) {
     const cur = sessions.find(x => x.id === currentSessionId);
     if (cur && (!cur.conversation || cur.conversation.length === 0) && sessions.length > 1) {
       const idx = sessions.findIndex(x => x.id === currentSessionId);
-      if (idx >= 0) {
-        markSessionDeleted(cur.id, cur.mdFile);   // 留墓碑，防止 /conversations/*.md 兜底把它复活
-        sessions.splice(idx, 1);
-      }
+      if (idx >= 0) sessions.splice(idx, 1);
     }
   }
   currentSessionId = id;
@@ -6873,7 +6900,6 @@ function switchSession(id) {
   if (titleEl) titleEl.textContent = s.title || '新对话';
   updateTokenBar();
   hideSessionList();
-  saveSessions();   // 持久化空对话删除、currentSessionId 切换等变更，避免刷新后丢失
 }
 function deleteSession(id) {
   if (sessions.length <= 1) { toast('至少保留一个对话', 'err'); return; }
@@ -6908,57 +6934,35 @@ function cloneSession(id) {
 const WINDOW_SIZE = 80;    // 滑动窗口大小：始终只渲染这么多条消息
 const WINDOW_STEP = 40;    // 滚动时窗口移动步长
 const EST_MSG_HEIGHT = 120; // 单条消息估算高度（用于占位）
-const AUTO_FULL_LIMIT = 200;  // 消息数不超过这个值 → 直接全量渲染，不出现「加载更早」
-const TOP_SPACER_MAX = 480;   // 顶部/底部占位块的最大像素高度
-const AUTO_LOAD_EDGE = 300;   // 距离上下边缘多少像素触发自动翻页
 let windowStart = 0;       // 当前窗口起始索引
 let winMoving = false;     // 窗口移动锁，防止重复触发
 let winScrollBound = false; // scroll 监听器是否已绑定
 
-// 加载更早的消息（窗口向上移动）：用实际占位高度校正滚动位置，避免估算误差导致的跳动
+// 加载更早的消息（窗口向上移动）—— 与旧版实现一致：按估算高度校正 scrollTop
 function loadOlderMessages() {
   if (winMoving || windowStart <= 0) return;
   winMoving = true;
-  const prevSpacer = messagesEl.querySelector('.top-spacer');
-  const keep = { keepScrollTop: messagesEl.scrollTop, prevSpacerH: prevSpacer ? prevSpacer.offsetHeight : 0 };
+  const prevTopH = windowStart * EST_MSG_HEIGHT;
+  const prevScroll = messagesEl.scrollTop;
   windowStart = Math.max(0, windowStart - WINDOW_STEP);
-  renderConversation(keep);
-  setTimeout(() => { winMoving = false; }, 120);
+  renderConversation();
+  const newTopH = windowStart * EST_MSG_HEIGHT;
+  messagesEl.scrollTop = prevScroll + (newTopH - prevTopH);
+  setTimeout(() => { winMoving = false; }, 150);
 }
 // 加载更新的消息（窗口向下移动）
 function loadNewerMessages() {
   if (winMoving) return;
-  const maxStart = Math.max(0, conversation.length - WINDOW_SIZE);
+  const maxStart = conversation.length - WINDOW_SIZE;
   if (windowStart >= maxStart) return;
   winMoving = true;
-  const prevSpacer = messagesEl.querySelector('.top-spacer');
-  const keep = { keepScrollTop: messagesEl.scrollTop, prevSpacerH: prevSpacer ? prevSpacer.offsetHeight : 0 };
+  const prevTopH = windowStart * EST_MSG_HEIGHT;
+  const prevScroll = messagesEl.scrollTop;
   windowStart = Math.min(maxStart, windowStart + WINDOW_STEP);
-  renderConversation(keep);
-  setTimeout(() => { winMoving = false; }, 120);
-}
-// 一次性把剩余更早消息全部展开（“加载全部”按钮 / 自动连续翻页用）
-function loadAllOlderMessages() {
-  if (winMoving || windowStart <= 0) return;
-  winMoving = true;
-  const prevSpacer = messagesEl.querySelector('.top-spacer');
-  const keep = { keepScrollTop: messagesEl.scrollTop, prevSpacerH: prevSpacer ? prevSpacer.offsetHeight : 0 };
-  windowStart = 0;
-  renderConversation(keep);
-  setTimeout(() => { winMoving = false; }, 120);
-}
-// scroll 监听只需绑定一次：滚到上下边缘附近自动翻页，不再要求用户点按钮
-function ensureWinScrollBound() {
-  if (winScrollBound) return;
-  winScrollBound = true;
-  messagesEl.addEventListener('scroll', () => {
-    if (winMoving) return;
-    const st = messagesEl.scrollTop;
-    const nearTop = st < AUTO_LOAD_EDGE;
-    const nearBottom = st + messagesEl.clientHeight > messagesEl.scrollHeight - AUTO_LOAD_EDGE;
-    if (nearTop && windowStart > 0) loadOlderMessages();
-    else if (nearBottom) loadNewerMessages();
-  }, { passive: true });
+  renderConversation();
+  const newTopH = windowStart * EST_MSG_HEIGHT;
+  messagesEl.scrollTop = prevScroll + (newTopH - prevTopH);
+  setTimeout(() => { winMoving = false; }, 150);
 }
 let typewriterTimer = null;
 const WELCOME_TITLES = [
@@ -7006,10 +7010,9 @@ function hideWelcomeScreen() {
   if (messagesEl) messagesEl.style.display = '';
   if (typewriterTimer) { clearInterval(typewriterTimer); typewriterTimer = null; }
 }
-const SPACER_BTN_CSS = 'padding:6px 16px;background:#1a2030;border:1px solid #2d3748;border-radius:16px;color:#7d8798;font-size:12px;cursor:pointer;';
-// keep：翻页时传入 { keepScrollTop, prevSpacerH }，渲染后按实际占位高度校正滚动位置
-function renderConversation(keep) {
-  if (!Array.isArray(conversation)) conversation = [];   // 防御：会话缺 conversation 字段时不整屏报错
+// 对话渲染：照搬旧版实现（全量渲染 + 超窗口时滑动窗口 + EST_MSG_HEIGHT 估算占位）
+function renderConversation() {
+  if (!Array.isArray(conversation)) conversation = [];
   messagesEl.innerHTML = '';
   if (conversation.length === 0) {
     showWelcomeScreen();
@@ -7017,76 +7020,80 @@ function renderConversation(keep) {
   }
   hideWelcomeScreen();
   const total = conversation.length;
-  // 消息数不多：直接全量渲染，不需要任何“加载更早/更新”的交互
-  if (total <= AUTO_FULL_LIMIT) {
+  // 消息数不超过窗口大小，全渲染
+  if (total <= WINDOW_SIZE) {
     windowStart = 0;
-    try { renderMsgRange(0, total); } catch (e) { console.warn('渲染消息失败', e); }
-    if (keep) messagesEl.scrollTop = Math.max(0, keep.keepScrollTop - keep.prevSpacerH);
-    else scrollBottom();
+    renderMsgRange(0, total);
+    scrollBottom();
     scheduleThumbUpdate();
-    ensureWinScrollBound();
     return;
   }
   // 窗口初始在底部
   if (windowStart === 0 || windowStart > total - WINDOW_SIZE) windowStart = total - WINDOW_SIZE;
-  const winEnd = Math.min(total, windowStart + WINDOW_SIZE);
-  // 顶部占位（窗口外的更早消息）：高度封顶，保证用户一定滚得到顶部并触发自动加载
+  // 边界对齐：不能让滑动窗口切断 assistant(tool_calls) 和它的 tool 结果
+  // 1) 起点落在 tool 消息上 → 往前回溯到它所属的 assistant
+  let guard = 0;
+  while (windowStart > 0 && conversation[windowStart] && conversation[windowStart].role === 'tool' && guard++ < WINDOW_SIZE * 2) {
+    windowStart--;
+  }
+  let winEnd = Math.min(total, windowStart + WINDOW_SIZE);
+  // 2) 终点后面紧跟 tool 消息 → 一并纳入，避免结果卡片找不到挂载点
+  guard = 0;
+  while (winEnd < total && conversation[winEnd] && conversation[winEnd].role === 'tool' && guard++ < WINDOW_SIZE * 2) {
+    winEnd++;
+  }
+  // 顶部空白占位（窗口外的更早消息）—— 可点击加载
   if (windowStart > 0) {
     const topSpacer = document.createElement('div');
     topSpacer.className = 'win-spacer top-spacer';
-    topSpacer.dataset.winStart = String(windowStart);
-    topSpacer.style.height = Math.min(TOP_SPACER_MAX, windowStart * EST_MSG_HEIGHT) + 'px';
+    topSpacer.style.height = (windowStart * EST_MSG_HEIGHT) + 'px';
     topSpacer.style.display = 'flex';
     topSpacer.style.alignItems = 'flex-end';
     topSpacer.style.justifyContent = 'center';
-    // 顶部占位本身也可点击（滚轮/触控用户不一定能找到按钮）
-    topSpacer.addEventListener('click', (e) => {
-      if (e.target.closest('button')) return;
-      loadOlderMessages();
-    });
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'load-more-btn';
-    btn.textContent = '↑ 更早的 ' + windowStart + ' 条（滚到顶部自动加载）';
-    btn.style.cssText = 'margin-bottom:12px;' + SPACER_BTN_CSS;
-    btn.addEventListener('click', (e) => { e.stopPropagation(); loadAllOlderMessages(); });
-    btn.title = '点击一次展开全部更早消息';
+    btn.textContent = '↑ 加载更早的 ' + windowStart + ' 条消息';
+    btn.style.cssText = 'margin-bottom:12px;padding:6px 16px;background:#1a2030;border:1px solid #2d3748;border-radius:16px;color:#7d8798;font-size:12px;cursor:pointer;';
+    btn.addEventListener('click', loadOlderMessages);
     topSpacer.appendChild(btn);
     messagesEl.appendChild(topSpacer);
   }
   // 渲染窗口内的消息
-  try { renderMsgRange(windowStart, winEnd); } catch (e) { console.warn('渲染消息失败', e); }
-  // 底部空白占位（窗口外的更新消息，通常为 0）
+  renderMsgRange(windowStart, winEnd);
+  // 底部空白占位（窗口外的更新消息，通常为0）
   const bottomCount = total - winEnd;
   if (bottomCount > 0) {
     const botSpacer = document.createElement('div');
     botSpacer.className = 'win-spacer bottom-spacer';
-    botSpacer.style.height = Math.min(TOP_SPACER_MAX, bottomCount * EST_MSG_HEIGHT) + 'px';
+    botSpacer.style.height = (bottomCount * EST_MSG_HEIGHT) + 'px';
     botSpacer.style.display = 'flex';
     botSpacer.style.alignItems = 'flex-start';
     botSpacer.style.justifyContent = 'center';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'load-more-btn';
-    btn.textContent = '↓ 更新的 ' + bottomCount + ' 条（滚到底部自动加载）';
-    btn.style.cssText = 'margin-top:12px;' + SPACER_BTN_CSS;
+    btn.textContent = '↓ 加载更新的 ' + bottomCount + ' 条消息';
+    btn.style.cssText = 'margin-top:12px;padding:6px 16px;background:#1a2030;border:1px solid #2d3748;border-radius:16px;color:#7d8798;font-size:12px;cursor:pointer;';
     btn.addEventListener('click', loadNewerMessages);
     botSpacer.appendChild(btn);
     messagesEl.appendChild(botSpacer);
   }
-  ensureWinScrollBound();
-  // 翻页时保持视口内容不动；首次渲染才滚到底部
-  if (keep) {
-    const newSpacer = messagesEl.querySelector('.top-spacer');
-    const newSpacerH = newSpacer ? newSpacer.offsetHeight : 0;
-    messagesEl.scrollTop = Math.max(0, keep.keepScrollTop + (newSpacerH - keep.prevSpacerH));
-  } else {
-    scrollBottom();
+  // scroll 事件监听：滚到顶部/底部附近时自动加载
+  if (!winScrollBound) {
+    winScrollBound = true;
+    messagesEl.addEventListener('scroll', () => {
+      if (winMoving) return;
+      if (messagesEl.scrollTop < 80 && windowStart > 0) {
+        loadOlderMessages();
+      } else if (messagesEl.scrollTop + messagesEl.clientHeight > messagesEl.scrollHeight - 80) {
+        loadNewerMessages();
+      }
+    });
   }
+  scrollBottom();
   scheduleThumbUpdate();
 }
-// 渲染指定范围内的消息（被 renderConversation 调用）
-// 消息 HTML 缓存：避免切换对话时重复 mdToHtml
 /* ---------- [ref:/path] 闭合占位符：UI 渲染时展开成文件卡片 ---------- */
 const REF_MARK_RE = /\[ref:\s*([^\]\s]+)\s*\]/g;
 function refCardHtml(path) {
@@ -7109,6 +7116,23 @@ function expandRefsOutsideCode(text) {
   const parts = String(text == null ? '' : text).split(/(```[\s\S]*?```)/);
   return parts.map((seg, i) => (i % 2 === 1) ? seg : seg.replace(REF_MARK_RE, (mm, p) => refCardHtml(p))).join('');
 }
+// [ref:] 卡片 + Markdown 的正确组合：先把卡片换成占位符，交给 mdToHtml 渲染，
+// 再把占位符回填成卡片 HTML。否则 mdToHtml 内部的 escapeHtml 会把卡片标签转义成源码。
+function mdWithRefCards(text) {
+  const src = String(text == null ? '' : text);
+  const cards = [];
+  const segs = src.split(/(```[\s\S]*?```)/);
+  const withPh = segs.map((seg, i) => {
+    if (i % 2 === 1) return seg;   // 代码块内保持原样
+    return seg.replace(REF_MARK_RE, (mm, p) => {
+      cards.push(refCardHtml(p));
+      return '\u0000R' + (cards.length - 1) + '\u0000';
+    });
+  }).join('');
+  let html = mdToHtml(withPh);
+  if (cards.length) html = html.replace(/\u0000R(\d+)\u0000/g, (mm, i) => cards[+i] || '');
+  return html;
+}
 // 图片卡片懒加载：插入 DOM 后按需从 VFS 取 dataURL
 async function hydrateRefCards(root) {
   if (!root) return;
@@ -7125,11 +7149,26 @@ async function hydrateRefCards(root) {
     } catch (e) { card.classList.add('ref-missing'); }
   }
 }
+// 消息 HTML 缓存：避免切换对话时重复 mdToHtml
 function getMsgHtml(m) {
   if (m._html) return m._html;
   let html = '';
   if (m.role === 'user') {
-    html = mdToHtml(expandRefsOutsideCode(contentToText(m.content)));
+    // 兼容视觉模型的数组 content：文本走 Markdown，图片单独拼成 <img>
+    let rawText = '';
+    let imgHtml = '';
+    if (Array.isArray(m.content)) {
+      for (const p of m.content) {
+        if (!p) continue;
+        if (p.type === 'text') rawText += String(p.text || '');
+        else if (p.type === 'image_url' && p.image_url && p.image_url.url) {
+          imgHtml += '<img src="' + escapeHtml(p.image_url.url) + '" style="max-width:200px;max-height:200px;border-radius:6px;margin-top:8px;border:1px solid #2d3540;" loading="lazy">';
+        }
+      }
+    } else {
+      rawText = contentToText(m.content);
+    }
+    html = mdWithRefCards(rawText) + imgHtml;
   } else if (m.role === 'assistant') {
     // 思考内容只用于 UI 展示：优先取 _thinking（不参与上下文裁剪），旧存档消息回落到 reasoning_content
     const thinkText = (m._thinking && m._thinking.trim()) ? m._thinking : (m.reasoning_content || '');
@@ -7141,10 +7180,12 @@ function getMsgHtml(m) {
   m._html = html;
   return html;
 }
+// 渲染指定范围内的消息（被 renderConversation 调用）
 function renderMsgRange(startIdx, endIdx) {
   const pendingCards = {};
   for (let i = startIdx; i < endIdx; i++) {
     const m = conversation[i];
+    if (!m) continue;
     if (m.role === 'user') {
       appendMsg('user', getMsgHtml(m), i);
     } else if (m.role === 'assistant') {
@@ -7195,10 +7236,18 @@ function renderMsgRange(startIdx, endIdx) {
         det.querySelector('pre').textContent = resultText.slice(0, 4000);
         wrap.appendChild(det);
       } else {
-        // 找不到对应工具卡片（旧格式/ID不匹配），创建独立结果卡片
+        // 找不到对应工具卡片（通常是滑动窗口截断），先在 assistant 历史里反查工具名
+        let fallbackName = '工具结果';
+        for (let j = i - 1; j >= 0; j--) {
+          const am = conversation[j];
+          if (am && am.role === 'assistant' && Array.isArray(am.tool_calls)) {
+            const hit = am.tool_calls.find(tc => tc && tc.id === m.tool_call_id);
+            if (hit) { fallbackName = (hit.function && hit.function.name) || fallbackName; break; }
+          }
+        }
         const el = document.createElement('div');
         el.className = 'msg tool';
-        el.innerHTML = `<div class="avatar">🔧</div><div class="bubble tool-card"><div class="tool-head"><span class="name">工具结果</span><span class="tool-status">完成</span></div><details><summary>结果</summary><pre></pre></details></div>`;
+        el.innerHTML = `<div class="avatar">🔧</div><div class="bubble tool-card"><div class="tool-head"><span class="name">${escapeHtml(fallbackName)}</span><span class="tool-status">完成</span></div><details><summary>结果</summary><pre></pre></details></div>`;
         el.querySelector('pre').textContent = resultText.slice(0, 4000);
         messagesEl.appendChild(el);
       }
@@ -7235,7 +7284,6 @@ function showSessionList() { const panel = $('sessionList'); if (panel) { render
 function hideSessionList() { const panel = $('sessionList'); if (panel) panel.style.display = 'none'; }
 let isRunning = false;
 let chatAbort = null;   // 停止按钮对应的 AbortController
-let pendingSwitchId = null;   // 运行中切对话时记录目标 id，等当前轮次 finally 保存完原会话后再真正切换，避免回复串台
 let currentAssistantEl = null;  // 当前正在输出的 assistant 消息元素（工具卡片挂到它下面）
 
 /* ---------- 长期记忆（本地语义检索，IndexedDB + 词向量余弦） ---------- */
@@ -7558,6 +7606,8 @@ function appendMsg(role, html, idx) {
   const bubble = el.querySelector('.bubble');
   if (html != null) bubble.innerHTML = html;
   renderMathIn(bubble);
+  // [ref:] 图片卡片懒加载：插入 DOM 后再从 VFS 取 dataURL 填 <img>
+  if (bubble.querySelector('img.ref-thumb')) hydrateRefCards(bubble);
   const copyBtn = el.querySelector('[data-action="copy"]');
   if (copyBtn) copyBtn.addEventListener('click', () => {
     const clone = bubble.cloneNode(true);
@@ -7656,10 +7706,9 @@ async function regenerateFrom(idx) {
     isRunning = false; $('btnSend').disabled = false; $('btnSend').textContent = '发送';
     setStopBtn(false); chatAbort = null;
     // 一轮结束后，如果 DOM 消息数超过窗口 2 倍，压缩窗口（只在用户停在底部附近时做，避免跳动）
-    // 总消息数不超过 AUTO_FULL_LIMIT 时走全量渲染，不压缩，否则会把用户正在翻看的历史“折叠”回去
     try {
       const domCount = messagesEl.querySelectorAll('.msg').length;
-      if (conversation.length > AUTO_FULL_LIMIT && domCount > WINDOW_SIZE * 2) {
+      if (domCount > WINDOW_SIZE * 2) {
         const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 150;
         if (nearBottom) {
           windowStart = Math.max(0, conversation.length - WINDOW_SIZE);
@@ -7700,7 +7749,7 @@ function addUserMsg(text, images) {
       return !(mm && imgPaths.indexOf(mm[1]) >= 0);
     }).join('\n').trim();
   }
-  const bubble = appendMsg('user', mdToHtml(expandRefsOutsideCode(shownText)));
+  const bubble = appendMsg('user', mdWithRefCards(shownText));
   if (images && images.length) {
     const wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;';
@@ -7880,6 +7929,64 @@ function buildEarlySummary(dropped) {
   const f = (typeof sessionFile !== 'undefined' && sessionFile) ? sessionFile : '';
   parts.push('完整记录见' + (f ? ' ' + f : ' /conversations/ 目录。'));
   return { role: 'system', content: parts.join('\n') };
+}
+/* ---------- 请求体安全化：发请求前修复 tool_calls ↔ tool 配对 ---------- */
+// 解决 400「An assistant message with 'tool_calls' must be followed by tool messages
+// responding to each 'tool_call_id'」。触发场景：工具执行到一半刷新页面/点停止、
+// 手工删消息、跨设备恢复、长对话裁剪，都会留下「有 tool_calls 没 tool 响应」的尾巴。
+// 处理：孤立 tool 丢弃 → tool_call_id 去重 → 缺响应的 tool_calls 补占位 → 剥离 UI 专用字段
+function sanitizeApiMessages(list) {
+  const src = Array.isArray(list) ? list : [];
+  const out = [];
+  const answered = new Set();
+  for (const m of src) {
+    if (!m || typeof m !== 'object') continue;
+    if (m.ask || m.deliver || m.chart) continue;   // 卡片消息纯 UI，不是协议内容
+    if (m.role === 'tool') {
+      const id = m.tool_call_id == null ? '' : String(m.tool_call_id);
+      if (!id || answered.has(id)) continue;       // 无 id / 重复响应 → 丢弃
+      // 必须能找到声明了这个 id 的 assistant，否则就是孤立 tool 消息
+      const host = out.find(x => x.role === 'assistant' && Array.isArray(x.tool_calls) && x.tool_calls.some(tc => tc.id === id));
+      if (!host) continue;
+      answered.add(id);
+      out.push({ role: 'tool', tool_call_id: id, content: contentToText(m.content) || '（工具无输出）' });
+      continue;
+    }
+    if (m.role === 'assistant') {
+      const msg = { role: 'assistant', content: contentToText(m.content) };
+      if (typeof m.reasoning_content === 'string') msg.reasoning_content = m.reasoning_content;   // 推理模型要求回传思考字段时保留
+      if (Array.isArray(m.tool_calls) && m.tool_calls.length) {
+        const tcs = [];
+        const ids = new Set();
+        for (const tc of m.tool_calls) {
+          if (!tc || !tc.id) continue;
+          const id = String(tc.id);
+          if (ids.has(id)) continue;
+          const fn = tc.function || {};
+          let args = fn.arguments;
+          if (typeof args !== 'string') { try { args = JSON.stringify(args == null ? {} : args); } catch (e) { args = '{}'; } }
+          ids.add(id);
+          tcs.push({ id, type: tc.type || 'function', function: { name: fn.name || '', arguments: args || '{}' } });
+        }
+        if (tcs.length) msg.tool_calls = tcs;
+      }
+      if (msg.tool_calls || String(msg.content || '').trim()) out.push(msg);   // 全空 assistant 会被部分服务商判错，直接跳过
+      continue;
+    }
+    out.push({ role: m.role, content: m.content == null ? '' : m.content });
+  }
+  // 第二遍：给每个 tool_calls 补齐缺失的 tool 响应（顺序与 id 都按它自己声明的来）
+  const fixed = [];
+  for (const m of out) {
+    fixed.push(m);
+    if (m.role !== 'assistant' || !Array.isArray(m.tool_calls)) continue;
+    for (const tc of m.tool_calls) {
+      if (answered.has(tc.id)) continue;
+      fixed.push({ role: 'tool', tool_call_id: tc.id, content: '（该工具调用未完成：可能页面刷新、任务被中断或结果已丢失，无输出）' });
+      answered.add(tc.id);
+    }
+  }
+  return fixed;
 }
 // 最近 3 轮完整保留；更早轮次只折叠参数与工具结果，不删消息、不删 tool_call_id（否则 API 400）
 const TRIM_KEEP_ROUNDS = 3;
@@ -8829,7 +8936,8 @@ function extractResource(name, args) {
   if (name.startsWith('todo_')) return 'todo:__all__';
   // 目录级操作（删除/移动）用全树锁，避免与子文件操作竞态
   if (name === 'delete_path' || name === 'move_path') return 'vfs:__tree__';
-  if (['write_file', 'append_file', 'read_file', 'create_dir'].includes(name)) return 'vfs:' + (args.path || '');
+  // edit_file 也必须归入 vfs:/path：否则它变成 indep: 独立资源，会与其他 vfs 操作并行派发
+  if (['write_file', 'append_file', 'read_file', 'create_dir', 'edit_file'].includes(name)) return 'vfs:' + (args.path || '');
   if (name === 'kb_commit') return 'kb:__commit__';
   if (['kb_write', 'kb_delete', 'kb_read'].includes(name)) return 'kb:' + (args.path || '');
   if (['fetch_url', 'web_fetch', 'download_url'].includes(name)) return 'url:' + (args.url || '');
@@ -9389,12 +9497,6 @@ async function sendMessage() {
     if (isFirstRound && fullText) generateTitle(fullText);
     const s = sessions.find(x => x.id === currentSessionId);
     if (s) { s.updatedAt = Date.now(); saveSessions(); }
-    // 运行中切对话：原会话已保存完毕，现在执行真正的切换
-    if (pendingSwitchId) {
-      const targetId = pendingSwitchId;
-      pendingSwitchId = null;
-      switchSession(targetId);
-    }
   }
 }
 
