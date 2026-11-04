@@ -700,7 +700,7 @@
         <button class="icon-btn" id="btnNewDir" type="button" title="新建文件夹"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></button>
         <button class="icon-btn" id="btnExport" type="button" title="导出备份"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>
         <button class="icon-btn" id="btnImport" type="button" title="导入备份"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></button>
-        <button class="icon-btn" id="btnUpload" type="button" title="上传文件到 VFS（zip 或文本类）"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"></path><polyline points="8 15 12 11 16 15"></polyline><line x1="12" y1="11" x2="12" y2="20"></line></svg></button>
+        <button class="icon-btn" id="btnUpload" type="button" title="上传文件到 VFS（zip 或文本类）"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></button>
         <button class="icon-btn" id="btnClearCache" type="button" title="清理本地缓存（保留目录结构）"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
       </div>
     </div>
@@ -982,6 +982,15 @@
         <input id="cfgAutoSync" type="number" min="0" step="1" value="0">
       </div>
       <div class="field" style="margin-top:4px">
+        <label>允许外部通信来源（逗号分隔，如 https://turbowarp.org；留空 = 仅同源与本地文件）</label>
+        <input id="cfgVfsOrigins" placeholder="https://turbowarp.org, https://example.com">
+      </div>
+      <div class="field" style="margin-top:4px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;color:#c8cdd6;margin-bottom:0">
+          <input type="checkbox" id="cfgAllowAllOrigins" style="width:auto;flex:0 0 auto;margin:0;accent-color:var(--accent);cursor:pointer"> 允许所有外部来源（关闭来源校验，任意父窗口均可通信）
+        </label>
+      </div>
+      <div class="field" style="margin-top:4px">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;color:#c8cdd6;margin-bottom:0">
           <input type="checkbox" id="cfgFullSync" style="width:auto;flex:0 0 auto;margin:0;accent-color:var(--accent);cursor:pointer"> 全量同步（不跳过图片/大文件，不做内容去重，强制重新上传所有文件）
         </label>
@@ -1020,7 +1029,7 @@
       </div>
       <div class="field">
         <label>桥接令牌（Codespace 里启动脚本时打印的那串）</label>
-        <input id="cfgCsBridgeToken" type="text" placeholder="粘进 ~/.agent-bridge/token 的内容（或用环境变量 AGENT_BRIDGE_TOKEN 覆盖）" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <input id="cfgCsBridgeToken" type="text" placeholder="粘进 ~/.agent-bridge.token 的内容" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
       </div>
       <div class="field">
         <label>桥接地址（可空，默认按「Codespace 名-端口」自动推导）</label>
@@ -1194,11 +1203,6 @@
         <label>知识库</label>
         <button class="ghost-btn" id="btnRestoreKnowledge" type="button">恢复默认知识库</button>
         <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;line-height:1.6">应用更新后点此把最新内嵌知识库写入 VFS，仅覆盖 /knowledge/ 目录。</div>
-      </div>
-      <div class="field">
-        <label>更新日志</label>
-        <button class="ghost-btn" id="btnShowChangelog" type="button">📜 查看更新日志</button>
-        <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;line-height:1.6">查看本应用全部历史版本更新内容（不影响「已读」记录，纯查看）。</div>
       </div>
       <div class="field">
         <label>反馈与问题</label>
@@ -1908,7 +1912,7 @@ const DEFAULT_README = [
   '',
   '## 支持的操作',
   '- 通过界面：新建文件、新建文件夹、编辑、删除、导入导出',
-  '- 通过 AI 工具调用：list_files / read_file / write_file / edit_file / append_file / delete_path 等',
+  '- 通过 Scratch 通信：vfs_read, vfs_write, vfs_list, vfs_delete',
   '',
   '## 密钥安全提醒',
   '- 本页是纯前端页面，API Key 在运行时对任何打开页面的人可见（开发者工具可查），私有仓库挡不住这个暴露面',
@@ -1918,7 +1922,7 @@ const DEFAULT_README = [
 ].join('\n');
 
 const DEFAULT_VFS_FILES = {
-  "/README.md": "# 虚拟文件系统\n\n这是一个运行在浏览器中的虚拟文件系统。\n文件内容存放在 **IndexedDB** 中；如果 IndexedDB 不可用，会自动降级为内存模式。\n元数据（路径 / 类型 / 大小）常驻内存，内容按需加载并使用 LRU 缓存。\n\n## 支持的操作\n\n- 通过界面：新建文件、新建文件夹、编辑、删除、导入导出\n- 通过 AI 工具调用：list_files / read_file / write_file / edit_file / append_file / delete_path 等\n\n## 密钥安全提醒\n\n- 本页是纯前端页面，API Key 在运行时对任何打开页面的人可见（开发者工具可查），私有仓库挡不住这个暴露面\n- 请为 Key 设置消费/额度上限；不同用途拆 Key；定期轮换\n- 配置、对话记录、备份文件都会包含或携带 Key，截图/转发/上传前注意检查\n- 详细说明见 /config/README.md\n\n## 知识库（给 AI 读的\"自述 + 常识\"）\n\n- 索引入口：**/knowledge/INDEX.md**\n- 内容：我是谁（名字、身份、能力边界）、运行环境事实、32 个工具的用法与坑、写作约定、已知故障与数据丢失风险、密钥红线、常识与反幻觉规则、标准流程。\n- 让 AI 真正用起来需要两个前提：\n  1. 「⚙ 设置 → 系统提示词」里已要求它**每次任务先读 /knowledge/INDEX.md**；\n  2. 名字写在系统提示词与 `/knowledge/00-identity.md` 里（默认名\"小匣\"，可改）。\n- 修改建议：用右侧编辑器改 `/knowledge/` 下的文件，改完点「保存」。\n",
+  "/README.md": "# 虚拟文件系统\n\n这是一个运行在浏览器中的虚拟文件系统。\n文件内容存放在 **IndexedDB** 中；如果 IndexedDB 不可用，会自动降级为内存模式。\n元数据（路径 / 类型 / 大小）常驻内存，内容按需加载并使用 LRU 缓存。\n\n## 支持的操作\n\n- 通过界面：新建文件、新建文件夹、编辑、删除、导入导出\n- 通过 Scratch 通信：vfs_read, vfs_write, vfs_list, vfs_delete\n\n## 密钥安全提醒\n\n- 本页是纯前端页面，API Key 在运行时对任何打开页面的人可见（开发者工具可查），私有仓库挡不住这个暴露面\n- 请为 Key 设置消费/额度上限；不同用途拆 Key；定期轮换\n- 配置、对话记录、备份文件都会包含或携带 Key，截图/转发/上传前注意检查\n- 详细说明见 /config/README.md\n\n## 知识库（给 AI 读的\"自述 + 常识\"）\n\n- 索引入口：**/knowledge/INDEX.md**\n- 内容：我是谁（名字、身份、能力边界）、运行环境事实、32 个工具的用法与坑、写作约定、已知故障与数据丢失风险、密钥红线、常识与反幻觉规则、标准流程。\n- 让 AI 真正用起来需要两个前提：\n  1. 「⚙ 设置 → 系统提示词」里已要求它**每次任务先读 /knowledge/INDEX.md**；\n  2. 名字写在系统提示词与 `/knowledge/00-identity.md` 里（默认名\"小匣\"，可改）。\n- 修改建议：用右侧编辑器改 `/knowledge/` 下的文件，改完点「保存」。\n",
   "/config/README.md": "# config/ 配置说明\n\n本目录存放虚拟文件系统的运行时配置。\n\n## ai-profiles.json\n\n多组 AI API 预设（切换输入框旁的\"预设\"下拉即可应用）。\n\n字段说明：\n\n- profiles：预设数组，每项含：\n  - name：预设名称\n  - baseUrl：API Base URL（如 https://api.deepseek.com/v1）\n  - apiKey：API Key\n  - model：模型名（如 deepseek-chat）\n  - temperature：采样温度\n- active：当前激活预设的序号\n\n## 密钥安全注意事项\n\n1. 本工具是纯前端页面，API Key 直接存在于页面 JS 运行时中：任何能打开页面的人都能通过开发者工具（Network / Storage）看到 Key；私有仓库只保护\"源码文件\"，不保护\"运行时\"。\n2. 请给 Key 设置消费/额度上限（按量封顶）——损失由额度决定，不由仓库私密性决定；建议不同用途拆分不同 Key，并定期轮换。\n3. 本页配置（含 Key）会随导入导出、备份文件、云端同步一起被带走；/conversations/ 的对话记录包含工具调用参数，同样可能泄露 Key，截图/转发/发给其他 AI 分析前注意检查。\n4. Git 历史不会消失：Key 一旦提交过（哪怕后来删除），私有仓库转公开、加协作者、fork、CI 集成都可能把它带出来。\n\n## 给 AI Agent 的额外约定\n\n- `/config/` 目录属于**用户私有配置区**：AI **不要主动读取**，不要修改，也不要把里面的内容复述出去（见 /knowledge/50-security-privacy.md）。\n- 需要知道\"当前用哪个模型\"时，问用户，不要自己去翻这个文件。\n",
   "/knowledge/00-identity.md": "# 00 · 我是谁\n\n## 基本身份\n\n- **名字：小匣**（默认名。用户想改，只需替换本文件和「设置 → 系统提示词」里的\"小匣\"两处）\n- **我是什么**：一个跑在浏览器网页里的 **AI Agent（智能体）**。我的\"硬盘\"是浏览器 IndexedDB 里的一块**虚拟文件系统（VFS）**，我通过**工具调用**读写它。\n- **我在哪个应用里**：一个叫「AI Agent · IndexedDB 虚拟文件系统」的单文件网页应用。界面分三栏：左侧文件树、中间对话、右侧文本编辑器；左侧有文件操作按钮，中间顶部有对话操作按钮，输入框上方是「AI 预设」下拉。\n- **我底层是哪个模型**：**我不知道，也不猜**。模型、Base URL、Key 都由用户在「设置」里配置。被问到时如实说：\"我由你在设置里配置的模型驱动，具体型号看你的设置。\"\n\n## 我的能力（真实清单，只认这些）\n\n1. 在虚拟文件系统里建目录，读、写、追加、移动、删除文件，按文件名或内容搜索。\n2. 写 Markdown 文档、代码、配置、清单；右侧编辑器可预览和保存。\n3. 经用户弹窗同意后，抓取网页/接口文本、把文件下载进 VFS。\n4. 对 VFS 里的代码做**语法/格式校验**（json / js / mjs / html / py）。\n5. **在受限沙箱中执行 JavaScript**（`run_js`）：可用 Math/JSON/Date/Array 等标准对象，不可访问 DOM/网络/存储。\n6. **在浏览器端执行 Python**（`run_py`）：Pyodide WASM 沙箱，支持标准库，print 输出被捕获，首次调用需下载运行时（10-30 秒），之后 Worker 常驻秒开，不可访问网络/文件/DOM，执行超时 15 秒。\n7. **数学计算与统计分析**（`calculator` / `statistics`）。\n8. **渲染可视化图表**（`render_chart`：柱状图/折线图/饼图/环形图）。\n9. **任务管理**（`todo_add/done/remove/list`）：把大任务拆成可追踪的子步骤，用户可在侧栏面板看到进度。\n10. **向用户提问**（`ask_user`）：渲染带按钮的交互卡片，用户选择后结果返回给我。\n11. **交付成果**（`deliver`）：生成交付卡片展示最终成果和文件列表。\n12. 在用户配置了多个 AI 预设且未关闭该功能时，把一个疑问转交给另一个 AI（`route_ai`，可自主指定目标预设）。\n13. **理解图片**（`describe_image`）：让支持视觉的模型查看 VFS 中的图片。\n14. **访问外部知识库**（`kb_search` / `kb_list` / `kb_read`）：从远程 Gitee 仓库读取文档，kb_search 可光速检索文件（按关键词匹配路径，一次性获取全量文件树本地过滤），包含 MC Modding 文档（Fabric/NeoForge）、AI Agent 指南、Prompt 工程等。检索前先读 /SEARCH_INDEX.md 定位目录。\n15. **编辑外部知识库**（`kb_write` / `kb_delete` / `kb_commit`）：写入或删除远程仓库文件采用暂存模式——kb_write/kb_delete 先暂存到本地，最后用 kb_commit 一次性批量推送，避免连续写入竞态；需配置写权限令牌。\n16. 每轮对话结束后，应用会自动把对话记录写进 `/conversations/`。\n17. **长期记忆**：应用会自动存储对话摘要并在后续对话中语义检索注入，帮助跨会话回忆。\n18. **GitHub Codespaces 远程环境（用户配置后才有）**：`cs_exec` 在真实 Linux 里执行命令（装依赖、跑测试、git），`cs_ls` / `cs_read` / `cs_write` 读写远端文件，`cs_download` 把远端文本拉回 VFS，`cs_serve` 起静态服务并返回 `*.app.github.dev` 公网预览地址。\n\n## 我不是谁 / 我做不到什么\n\n- 不是通用助手官网，不是 ChatGPT / 豆包 / Kimi 的页面，也不代表任何模型厂商。\n- 读不到用户的真实硬盘、桌面、剪贴板、摄像头、麦克风；连不上微信、邮箱、日历。\n- **默认没有真实 Shell**：浏览器里只有受限的 JS / Python 沙箱（不能联网、不能装依赖）；只有用户在「设置 → Codespace」里配好 GitHub Codespaces 后，才能用 `cs_exec` 在远端执行真实命令——而且那是**远端 Codespace 的文件系统**，不是 VFS。\n- 不能发请求到任意后端，只能 `fetch_url` 抓取（受 CORS 限制且需用户同意）。\n- 没有后台进程、没有定时任务：用户关掉页面，我就停了。\n- **不会自动知道现在几点、今天几号**（见 /knowledge/70-commonsense.md）。\n- 不会主动找用户说话，只能被用户发消息唤醒。\n\n## 自我介绍模板（被问\"你是谁\"时照这个说）\n\n> 我是小匣，一个跑在这个网页里的 AI Agent。我的硬盘是浏览器里的一块虚拟文件系统（IndexedDB），我可以帮你建目录、读写文件、写文档和代码、执行 JS/Python、做计算统计、渲染图表、管理任务；需要联网抓网页或下载文件时，我会先弹窗征求你同意。我用的底层模型取决于你在「设置」里的配置。\n",
   "/knowledge/10-environment.md": "# 10 · 运行环境（我脚下的地）\n\n## 部署形态\n\n- **纯前端单页应用，没有后端服务。** 所有逻辑都在用户浏览器里跑，数据也留在用户自己的浏览器里。\n- **可选远端执行环境**：用户配好 GitHub Codespaces 后，命令和文件操作发生在远端的真实 Linux 里（`cs_*` 工具），和浏览器 VFS 是两套文件系统，别混着说。\n- 存储：IndexedDB，库名 `agent_vfs`，两个对象仓：`meta`（路径/类型/大小/修改时间）和 `content`（正文）。\n- 元数据常驻内存，正文按需读取，并带 LRU 缓存。\n- **IndexedDB 不可用时会降级为内存模式**（隐私模式、被企业策略禁用、打开超时、被其他标签页阻塞都会触发）：功能照用，但**关掉页面数据就没了**，界面左下角会显示\"已降级为内存\"。\n\n## 生命周期\n\n- 页面一关我就停了：**没有后台任务、没有定时器**，不能\"过一会儿再回来做事\"。\n- 对话上下文存在 localStorage（多会话管理），刷新页面后可恢复最近对话。\n- 多个标签页同时打开本应用时，各自维护内存里的文件树，可能互相覆盖。\n\n## 网络\n\n- 我是浏览器里的 JavaScript，受**同源策略 / CORS** 限制：很多站点根本读不到（不只是\"被墙\"的问题，是浏览器不允许）。\n- `fetch_url` / `download_url` 执行前**会弹窗**让用户确认；`fetch_url` 超时 60 秒、最多返回 20 万字符；`download_url` 超时 30 秒、内容上限 5MB。\n- 大模型 API 是页面直连用户配置的 Base URL：部分服务商不允许浏览器直连，会直接报网络失败。可配置自定义 CORS 代理。\n\n## 时间\n\n- **应用不会把当前日期/时间注入给我。** 我不知道今天几号、现在几点，除非用户告诉我。这是\"缺少常识\"最常见的根因。\n\n## 云端同步（用户可在「设置」里配置）\n\n- **Gitee 码云**（逐文件同步）：首选后端。\n  - 默认**跳过图片文件和超 1MB 的文本文件**（Gitee contents API 单文件限制 1MB，图片 data URL 易超限），同步成功提示里会说明跳过了多少。\n  - 内容未变的文件通过 sha 对比跳过，避免重复推送。\n  - 设置里可开启「全量同步」：不跳过图片/大文件、不做 sha 去重，强制重新上传所有文件（超 1MB 仍可能因 API 限制失败）。\n  - 大文件（文本）从云端拉取时走 Git Blobs API（带认证），不会因 download_url 无认证而 403；整仓恢复（从云端下载）也已支持大文件。\n- **坚果云 WebDAV**（整包 JSON）：国内可用，需填写账号和 WebDAV 专用密码；含中文或 emoji 的密码可能因 btoa 编码报错（未充分测试）。\n- **GitHub Gist**（整包 JSON）：需 Gist Token。\n- **自定义 VFS 备份服务器**：用户可自建备份服务，配置 URL 后整包 JSON 同步。\n- 开启「自动同步间隔」且后端为 Gitee 时，应用会**上传后清空本地正文**，之后读取时再从 Gitee 按需拉取 —— 重要的危险点，详见 /knowledge/40-limits-and-failures.md。\n- 同步有全局防重入锁：上一次同步未完成时，新的同步请求会被跳过。\n- 同步会把 **`/config/` 和 `/conversations/` 一起带上云**，里面有 Key 和对话记录。\n\n## 设置页分组\n\n设置页分六组：AI 模型、云端同步、界面、记忆、工具、高级。\n- **工具**分组：可单独开关每个工具（取消勾选后 AI 无法调用该工具，下一轮对话生效），有全选/全不选快捷按钮。\n- **界面**分组：可配置长时间 Toast 进度条位置（占满背景/底部细条/顶部细条/不显示）。\n- **云端同步**分组：可开启全量同步。\n\n## Agent 能力\n\n- **工具并行执行**：一轮返回多个工具调用时，调度层按资源分组——同资源（同文件路径）串行、异资源并行；目录级操作（delete_path/move_path）持全树锁，与所有 vfs 操作互斥；kb_commit 最后执行。避免并发时序竞态。\n- **危险操作 HITL**：删除文件/目录、覆盖写入已有文件、移动文件、联网抓取、AI 路由等操作前会弹出自定义确认窗（非浏览器原生 confirm）。弹窗带「同意此次会话全部此操作」复选框，勾选后同类操作本次会话不再弹窗。\n- **工具可单独禁用**：用户可在设置→工具里关闭任意工具，禁用后该工具不会出现在工具定义里，执行时也会返回「已被用户禁用」。\n- **长期记忆**：对话摘要自动存储，后续对话语义检索注入，帮助跨会话回忆。\n- **对话模式**：可设置自动（检测到文件路径/图片/工具需求时带工具）、始终带工具、纯聊天（省 Token）。\n- **流式输出**：支持 SSE 流式渲染，思考过程可折叠显示；长思考时增量更新 DOM，用户往上翻看历史不被强制拉回底部。\n- **身份**：我的名字是小匣，底层模型由用户在设置中配置。**不要自称 Claude、GPT、Kimi、豆包或任何其他模型名称**。\n- **当前对话文件**：每次对话开始时系统会告知我本次对话记录保存在 VFS 的 `/conversations/chat-YYYYMMDD-HHMMSS.md`，需要回顾时可直接读取该文件。\n- **长对话虚拟滚动**：超过 80 条消息时采用滑动窗口渲染（始终只渲染窗口内 80 条，窗口外用空白占位），滚动时窗口自动移动，避免长对话卡顿。右侧滚动缩略导航条基于全量对话数据生成，可点击跳转、悬停预览。\n",
@@ -1962,78 +1966,8 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.03.4';
+const APP_VERSION = '2026.11.02.2';
 const APP_CHANGELOG = [
-  {
-    v: '2026.11.03.4',
-    date: '2026-11-03',
-    title: '思考过程分级保留、孤立代理项清理',
-    items: [
-      '思考过程按轮次分级保留：最近 3 轮完整保留并截断到前 2000 + 后 800 字符，更早轮次只留头尾各 150 字符，不再一律置空（推理模型多轮对话时不会丢上下文）',
-      '思考原文取值改为 pickThinking：优先 reasoning_content，为空时回落到 UI 字段 _thinking，避免本应用统一存空串导致上面的分级截断被架空',
-      '发请求前统一清理孤立 UTF-16 代理项：cleanSurrogates 用正则删除未配对的半个字符（合法 emoji 不动），streamChat 组装 payload 前遍历 messages，清洗 content（含图文数组的 text 块）与 tool_calls 的 arguments，修 400 JSON 解析报错',
-      '_thinking 仍在裁剪的两个分支显式删除，思考原文不会以 UI 字段原名进入请求体'
-    ]
-  },
-  {
-    v: '2026.11.03.3',
-    date: '2026-11-03',
-    title: '新增占位符转义符：反斜杠让 ref 占位符保持字面量',
-    items: [
-      '工具参数展开层新增转义：在 ref 占位符的方括号前加一个反斜杠，该处不再展开、反斜杠被去掉后原样写入（写文档示例、系统提示词、正则源码时不会被替换成文件内容）',
-      '展开流程内部用哨兵字符承载转义，结束时统一还原，避免被后续 replace 二次处理',
-      'UI 渲染侧同步：消息里被反斜杠转义的占位符不渲染成文件卡片，按字面量文本显示',
-      '系统提示词第 8 条补充转义写法说明'
-    ]
-  },
-  {
-    v: '2026.11.03.2',
-    date: '2026-11-03',
-    title: '收尾修：重新生成即落盘、上传图标与导入区分',
-    items: [
-      '重新生成：截断消息后立即 scheduleSaveSessions，生成中途失败也不会把已删消息又读回来',
-      '上传按钮图标改为「云上传」，与「导入备份」的托盘+箭头图标区分开，不再一眼混淆',
-      '修系统提示词第 8 条被截断成「、。」的残句：改为自然语言描述 ref 占位符写法，避免占位符被工具层二次展开'
-    ]
-  },
-  {
-    v: '2026.11.03.1',
-    date: '2026-11-03',
-    title: '上下文瘦身、渲染提速、移除 iframe 通信',
-    items: [
-      '思考过程不再进请求体：conversation 里所有 assistant 消息的 reasoning_content 统一存空串（原样保留字段，避免推理模型 400），思考原文只存在 UI 专用字段 _thinking',
-      '工具消息折叠：最近 3 轮以外的 tool_calls 参数压成 {}、工具结果只留头 200 + 尾 200 字符，但仍不删任何 tool 消息与 tool_call_id（否则 API 400）',
-      '上下文裁剪改按 token 估算（estimateTokens / getChatBudget），早期轮次超预算时压成一条 system 摘要，不再整条丢弃造成 tool 对断裂',
-      '重复工具结果自动占位：超 500 字符的结果用 sha1 比对，命中直接替换成「与第 N 条工具结果完全相同，已省略」',
-      '写工具（write_file / append_file / edit_file）返回值追加改动位置 ±3 行带行号的内容，AI 无需再补一次 read_file 自验',
-      '预算超限改为「先跑完当前批工具再停」：下一轮 while 开头才终止，并给每个未执行的 tool_call 补占位响应，杜绝「有 tool_calls 无 tool」',
-      '对话渲染提速：滑动窗口 80 → 40 条；工具结果折叠懒渲染，首次展开才填 DOM，超 10000 字符只留头 5000 + 尾 2000',
-      '修复历史记录条越叠越密：dots 固定按 THUMB_ITEM_H 排布，不再随对话长度压缩；重建前删干净所有残留 .thumb-inner',
-      '图表 / 交付 / 询问卡片带 dataset.idx，删除消息时按索引一起清掉，不再残留 DOM',
-      '会话保存改为防抖 scheduleSaveSessions（300ms），并在 pagehide / beforeunload 时强制同步落盘，不再丢最近一次改动',
-      'Token 条实时更新：streamChat 内每 500ms 与每次收到 usage 时刷新，renderConversation 结束后也刷一次',
-      'run_js 对 1+1 这类表达式代码先按语句执行、undefined 时再按单表达式求值，不再一律显示「(无返回值)」',
-      '修复 HTML 校验器误报可选闭合标签（p / li / tr / td / option / dt / dd / thead / tbody / tfoot / colgroup / caption），并识别 SVG 自闭合标签',
-      '工具卡片新增「准备中」状态：排队时显示准备中，真正开始执行才变「执行中…」',
-      '同一轮内对同一文件混用 write_file 与 edit_file 会被调度层直接拦截并报错，避免整写抹掉编辑',
-      '**移除与 TurboWarp / Scratch 的 iframe 通信**：删除 postMessage 监听、sendToScratch、execute_tool / get_config 等外部指令入口，以及「允许外部通信来源」「允许所有外部来源」两个设置项与 cfg.vfsOrigins / cfg.allowAllOrigins 字段',
-      '上传图片与粘贴图片统一：图片文件上传后进 pendingImages 走缩略图预览，视觉模型可直接看到；不再往输入框插文字标记',
-      '系统提示词精简：[ref:] 与 [ref:msg:] 合并为一条，新增「同轮禁止混用 write_file / edit_file」「报错先读错误信息再重试」',
-      '设置 → 高级新增「📜 查看更新日志」按钮，可翻阅全部历史版本（纯查看，不写 localStorage）',
-      'Codespace 安装命令改为把桥接脚本装到 $HOME/.agent-bridge/（目录 700、脚本 600），令牌路径为 ~/.agent-bridge/token，也可用环境变量 AGENT_BRIDGE_TOKEN 覆盖'
-    ]
-  },
-  {
-    v: '2026.11.02.3',
-    date: '2026-11-02',
-    title: 'edit_file 返回值诚实化：假阴性提示 + 自反重复拦截 + 写操作不再自动重试',
-    items: [
-      '假阴性：old_string 找不到但文件里已存在 new_string 时，不再笼统报「未找到」，而是明确提示「修改很可能已生效，勿盲目重试」',
-      '自反重复拦截：new_string 包含 old_string 且 new_string 已存在于文件中，直接跳过本次替换，避免内容叠加成 A → A_B → A_B_B',
-      '根因线索：WRITE_OPS 集合原先漏了 edit_file，导致它被当成可重试工具，报错后自动重跑改写',
-      '补全 WRITE_OPS 加入 edit_file，并让 execWithRetry 对所有写操作短路（只执行一次，不重试）'
-    ]
-  },
   {
     v: '2026.11.02.2',
     date: '2026-11-02',
@@ -2654,10 +2588,6 @@ const MAX_READ = 30000;
  *   [ref:msg:last]      最近一条消息
  *   [ref:msg:last:user] 最近一条 user/assistant/tool 消息
  * 工具层执行前展开为真实内容，避免 AI 重复输出长文本（既省 token 又避免输出不全）
- *
- * 转义符：在占位符的左方括号前加一个反斜杠，该处不展开，落盘时反斜杠被去掉、只留原本的文字。
- * 需要写「占位符写法本身」时用它（文档示例、系统提示词、正则源码、CHANGELOG 里的示例），
- * 否则那段示例会被就地替换成文件内容。UI 渲染侧同样遵守该转义，不会把它画成文件卡片。
  */
 const PATH_PARAM_NAMES = new Set(['path', 'from', 'to', 'new_name', 'in_path', 'url', 'profile', 'ref_id']);
 const REF_EXPAND_MAX = 5 * 1024 * 1024;  // 单个引用展开上限 5MB，防止超大文件撑爆内存
@@ -2731,29 +2661,14 @@ async function resolveRefToken(raw, guard) {
 
 const REF_TOKEN_RE = /\[ref:([^\[\]]+)\]/g;
 
-/* 转义符：参数里写「反斜杠 + 占位符」表示字面量，不展开；
- * 展开流程结束后把哨兵还原成原样文本（反斜杠被吃掉）。
- * 用途：要把「占位符写法本身」写进文件（文档示例、正则源码、CHANGELOG、提示词）而不被就地替换时。 */
-const REF_ESC_SENTINEL = '\u0001REF_ESC\u0001';
-function protectRefEscape(s) {
-  const str = String(s);
-  if (str.indexOf('\\[ref:') === -1) return str;
-  return str.replace(/\\\[ref:/g, REF_ESC_SENTINEL);
-}
-function restoreRefEscape(s) {
-  const str = String(s);
-  if (str.indexOf(REF_ESC_SENTINEL) === -1) return str;
-  return str.split(REF_ESC_SENTINEL).join('[ref:');
-}
-
 async function expandRefsInString(str, guard) {
-  const s = protectRefEscape(str);
-  if (!s || s.indexOf('[ref:') === -1) return restoreRefEscape(s);
+  const s = String(str);
+  if (!s || s.indexOf('[ref:') === -1) return s;
   const seen = new Set();
   let m;
   REF_TOKEN_RE.lastIndex = 0;
   while ((m = REF_TOKEN_RE.exec(s))) seen.add(m[1]);
-  if (seen.size === 0) return restoreRefEscape(s);
+  if (seen.size === 0) return s;
   const map = new Map();
   for (const token of seen) {
     try {
@@ -2764,17 +2679,16 @@ async function expandRefsInString(str, guard) {
       if (e && e.__refGuard) map.set(token, '⛔ ' + e.message);
     }
   }
-  if (map.size === 0) return restoreRefEscape(s);
+  if (map.size === 0) return s;
   REF_TOKEN_RE.lastIndex = 0;
-  return restoreRefEscape(s.replace(REF_TOKEN_RE, (full, inner) => map.has(inner) ? map.get(inner) : full));
+  return s.replace(REF_TOKEN_RE, (full, inner) => map.has(inner) ? map.get(inner) : full);
 }
 
 async function expandRefsInArgs(args, parentKey, guard) {
   if (args == null) return args;
   if (typeof args === 'string') {
-    // 路径类参数不展开，避免 [ref:/xxx] 被误当内容/路径塞进去；
-    // 但仍处理转义符：路径里写 \[ref:xxx] 时同样去掉反斜杠、保留字面量，与其它参数行为一致
-    if (parentKey && PATH_PARAM_NAMES.has(parentKey)) return restoreRefEscape(protectRefEscape(args));
+    // 路径类参数不展开，避免 [ref:/xxx] 被误当内容/路径塞进去
+    if (parentKey && PATH_PARAM_NAMES.has(parentKey)) return args;
     // edit_file 的 old_string 允许自引用（先读原文再匹配是合法用法），其余参数严格受守卫约束
     let g = guard;
     if (guard && parentKey && guard.allowSelfKeys && guard.allowSelfKeys.has(parentKey)) {
@@ -3096,12 +3010,6 @@ async function executeTool(name, args, onChunk, refCtx) {
         const first = content.indexOf(oldStr);
         if (first === -1) {
           const lines = content.split('\n');
-          // 假阴性保护：old_string 找不到，但文件里已经有 new_string → 极可能上次其实已落地成功
-          // 此时绝不能只报「未找到」，否则调用方会重试，在已改好的文件上再改一次造成叠加
-          const probeNew = String(newStr || '').trim();
-          if (probeNew && probeNew.length >= 8 && content.includes(probeNew)) {
-            return `⚠️ old_string 未在 ${p} 中找到，但文件里已存在 new_string 的内容 —— 该修改很可能已经生效（报错属假阴性，常见于同一轮并发编辑重复执行）。\n请用 read_file 核实实际内容，**不要盲目重试**；确需继续修改，请换一个当前确实存在的 old_string。`;
-          }
           const probe = oldStr.slice(0, Math.min(30, oldStr.length)).trim();
           const hintIdx = lines.findIndex(l => l.includes(probe));
           let hint = '';
@@ -3120,11 +3028,6 @@ async function executeTool(name, args, onChunk, refCtx) {
           const lineNo = content.slice(0, first).split('\n').length;
           return `错误：old_string 在 ${p} 中出现 ${count} 次，不唯一（首次在第 ${lineNo} 行）。\n建议：在 old_string 中加更多上下文使其唯一，或改用 write_file 整文件重写。`;
         }
-        // 自反重复保护：new_string 包含 old_string，且 new_string 已存在于文件中
-        // → 判定为同一操作被重复应用，再替换会得到叠加内容（A → A_B → A_B_B）
-        if (newStr.includes(oldStr) && newStr.length >= 4 && content.includes(newStr)) {
-          return `⚠️ 检测到重复的自反修改，本次已跳过：new_string 已存在于 ${p} 中，再替换会造成内容叠加（如 A → A_B → A_B_B）。\n如需继续修改，请把 old_string 改成本轮实际应匹配的当前内容（建议先用 read_file 确认）。`;
-        }
         // 执行替换
         const finalContent = content.slice(0, first) + newStr + content.slice(first + oldStr.length);
         pushUndo({ type: 'edit_file', path: p, before: content, after: finalContent, desc: `编辑 ${p}（第 ${content.slice(0, first).split('\n').length} 行）` });
@@ -3135,13 +3038,7 @@ async function executeTool(name, args, onChunk, refCtx) {
         const oldLines = oldStr.split('\n').length;
         const newLines = newStr.split('\n').length;
         const finalLines = finalContent.split('\n').length;
-        let editCheckTip = '';
-        if (args.check === true) {
-          // 校验失败不阻断写入（文件已落盘），只把结果追加到返回值
-          try { editCheckTip = '\n\n[自动校验] ' + (await toolCheckCode({ path: p })); }
-          catch (e) { editCheckTip = '\n\n[自动校验] 校验调用失败：' + ((e && e.message) || e); }
-        }
-        return `✅ 已编辑 ${p}（第 ${startLine} 行，${oldLines} 行 → ${newLines} 行，文件共 ${finalLines} 行）\n改动位置附近（±3 行）：\n${snippetAround(finalContent, startLine, startLine + newLines - 1, 3)}\n[如需校验语法请传 check=true；如需继续改同一文件，继续用 edit_file]${editCheckTip}`;
+        return `✅ 已编辑 ${p}（第 ${startLine} 行，${oldLines} 行 → ${newLines} 行，文件共 ${finalLines} 行）\n改动位置附近（±3 行）：\n${snippetAround(finalContent, startLine, startLine + newLines - 1, 3)}\n[如需校验语法请调用 check_code；如需继续改同一文件，继续用 edit_file]`;
         });
       }
       case 'write_file': {
@@ -3840,41 +3737,17 @@ function checkHtml(code) {
   const pe = doc.querySelector('parsererror');
   if (pe) return 'HTML 解析错误：' + (pe.textContent || '').slice(0, 200);
   const stack = [];
-  const VOID_TAG = /^(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/;
-  // HTML5 可选闭合标签：不算「未闭合」，遇到父级闭合或同级新开时隐式弹栈
-  const OPTIONAL_CLOSE = /^(p|li|tr|td|th|option|optgroup|dt|dd|thead|tbody|tfoot|colgroup|caption|rt|rp)$/;
-  // 这些块级元素的开始标签会隐式结束未闭合的 <p>
-  const CLOSES_P = /^(address|article|aside|blockquote|details|div|dl|fieldset|figcaption|figure|footer|form|h1|h2|h3|h4|h5|h6|header|hr|main|nav|ol|p|pre|section|table|ul)$/;
   const re = /<\/?([a-zA-Z][a-zA-Z0-9-]*)(?:"[^"]*"|'[^']*'|[^"'>])*(\/?)>/g;
   let mm;
   while ((mm = re.exec(htmlOnly))) {
     const tag = mm[1].toLowerCase(), self = mm[2] === '/';
-    const isClose = htmlOnly[mm.index] === '<' && htmlOnly[mm.index + 1] === '/';
-    if (isClose) {
-      const at = stack.lastIndexOf(tag);
-      // 从该开标签到栈顶之间若全是可选闭合标签，视为隐式闭合；否则也按原样截断（避免误报）
-      if (at >= 0) stack.length = at;
-    } else if (!self && !VOID_TAG.test(tag)) {
-      const top = stack[stack.length - 1];
-      if (top && OPTIONAL_CLOSE.test(top)) {
-        const implicitEnd =
-          (top === 'p' && CLOSES_P.test(tag)) ||
-          (top === 'li' && tag === 'li') ||
-          ((top === 'td' || top === 'th') && /^(td|th|tr)$/.test(tag)) ||
-          (top === 'tr' && /^(tr|thead|tbody|tfoot)$/.test(tag)) ||
-          ((top === 'dt' || top === 'dd') && /^(dt|dd)$/.test(tag)) ||
-          ((top === 'thead' || top === 'tbody' || top === 'tfoot') && /^(thead|tbody|tfoot)$/.test(tag)) ||
-          (top === 'option' && /^(option|optgroup)$/.test(tag)) ||
-          (top === 'optgroup' && tag === 'optgroup') ||
-          (top === 'caption' && tag === 'tr');
-        if (implicitEnd) stack.pop();
-      }
+    if (htmlOnly[mm.index] === '<' && htmlOnly[mm.index + 1] === '/') {
+      if (stack.length && stack[stack.length - 1] === tag) stack.pop();
+    } else if (!self && !/^(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/.test(tag)) {
       stack.push(tag);
     }
   }
-  // 只剩可选闭合标签没闭合，属合法 HTML5，不报错
-  const realLeft = stack.filter(t => !OPTIONAL_CLOSE.test(t));
-  if (realLeft.length) return 'HTML 标签未闭合：' + realLeft.slice(-6).join(' → ') + '（在第 ' + lineAt(code, code.lastIndexOf('<')) + ' 行附近）';
+  if (stack.length) return 'HTML 标签未闭合：' + stack.slice(-6).join(' → ') + '（在第 ' + lineAt(code, code.lastIndexOf('<')) + ' 行附近）';
   return null;
 }
 function checkPy(code) {
@@ -4580,10 +4453,8 @@ function renderDeliverCard(msg) {
     if (openBtn) openBtn.addEventListener('click', () => { if (VFS.meta[path]) openFile(path); else toast('文件不存在：' + path, 'err'); });
     if (copyBtn) copyBtn.addEventListener('click', () => { navigator.clipboard.writeText(path).then(() => toast('已复制路径')); });
   });
-  el.dataset.idx = String(conversation.indexOf(msg));   // 供删除消息时同步清理卡片 DOM
   messagesEl.appendChild(el);
   scrollBottom();
-  scheduleSaveSessions();
 }
 
 /* ---------- 询问卡片（ask_user 工具） ---------- */
@@ -4618,16 +4489,14 @@ function renderAskCard(askMsg, callback) {
         status.className = 'ask-result';
         status.textContent = '→ 你选择了：' + choice;
         el.querySelector('.ask-card').appendChild(status);
-        scheduleSaveSessions();  // 防抖保存（pagehide 时同步落盘）
+        saveSessions();  // 立即保存
         if (callback) callback(choice);
       });
     });
   }
-  el.dataset.idx = String(conversation.indexOf(askMsg));   // 供删除消息时同步清理卡片 DOM
   messagesEl.appendChild(el);
   scrollBottom();
   scheduleThumbUpdate();
-  scheduleSaveSessions();
 }
 const CHART_COLORS = ['#5b9bd5','#ed7d31','#a5a5a5','#ffc000','#4472c4','#70ad47','#264478','#9e480e','#636363','#997300'];
 function renderChart(msg) {
@@ -4662,10 +4531,8 @@ function renderChart(msg) {
     item.innerHTML = `<span class="legend-dot" style="background:${CHART_COLORS[i % CHART_COLORS.length]}"></span>${escapeHtml(ds.label || ('系列' + (i+1)))}`;
     legend.appendChild(item);
   });
-  el.dataset.idx = String(conversation.indexOf(msg));   // 供删除消息时同步清理卡片 DOM
   messagesEl.appendChild(el);
   scrollBottom();
-  scheduleSaveSessions();
 }
 function drawBarChart(ctx, labels, datasets, W, H) {
   const padL = 50, padR = 20, padT = 20, padB = 50;
@@ -4802,6 +4669,7 @@ async function describeImage(path, prompt) {
     return '图片 ' + p + ' 的描述：\n' + text;
   } catch (e) { _dbg.status = 'error'; _dbg.error = '解析响应失败：' + e.message; _dbg.duration = Date.now() - _dbgStart; return '解析响应失败：' + e.message; }
 }
+
 /* =========================================================
  *  4. 配置与 UI 渲染
  * ========================================================= */
@@ -4815,14 +4683,14 @@ const DEFAULT_SYSTEM = `你是一个运行在浏览器中的 AI Agent，拥有�
 4. 修改代码优先用 edit_file（字符串替换），不要用 write_file 行号替换；定位代码用 read_file(path, query="关键词") 或 search_files，不要先读全文。
 5. 一轮可以同时调用多个工具（并行执行），无依赖的操作尽量合并到一轮发出。
 6. 删除/覆盖/移动等危险操作系统会弹窗确认；需要用户决策时用 ask_user。
-7. 完成任务后用中文简洁总结；重大成果可用 deliver 生成交付卡片。
-8. 工具参数里引用文件或对话消息，用方括号包裹 ref 占位符：方括号内写 ref:/path、ref:/path:10-20、ref:msg:N、ref:msg:N-M 或 ref:msg:last。工具层执行前展开，不要重新输出全文。
-   要写「占位符写法本身」（文档示例、系统提示词、正则源码）时，在方括号前加一个反斜杠转义，工具层不展开、并把反斜杠去掉后原样写入；UI 侧也不会渲染成卡片。
-9. 用户明确要求记忆（「记住 / 以后都 / 下次 / 我的习惯是」）时调用 remember 工具。不要把所有对话都记进 remember——只有用户主动要求、且对跨会话有用的内容才记。
-10. 用户在设置里配置了 GitHub Codespaces 时，你还拥有一个真实 Linux 环境：cs_exec 跑命令/装依赖/跑测试，cs_ls / cs_read / cs_write 操作远程文件，cs_download 把远程文本带回 VFS，cs_serve 起静态服务并返回 app.github.dev 公网预览地址。VFS 在浏览器里、Codespace 在远端，两者不是同一个文件系统，别混着说。
-11. 工具返回错误时，先读错误信息再决定重试或换策略，不要盲目重试相同参数。
-12. **同一文件同轮禁止混用 write_file 和 edit_file**。如必须先整写再修改，请分两轮：第一轮 write_file，下一轮再 edit_file。否则整写会抹掉编辑。`;
-let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', autoPasteLong: true, disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true };
+7. 不要为了显得忙而空转调用工具，每次调用都花用户的钱。
+8. 完成任务后用中文简洁总结；重大成果可用 deliver 生成交付卡片。
+9. 工具参数里如果要传入一段已在 VFS 中的长文本（如复制 /a.txt 到 /b.txt、引用某文件片段），不要重新输出全文，直接写 [ref:/a.txt] 或 [ref:/a.txt:10-20]（行号 1-based 含两端）。工具层会在执行前自动展开。这能避免输出不全（漏掉尾部）和重复消耗 token。
+10. 需要引用对话里已有的消息内容（如把用户第 3 条消息写进文件），用 [ref:msg:3]；区间用 [ref:msg:3-7]，最近一条用 [ref:msg:last]，最近一条 user 用 [ref:msg:last:user]。同样由工具层展开，不要重新复述原文。
+11. 用户说"记住/以后都/下次/我的习惯是"等明确要求记忆时，调用 remember 工具记录。不要把所有对话都记进 remember——只有用户主动要求、且对跨会话有用的内容才记。
+12. 用户在设置里配置了 GitHub Codespaces 时，你还拥有一个真实 Linux 环境：cs_exec 跑命令/装依赖/跑测试，cs_ls / cs_read / cs_write 操作远程文件，cs_download 把远程文本带回 VFS，cs_serve 起静态服务并返回 app.github.dev 公网预览地址。VFS 在浏览器里、Codespace 在远端，两者不是同一个文件系统，别混着说。`;
+
+let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, vfsOrigins: '', allowAllOrigins: false, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', autoPasteLong: true, disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true };
 /* ---------- 密钥加密（主密码 + PBKDF2 + AES-GCM） ---------- */
 const SECRET_FIELDS = ['apiKey', 'giteeToken', 'wdPass', 'gistToken', 'kbToken', 'searchApiKey', 'csToken', 'csBridgeToken'];
 let masterPassword = '';  // 运行时主密码，不存储
@@ -6194,9 +6062,7 @@ async function downloadGist() {
 const CS_DEFAULT_BRIDGE_PORT = 8787;
 const CS_TOOL_NAMES = ['cs_exec', 'cs_ls', 'cs_read', 'cs_write', 'cs_download', 'cs_serve'];
 const CS_BRIDGE_RAW_URL = 'https://raw.githubusercontent.com/QiuJunawa/Agent-On-HTML/main/codespace-bridge/server.mjs';
-// 安装命令：#15 桥接文件与令牌改放 $HOME/.agent-bridge/（目录 700、脚本 600），
-// 避免 Codespace 多容器共享的 home 根目录里散落脚本；令牌优先读环境变量 AGENT_BRIDGE_TOKEN，其次读该目录下的 token 文件
-const CS_INSTALL_CMD = 'mkdir -p "$HOME/.agent-bridge" && chmod 700 "$HOME/.agent-bridge" && curl -fsSL ' + CS_BRIDGE_RAW_URL + ' -o "$HOME/.agent-bridge/server.mjs" && chmod 600 "$HOME/.agent-bridge/server.mjs" && node "$HOME/.agent-bridge/server.mjs"';
+const CS_INSTALL_CMD = 'curl -fsSL ' + CS_BRIDGE_RAW_URL + ' -o ~/agent-bridge.mjs && node ~/agent-bridge.mjs';
 const CS_NOT_READY_MSG = '错误：GitHub Codespaces 还没配置。请让用户在「设置 → Codespace」里填 GitHub Token、选 Codespace、填桥接令牌（在 Codespace 里跑安装命令后会打印）。';
 let csUrlCache = { key: '', url: '', ts: 0 };
 
@@ -6626,13 +6492,155 @@ async function csUiCopyInstall() {
 }
 
 /* =========================================================
- *  5. 通信层（已移除）
- *  ---------------------------------------------------------
- *  原「与 TurboWarp / Scratch 通信」整段（postMessage 监听 + sendToScratch
- *  + execute_tool / get_config / send_message 等 iframe 指令）已按规格 #22 删除。
- *  安全收益：页面不再接受任何外部窗口发来的指令，不存在「父窗口可直接执行工具」
- *  的攻击面；同时删掉了 cfg.vfsOrigins / cfg.allowAllOrigins 两个配置项。
+ *  5. 通信层：与 TurboWarp / Scratch 通信
  * ========================================================= */
+
+// 发送消息给父窗口 (Scratch)
+function sendToScratch(action, payload = {}, targetOrigin = '*') {
+  // 直接传对象（postMessage 结构化克隆），同时带 type 和 action 两个字段兼容两种约定
+  const message = { type: action, action: action, payload };
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage(message, targetOrigin);
+    console.log('[VFS -> Scratch]', action, payload);
+  } else {
+    console.log('[VFS -> Scratch (模拟)]', action, payload);
+  }
+}
+
+// 接收来自父窗口的消息
+window.addEventListener('message', async (event) => {
+  // 来源校验：默认仅允许同源与本地文件（file:// 的 origin 为字符串 'null'），
+  // 嵌入到其他站点时，把该站点 origin 加入设置里的"允许外部通信来源"白名单；
+  // 勾选"允许所有外部来源"后跳过校验，任意父窗口均可通信
+  if (!cfg.allowAllOrigins) {
+    const allow = new Set([location.origin, 'null']);
+    (cfg.vfsOrigins || '').split(',').map(s => s.trim()).filter(Boolean).forEach(o => allow.add(o));
+    if (!allow.has(event.origin)) { console.warn('[VFS] 已忽略来自 ' + event.origin + ' 的消息'); return; }
+  }
+  const replyOrigin = event.origin;   // 回包只发给消息来源方
+
+  let data = event.data;
+  if (typeof data === 'string') {
+    try { data = JSON.parse(data); } catch (e) { return; } // 解析失败忽略
+  }
+  if (!data) return;
+  // 兼容两种路由字段：action（旧约定）和 type（通用 iframe 通信约定）
+  const action = data.action || data.type;
+  if (!action) return;
+
+  // 统一参数来源：兼容 { action, payload: {...} } 和 { action, ...params } 两种格式
+  const params = (data.payload && typeof data.payload === 'object') ? data.payload : data;
+
+  console.log('[Parent -> VFS]', action, params);
+
+  try {
+    switch (action) {
+      case 'vfs_read': {
+        if (!params.path) return;
+        const content = await VFS.getContent(params.path);
+        if (content !== null && content !== undefined) {
+          sendToScratch('vfs_result', { action: 'vfs_read', success: true, path: params.path, content: content }, replyOrigin);
+        } else if (content === undefined) {
+          sendToScratch('vfs_result', { action: 'vfs_read', success: false, path: params.path, error: 'Content unavailable (cloud fetch failed)' }, replyOrigin);
+        } else {
+          sendToScratch('vfs_result', { action: 'vfs_read', success: false, path: params.path, error: 'File not found' }, replyOrigin);
+        }
+        break;
+      }
+      case 'vfs_write': {
+        if (!params.path || params.content === undefined) return;
+        const isNew = await VFS.writeFile(params.path, params.content);
+        await refreshFS(); // 通知UI更新
+        sendToScratch('vfs_result', { action: 'vfs_write', success: true, path: params.path, isNew: isNew }, replyOrigin);
+        break;
+      }
+      case 'vfs_list': {
+        const dir = VFS.norm(params.path || '/');
+        const list = VFS.listDir(dir);
+        if (list) {
+          sendToScratch('vfs_result', { action: 'vfs_list', success: true, path: dir, dirs: list.dirs, files: list.files }, replyOrigin);
+        } else {
+          sendToScratch('vfs_result', { action: 'vfs_list', success: false, path: dir, error: 'Directory not found' }, replyOrigin);
+        }
+        break;
+      }
+      case 'vfs_delete': {
+        // 根路径保护：拒绝通过通信通道清空整个文件系统
+        const dp = VFS.norm(String(params.path || ''));
+        if (!dp || dp === '/') {
+          sendToScratch('vfs_result', { action: 'vfs_delete', success: false, path: dp, error: 'Refusing to delete root via iframe' }, replyOrigin);
+          return;
+        }
+        const deleted = await VFS.deletePath(dp);
+        await refreshFS();
+        if (currentFile === dp || (currentFile && currentFile.startsWith(dp + '/'))) closeEditor();
+        sendToScratch('vfs_result', { action: 'vfs_delete', success: deleted, path: dp }, replyOrigin);
+        break;
+      }
+      case 'vfs_create_dir': {
+        if (!params.path) return;
+        const created = await VFS.createDir(params.path);
+        await refreshFS();
+        sendToScratch('vfs_result', { action: 'vfs_create_dir', success: created, path: params.path }, replyOrigin);
+        break;
+      }
+      case 'vfs_exists': {
+        const p = VFS.norm(params.path || '/');
+        const exists = !!VFS.meta[p];
+        sendToScratch('vfs_result', { action: 'vfs_exists', success: true, path: p, exists: exists, type: exists ? VFS.meta[p].type : null }, replyOrigin);
+        break;
+      }
+      case 'execute_tool': {
+        const toolName = params.tool || params.name;
+        const toolArgs = params.args || params.arguments || {};
+        if (!toolName) { sendToScratch('vfs_result', { action: 'execute_tool', success: false, error: 'Missing tool name' }, replyOrigin); break; }
+        try {
+          const result = await executeTool(toolName, toolArgs);
+          sendToScratch('vfs_result', { action: 'execute_tool', success: true, tool: toolName, result: result }, replyOrigin);
+        } catch (e) {
+          sendToScratch('vfs_result', { action: 'execute_tool', success: false, tool: toolName, error: e.message }, replyOrigin);
+        }
+        break;
+      }
+      case 'get_conversation': {
+        sendToScratch('vfs_result', { action: 'get_conversation', success: true, title: currentTitle, messages: conversation }, replyOrigin);
+        break;
+      }
+      case 'send_message': {
+        const text = String(params.text || params.message || '').trim();
+        if (!text) { sendToScratch('vfs_result', { action: 'send_message', success: false, error: 'Empty message' }, replyOrigin); break; }
+        sendToScratch('vfs_result', { action: 'send_message', success: true, status: 'queued' }, replyOrigin);
+        // 异步触发用户消息发送（不阻塞回包）
+        setTimeout(() => { inputEl.value = text; sendUserMessage(); }, 0);
+        break;
+      }
+      case 'get_config': {
+        // 脱敏：不返回 apiKey/token/password
+        const safe = {};
+        for (const [k, v] of Object.entries(cfg)) {
+          if (/key|token|pass|secret/i.test(k)) safe[k] = v ? '***' : '';
+          else safe[k] = v;
+        }
+        sendToScratch('vfs_result', { action: 'get_config', success: true, config: safe }, replyOrigin);
+        break;
+      }
+      default:
+        sendToScratch('vfs_result', { action: 'unknown', success: false, error: 'Unknown action: ' + action }, replyOrigin);
+    }
+  } catch (e) {
+    console.error('通信处理出错', e);
+    sendToScratch('vfs_result', { action: action, success: false, error: e.message }, replyOrigin);
+  }
+});
+
+/* =========================================================
+ *  6. AI 聊天逻辑 (保留，可选)
+ * ========================================================= */
+const messagesEl = $('messages');
+let conversation = [];
+
+/* ---------- 多会话管理 ---------- */
+const SESSIONS_KEY = 'vfs_sessions';
 let sessions = [];
 let currentSessionId = null;
 
@@ -6702,16 +6710,6 @@ function saveSessions() {
     localStorage.setItem(SESSIONS_KEY, JSON.stringify(data));
   } catch (e) { console.warn('保存会话失败', e); return; }
   scheduleSessionsSaveToVfs(data);
-}
-// 防抖保存会话：高频操作（删除消息、渲染卡片、重新生成）不必每次都跑完整序列化
-let _saveSessionsTimer = null;
-function scheduleSaveSessions() {
-  if (_saveSessionsTimer) clearTimeout(_saveSessionsTimer);
-  _saveSessionsTimer = setTimeout(() => { _saveSessionsTimer = null; saveSessions(); }, 300);
-}
-function flushSaveSessions() {
-  if (_saveSessionsTimer) { clearTimeout(_saveSessionsTimer); _saveSessionsTimer = null; }
-  try { saveSessions(); } catch (e) {}
 }
 function scheduleSessionsSaveToVfs(data) {
   if (_sessionsVfsTimer) clearTimeout(_sessionsVfsTimer);
@@ -6933,7 +6931,7 @@ function cloneSession(id) {
   switchSession(cloned.id);
   toast('已克隆对话');
 }
-const WINDOW_SIZE = 40;    // 滑动窗口大小：始终只渲染这么多条消息
+const WINDOW_SIZE = 80;    // 滑动窗口大小：始终只渲染这么多条消息
 const WINDOW_STEP = 40;    // 滚动时窗口移动步长
 const EST_MSG_HEIGHT = 120; // 单条消息估算高度（用于占位）
 let windowStart = 0;       // 当前窗口起始索引
@@ -7015,9 +7013,7 @@ function hideWelcomeScreen() {
 // 对话渲染：照搬旧版实现（全量渲染 + 超窗口时滑动窗口 + EST_MSG_HEIGHT 估算占位）
 function renderConversation() {
   if (!Array.isArray(conversation)) conversation = [];
-  roundAssistantEl = null;   // 历史渲染不挂工具卡片，避免挂到上一轮气泡里
   messagesEl.innerHTML = '';
-  try { updateTokenBar(); } catch (e) {}
   if (conversation.length === 0) {
     showWelcomeScreen();
     return;
@@ -7115,25 +7111,15 @@ function refCardHtml(path) {
   return '<span class="ref-card" data-ref-path="' + escapeHtml(path) + '" title="' + escapeHtml(path) + '">' +
     '<span class="ref-icon">📄</span><span class="ref-meta">' + label + '</span></span>';
 }
-// 反斜杠转义的占位符在 UI 侧同样不渲染成卡片：先换成哨兵，渲染完再还原成字面量文本
-const REF_ESC_UI_SENTINEL = '\u0001E\u0001';
-function maskRefEscape(text) {
-  const str = String(text == null ? '' : text);
-  return str.indexOf('\\[ref:') === -1 ? str : str.replace(/\\\[ref:/g, REF_ESC_UI_SENTINEL);
-}
-function unmaskRefEscape(html) {
-  const str = String(html == null ? '' : html);
-  return str.indexOf(REF_ESC_UI_SENTINEL) === -1 ? str : str.split(REF_ESC_UI_SENTINEL).join('[ref:');
-}
 // 只在代码块外把 [ref:] 换成卡片：按 ``` 切段，代码段原样保留
 function expandRefsOutsideCode(text) {
-  const parts = maskRefEscape(text).split(/(```[\s\S]*?```)/);
-  return unmaskRefEscape(parts.map((seg, i) => (i % 2 === 1) ? seg : seg.replace(REF_MARK_RE, (mm, p) => refCardHtml(p))).join(''));
+  const parts = String(text == null ? '' : text).split(/(```[\s\S]*?```)/);
+  return parts.map((seg, i) => (i % 2 === 1) ? seg : seg.replace(REF_MARK_RE, (mm, p) => refCardHtml(p))).join('');
 }
 // [ref:] 卡片 + Markdown 的正确组合：先把卡片换成占位符，交给 mdToHtml 渲染，
 // 再把占位符回填成卡片 HTML。否则 mdToHtml 内部的 escapeHtml 会把卡片标签转义成源码。
 function mdWithRefCards(text) {
-  const src = maskRefEscape(text);   // 反斜杠转义的不展开，保持字面量
+  const src = String(text == null ? '' : text);
   const cards = [];
   const segs = src.split(/(```[\s\S]*?```)/);
   const withPh = segs.map((seg, i) => {
@@ -7145,7 +7131,7 @@ function mdWithRefCards(text) {
   }).join('');
   let html = mdToHtml(withPh);
   if (cards.length) html = html.replace(/\u0000R(\d+)\u0000/g, (mm, i) => cards[+i] || '');
-  return unmaskRefEscape(html);   // 转义过的还原成字面量文本，不渲染成卡片
+  return html;
 }
 // 图片卡片懒加载：插入 DOM 后按需从 VFS 取 dataURL
 async function hydrateRefCards(root) {
@@ -7193,22 +7179,6 @@ function getMsgHtml(m) {
   }
   m._html = html;
   return html;
-}
-// 工具结果折叠的懒渲染：先把全文挂到 dataset，首次展开才写 DOM；
-// 超 10000 字符只保留头 5000 + 尾 2000（历史回放不再一次性铺满长结果）
-function lazyToolResult(det, text) {
-  if (!det) return;
-  const pre = det.querySelector('pre');
-  if (!pre || pre.dataset.full != null) return;
-  let full = String(text == null ? '' : text);
-  if (full.length > 10000) {
-    const cut = full.length - 7000;
-    full = full.slice(0, 5000) + '\n…[中间省略 ' + cut + ' 字符]…\n' + full.slice(full.length - 2000);
-  }
-  pre.dataset.full = full;
-  det.addEventListener('toggle', () => {
-    if (det.open && !pre.dataset.filled) { pre.textContent = pre.dataset.full || ''; pre.dataset.filled = '1'; }
-  });
 }
 // 渲染指定范围内的消息（被 renderConversation 调用）
 function renderMsgRange(startIdx, endIdx) {
@@ -7259,11 +7229,11 @@ function renderMsgRange(startIdx, endIdx) {
       const resultText = String(m.content || '');
       const card = m.tool_call_id ? pendingCards[m.tool_call_id] : null;
       if (card) {
-        // 结果折叠懒渲染：只挂全文，首次展开才写 DOM
+        // 填入对应工具卡片的结果折叠
         const wrap = card.querySelector('.tool-result-wrap');
         const det = document.createElement('details');
         det.innerHTML = `<summary>结果</summary><pre></pre>`;
-        lazyToolResult(det, resultText);
+        det.querySelector('pre').textContent = resultText.slice(0, 4000);
         wrap.appendChild(det);
       } else {
         // 找不到对应工具卡片（通常是滑动窗口截断），先在 assistant 历史里反查工具名
@@ -7278,7 +7248,7 @@ function renderMsgRange(startIdx, endIdx) {
         const el = document.createElement('div');
         el.className = 'msg tool';
         el.innerHTML = `<div class="avatar">🔧</div><div class="bubble tool-card"><div class="tool-head"><span class="name">${escapeHtml(fallbackName)}</span><span class="tool-status">完成</span></div><details><summary>结果</summary><pre></pre></details></div>`;
-        lazyToolResult(el.querySelector('details'), resultText);
+        el.querySelector('pre').textContent = resultText.slice(0, 4000);
         messagesEl.appendChild(el);
       }
     }
@@ -7509,15 +7479,17 @@ function updateScrollThumbnail() {
   bar.classList.add('active');
   bindThumbScrollGuard(bar);
   const total = msgs.length;
-  // 固定间距：dots 一律按 THUMB_ITEM_H 排布，对话再长也不会被压缩成密条
-  const innerH = total * THUMB_ITEM_H;
+  const naturalH = total * THUMB_ITEM_H;
+  const containerH = bar.clientHeight || 300;
+  const useScroll = naturalH > containerH;
+  const itemSpacing = useScroll ? THUMB_ITEM_H : Math.max(THUMB_ITEM_H, containerH / total);
+  const innerH = useScroll ? naturalH : containerH;
   const sig = (currentSessionId || '') + ':' + total;
   let inner = bar.querySelector('.thumb-inner');
   // 消息数或会话变了才重建 dot；否则只更新高度和 viewport
   if (sig !== _thumbSignature) {
     _thumbSignature = sig;
-    // 删干净所有残留的 thumb-inner（旧版只删第一个，多次重建会叠加成多层点阵）
-    bar.querySelectorAll('.thumb-inner').forEach(el => el.remove());
+    if (inner) inner.remove();
     inner = document.createElement('div');
     inner.className = 'thumb-inner';
     inner.style.height = innerH + 'px';
@@ -7531,7 +7503,7 @@ function updateScrollThumbnail() {
       const dot = document.createElement('div');
       dot.className = 'scroll-thumb-item ' + type;
       dot.dataset.idx = String(i);
-      dot.style.top = (i * THUMB_ITEM_H) + 'px';
+      dot.style.top = (i * itemSpacing) + 'px';
       frag.appendChild(dot);
     });
     // viewport 标记
@@ -7658,15 +7630,9 @@ function appendMsg(role, html, idx) {
     }
     conversation.splice(idx, end - idx);
     el.remove();
-    // chart / deliver / ask 卡片是独立 DOM 元素，删除消息时必须按 dataset.idx 一并清掉，否则残留
-    messagesEl.querySelectorAll('.chart-msg, .deliver-msg, .ask-msg').forEach(e => {
-      if (e.dataset.idx === String(idx)) e.remove();
-    });
     if (messagesEl.querySelectorAll('.msg').length === 0) {
       showWelcomeScreen();
     }
-    scheduleSaveSessions();
-    scheduleThumbUpdate();
     toast('消息已删除');
   });
   const editBtn = el.querySelector('[data-action="edit"]');
@@ -7712,7 +7678,6 @@ async function regenerateFrom(idx) {
   // 截断到该条 AI 消息之前（删除 idx 及之后的所有消息）
   conversation.splice(idx);
   sessionFile = null;
-  scheduleSaveSessions();   // 截断结果立即防抖落盘：即便随后生成失败也不会留下旧消息
   renderConversation();
   // 根据最后一条消息内容判定对话模式
   const lastMsg = conversation[conversation.length - 1];
@@ -7740,7 +7705,7 @@ async function regenerateFrom(idx) {
   finally {
     isRunning = false; $('btnSend').disabled = false; $('btnSend').textContent = '发送';
     setStopBtn(false); chatAbort = null;
-    scheduleSaveSessions();   // 本轮改动防抖落盘（pagehide 时另有同步兜底）
+    // 一轮结束后，如果 DOM 消息数超过窗口 2 倍，压缩窗口（只在用户停在底部附近时做，避免跳动）
     try {
       const domCount = messagesEl.querySelectorAll('.msg').length;
       if (domCount > WINDOW_SIZE * 2) {
@@ -7802,18 +7767,15 @@ function addUserMsg(text, images) {
 }
 function addErrorMsg(text) { appendMsg('error', mdToHtml(text)); }
 
-// 本轮 assistant 气泡（agentLoop 每轮 streamChat 返回后赋值）：工具卡片只挂它，避免多轮/并发时挂载位置漂移
-let roundAssistantEl = null;
-function addToolCard(name, args, status) {
+function addToolCard(name, args) {
   clearEmptyHint();
   const card = document.createElement('div');
   card.className = 'tool-card';
-  const stText = status || '准备中';
-  card.innerHTML = `<div class="tool-head"><span class="name">${escapeHtml(name)}</span><span class="tool-status">${escapeHtml(stText)}</span></div><details><summary>参数</summary><pre class="tool-args"></pre></details><div class="tool-result-wrap"></div>`;
+  card.innerHTML = `<div class="tool-head"><span class="name">${escapeHtml(name)}</span><span class="tool-status">执行中…</span></div><details><summary>参数</summary><pre class="tool-args"></pre></details><div class="tool-result-wrap"></div>`;
   card.querySelector('.tool-args').textContent = JSON.stringify(args, null, 2);
-  // 只挂本轮 assistant 消息的工具容器，使一条消息成为整体；不再回退到 currentAssistantEl（已删竞态分支）
-  if (roundAssistantEl && roundAssistantEl.isConnected) {
-    const container = roundAssistantEl.querySelector('.tool-calls-container');
+  // 优先挂到当前 assistant 消息的工具容器里，使一条消息成为整体
+  if (currentAssistantEl) {
+    const container = currentAssistantEl.querySelector('.tool-calls-container');
     if (container) { container.appendChild(card); scrollBottom(); return card; }
   }
   // 兜底：独立元素（渲染历史消息等场景）
@@ -8026,20 +7988,6 @@ function sanitizeApiMessages(list) {
   }
   return fixed;
 }
-/* ---------- 思考原文取值 + 孤立代理项清理 ---------- */
-// 推理模型的思考原文：优先 reasoning_content（旧存档/其他入口），否则回落到 UI 专用字段 _thinking
-function pickThinking(m) {
-  if (!m) return '';
-  if (typeof m.reasoning_content === 'string' && m.reasoning_content) return m.reasoning_content;
-  if (typeof m._thinking === 'string') return m._thinking;
-  return '';
-}
-// 清理孤立的 UTF-16 代理字符（如半个 emoji），避免 DeepSeek API 返回 400 JSON 解析错误
-// 注意：合法代理对（完整 emoji）不受影响；孤立的半个字符直接删除（不是替换成 U+FFFD）
-function cleanSurrogates(str) {
-  if (typeof str !== 'string') return str;
-  return str.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
-}
 // 最近 3 轮完整保留；更早轮次只折叠参数与工具结果，不删消息、不删 tool_call_id（否则 API 400）
 const TRIM_KEEP_ROUNDS = 3;
 function trimConversation(msgs) {
@@ -8061,20 +8009,10 @@ function trimConversation(msgs) {
   for (let i = 0; i < src.length; i++) {
     const m = src[i];
     if (i < keepFrom) {
-      // === 早期轮次：折叠长内容，结构与 id 全部保留 ===
+      // 早期轮次：只折叠内容，结构与 id 全部保留
       if (m.role === 'assistant') {
-        const folded = { ...m };
+        const folded = { ...m, reasoning_content: '' };
         delete folded._thinking;   // _thinking 只给 UI 用，绝不发给 API
-
-        // 早期思考内容：只保留头尾各 150 字符，防止完全遗忘，又省 token
-        // 思考原文优先取 reasoning_content；本应用把原文存在 UI 字段 _thinking，为空时回落
-        const rc = pickThinking(m);
-        if (rc.length > 400) {
-          folded.reasoning_content = rc.slice(0, 150) + '\n... [早期思考省略] ...\n' + rc.slice(-150);
-        } else {
-          folded.reasoning_content = rc;   // 短思考完整保留
-        }
-
         if (Array.isArray(m.tool_calls)) {
           folded.tool_calls = m.tool_calls.map(tc => ({
             id: tc.id,
@@ -8089,21 +8027,8 @@ function trimConversation(msgs) {
         early.push(m);
       }
     } else {
-      // === 最近 3 轮：完整保留内容，思考过程只做适度截断（上限 3000 字） ===
-      if (m.role === 'assistant') {
-        const r = { ...m };
-        delete r._thinking;
-        const rc = pickThinking(m);
-        if (rc.length > 3000) {
-          // 最近几轮的思考非常重要，保留前 2000 + 后 800 字符
-          r.reasoning_content = rc.slice(0, 2000) + '\n... [思考过长，中间省略] ...\n' + rc.slice(-800);
-        } else {
-          r.reasoning_content = rc;
-        }
-        recent.push(r);
-      } else {
-        recent.push(m);
-      }
+      // 最近 3 轮：完整保留，仅 reasoning_content 置空
+      recent.push(m.role === 'assistant' ? { ...m, reasoning_content: '' } : m);
     }
   }
   let out = early.concat(recent);
@@ -8519,7 +8444,6 @@ async function streamChat() {
   }
   const bubble = appendMsg('assistant');
   const msgEl = bubble.parentElement;
-  roundAssistantEl = msgEl;   // 本轮工具卡片统一挂到这个气泡下（历史渲染不赋值，走独立元素兜底）
   let text = '';
   let thinking = '';   // 推理模型的思考过程（reasoning_content）
   let usage = null;     // API 返回的实际 token 用量（prompt_tokens / completion_tokens / total_tokens）
@@ -8661,18 +8585,6 @@ async function streamChat() {
     }
   }
 
-  // 发请求前，彻底清洗所有消息内容中的畸形字符，防止 JSON 解析报 400
-  messages.forEach(m => {
-    if (typeof m.content === 'string') m.content = cleanSurrogates(m.content);
-    else if (Array.isArray(m.content)) {
-      m.content.forEach(part => { if (part && part.type === 'text' && part.text) part.text = cleanSurrogates(part.text); });
-    }
-    if (m.tool_calls) {
-      m.tool_calls.forEach(tc => {
-        if (tc.function && tc.function.arguments) tc.function.arguments = cleanSurrogates(tc.function.arguments);
-      });
-    }
-  });
   const payload = { model: cfg.model, messages, stream: true, stream_options: { include_usage: true } };
   // max_tokens 按模型夹上限：chat 最大 8192，reasoner 最大 64000（不传则服务端用很小的默认值，会静默截断）
   const modelMax = /reasoner/i.test(String(cfg.model || '')) ? 64000 : 8192;
@@ -8753,7 +8665,6 @@ async function streamChat() {
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
   let gotAnyData = false;
-  let _lastTokUiAt = 0;      // token 条刷新节流时间戳（500ms）
   let finishReason = null;   // length / content_filter / stop / tool_calls
   let sawDone = false;       // 是否收到 [DONE]（流正常收尾标志）
 
@@ -8776,8 +8687,6 @@ async function streamChat() {
     if (done) break;
     gotAnyData = true;
     buffer += decoder.decode(value, { stream: true });
-    // 实时刷新 token 条：500ms 节流，避免每个 chunk 都重算一遍全量对话
-    if (Date.now() - _lastTokUiAt > 500) { _lastTokUiAt = Date.now(); try { updateTokenBar(); } catch (e) {} }
     const lines = buffer.split('\n');
     buffer = lines.pop();
     for (const rawLine of lines) {
@@ -8787,7 +8696,7 @@ async function streamChat() {
       if (data === '[DONE]') { sawDone = true; continue; }
       let json; try { json = JSON.parse(data); } catch (e) { continue; }
       if (json.error) { msgEl.remove(); throw new Error('API 错误：' + (json.error.message || JSON.stringify(json.error))); }
-      if (json.usage) { usage = json.usage; try { updateTokenBar(); } catch (e) {} }   // 流式最后一条消息携带实际 token 用量，收到即刷新 token 条
+      if (json.usage) usage = json.usage;   // 流式最后一条消息携带实际 token 用量
       const choice = json.choices && json.choices[0];
       if (!choice) continue;
       if (choice.finish_reason) finishReason = choice.finish_reason;   // 记录停止原因（length/content_filter/stop/tool_calls）
@@ -9020,8 +8929,7 @@ function parseTextToolCalls(content) {
 }
 
 /* ---------- 工具调度器：资源感知并行 + 失败补偿重试 ---------- */
-// edit_file 必须在此集合内：它报错时很可能已经写入成功（假阴性），自动重试会在同一文件上再改一次
-const WRITE_OPS = new Set(['write_file', 'edit_file', 'append_file', 'delete_path', 'move_path', 'create_dir', 'kb_write', 'kb_delete', 'kb_commit']);
+const WRITE_OPS = new Set(['write_file', 'append_file', 'delete_path', 'move_path', 'create_dir', 'kb_write', 'kb_delete', 'kb_commit']);
 
 // 从工具参数提取操作的资源标识，同资源的操作必须串行
 function extractResource(name, args) {
@@ -9098,8 +9006,6 @@ async function truncateToolResult(text) {
 // 带指数退避重试的执行
 async function execWithRetry(tc, execOne, maxRetries) {
   let lastResult = null;
-  // 写操作一律不自动重试：失败可能是假阴性（其实已写入），重试等于再执行一次修改，会造成数据叠加
-  if (WRITE_OPS.has(tc.function.name)) return await execOne(tc);
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const r = await execOne(tc);
     lastResult = r;
@@ -9118,28 +9024,6 @@ async function scheduleToolCalls(toolCalls, execOne, maxRetries) {
   const commitCalls = toolCalls.filter(tc => tc.function.name === 'kb_commit');
   const normalCalls = toolCalls.filter(tc => tc.function.name !== 'kb_commit');
 
-  // 前置检查：同一路径上不允许 write_file 与 edit_file 混用（整写会抹掉编辑，即使串行也必然有一方失效）
-  const writePaths = new Set();
-  const editPaths = new Set();
-  for (const tc of normalCalls) {
-    try {
-      const a = JSON.parse(tc.function.arguments || '{}');
-      const p = VFS.norm(a.path || '');
-      if (!p) continue;
-      if (tc.function.name === 'write_file') writePaths.add(p);
-      else if (tc.function.name === 'edit_file') editPaths.add(p);
-    } catch (e) {}
-  }
-  for (const p of writePaths) {
-    if (!editPaths.has(p)) continue;
-    const blockMsg = '⚠️ 调度层拦截：禁止同一轮内对 ' + p + ' 同时执行 write_file 和 edit_file。请分两轮：先整写，下一轮再局部编辑。';
-    normalCalls.forEach(tc => {
-      try {
-        const a = JSON.parse(tc.function.arguments || '{}');
-        if (VFS.norm(a.path || '') === p && (tc.function.name === 'write_file' || tc.function.name === 'edit_file')) tc._blockedMsg = blockMsg;
-      } catch (e) {}
-    });
-  }
   // 按资源分组
   const groups = new Map();
   for (const tc of normalCalls) {
@@ -9323,13 +9207,6 @@ async function agentLoop() {
       }
       const execOne = async (tc) => {
         if (chatAbort && chatAbort.signal.aborted) return { tc, result: '已停止' };
-        // 调度层拦截（同一轮内同一文件混用 write_file / edit_file）：直接失败，避免 AI 以为改成功
-        if (tc._blockedMsg) {
-          let bArgs = {}; try { bArgs = JSON.parse(tc.function.arguments || '{}'); } catch (e) {}
-          const bCard = addToolCard(tc.function.name, bArgs);
-          finishToolCard(bCard, false, tc._blockedMsg);
-          return { tc, result: tc._blockedMsg };
-        }
         let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch (e) {}
         const card = addToolCard(tc.function.name, args);
         // 出队真正开始执行时才置为「执行中…」（之前可能一直在队列里排队）
@@ -9640,15 +9517,8 @@ function autoSyncCloud() {
 }
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') autoSyncCloud(); });
-  window.addEventListener('pagehide', () => {
-    // 防抖保存不能在页面隐藏时还挂着：同步落一次盘，再走云端同步
-    try { if (_saveSessionsTimer) { clearTimeout(_saveSessionsTimer); _saveSessionsTimer = null; } saveSessions(); } catch (e) {}
-    autoSyncCloud();
-  });
-  window.addEventListener('beforeunload', () => {
-    try { if (_saveSessionsTimer) { clearTimeout(_saveSessionsTimer); _saveSessionsTimer = null; } saveSessions(); } catch (e) {}
-    autoSyncCloud();
-  });
+  window.addEventListener('pagehide', autoSyncCloud);
+  window.addEventListener('beforeunload', autoSyncCloud);
 }
 
 /* ---------- 定时上传 + 清空本地内容（Gitee 预览时按需拉取） ---------- */
@@ -9768,6 +9638,8 @@ async function openSettings() {
     const hs = $('cfgHideSidebar'); if (hs) hs.checked = !!cfg.hideSidebar;
     const mo = $('cfgMemoryOn'); if (mo) mo.checked = cfg.memoryOn !== false;
     const mi = $('memCountInfo'); if (mi) memCount().then(n => { if (mi) mi.textContent = n + ' 条记忆'; });
+    $('cfgVfsOrigins').value = cfg.vfsOrigins || '';
+    $('cfgAllowAllOrigins').checked = !!cfg.allowAllOrigins;
     const fsy = $('cfgFullSync'); if (fsy) fsy.checked = !!cfg.fullSync;
     const tpp = $('cfgToastProgressPos'); if (tpp) tpp.value = cfg.toastProgressPos || 'background';
     const apl = $('cfgAutoPasteLong'); if (apl) apl.checked = cfg.autoPasteLong !== false;
@@ -9940,20 +9812,6 @@ function quickHash(s) {
   return 'h' + h.toString(36);
 }
 
-// 纯查看全量更新日志（不写 localStorage，不影响「已更新」的已读记录）
-function showChangelog() {
-  const body = $('updateBody');
-  if (body) {
-    body.innerHTML = '<h3 style="margin:0 0 10px;font-size:14px">📜 更新日志（共 ' + APP_CHANGELOG.length + ' 个版本）</h3>' + APP_CHANGELOG.map(c =>
-      '<div style="margin-bottom:14px"><strong>v' + escapeHtml(c.v) + '</strong> <span style="opacity:.55">' + escapeHtml(c.date || '') + '</span> · ' + escapeHtml(c.title || '更新') +
-      '<ul style="padding-left:18px;margin:6px 0 0">' + (c.items || []).map(i => '<li>' + escapeHtml(i) + '</li>').join('') + '</ul></div>'
-    ).join('');
-  }
-  const h2 = document.querySelector('#updateModal h2');
-  if (h2) h2.textContent = '📜 更新日志';
-  const m = $('updateModal'); if (m) m.classList.add('open');
-}
-
 async function maybeShowUpdateModal() {
   // 读取上次"已看过"的记录：新版存 JSON {v, h}；旧版是纯版本字符串，兼容
   let seen = null;
@@ -10049,7 +9907,6 @@ function bindEvents() {
   const dbgModal = $('debugModal');
   if (dbgModal) dbgModal.addEventListener('click', (e) => { if (e.target === dbgModal) dbgModal.classList.remove('open'); });
   on('btnFeedback', 'click', () => { window.open('https://gitee.com/qiujunawa/ai-agent-on-html/issues', '_blank', 'noopener'); });
-  on('btnShowChangelog', 'click', () => showChangelog());
   document.querySelectorAll('.settings-nav-btn').forEach(t => t.addEventListener('click', () => switchSettingsTab(t.dataset.tab)));
   on('btnMemClear', 'click', async () => {
     if (!(await customConfirm('确定清空全部长期记忆吗？此操作不可撤销。', 'clear_memory'))) return;
@@ -10103,16 +9960,12 @@ function bindEvents() {
         const name = ts.getFullYear() + pad(ts.getMonth()+1) + pad(ts.getDate()) + '-' + pad(ts.getHours()) + pad(ts.getMinutes()) + pad(ts.getSeconds()) + '-' + Math.floor(Math.random()*1000) + '-' + safeName;
         const path = '/uploads/' + name;
         if (isImagePath(file.name)) {
-          // 图片统一走 pendingImages：和粘贴图片同一生命周期，视觉模型能直接看到
           const dataUrl = await readFileAsDataURL(file);
           await VFS.writeFile(path, dataUrl);
-          pendingImages.push({ path, dataUrl });
-          renderPastePreview();
-          toast('已上传图片：' + path);
-          continue;   // 不往输入框插文字标记，避免和缩略图重复
+        } else {
+          const text = await file.text().catch(() => '');
+          await VFS.writeFile(path, text);
         }
-        const text = await file.text().catch(() => '');
-        await VFS.writeFile(path, text);
         const mark = '[ref:' + path + ']';
         inp.value = inp.value ? (inp.value + '\n' + mark) : mark;
         inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 180) + 'px';
@@ -10221,6 +10074,8 @@ function bindEvents() {
     const hp = $('cfgHidePreview'); if (hp) cfg.hidePreview = hp.checked;
     const hs = $('cfgHideSidebar'); if (hs) cfg.hideSidebar = hs.checked;
     const mo = $('cfgMemoryOn'); if (mo) cfg.memoryOn = mo.checked;
+    cfg.vfsOrigins = ($('cfgVfsOrigins').value || '').trim();
+    cfg.allowAllOrigins = !!$('cfgAllowAllOrigins').checked;
     const fs = $('cfgFullSync'); if (fs) cfg.fullSync = fs.checked;
     const tp = $('cfgToastProgressPos'); if (tp) cfg.toastProgressPos = tp.value;
     const apl = $('cfgAutoPasteLong'); if (apl) cfg.autoPasteLong = apl.checked;
