@@ -110,8 +110,8 @@
   body.theme-light .composer textarea,
   body.theme-light .welcome-input-wrap textarea,
   body.theme-light .tool-switch-item,
-  body.theme-light .profile-row,
-  body.theme-light .tool-calls-container .tool-card { background: var(--bg-card); }
+  body.theme-light .profile-row { background: var(--bg-card); }
+  body.theme-light .tool-card:hover { background: var(--bg-elevated-2); }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
@@ -221,6 +221,13 @@
   .todo-item .todo-del { flex: 0 0 auto; cursor: pointer; color: var(--text-muted); padding: 0 3px; font-size: 11px; }
   .todo-item .todo-del:hover { color: var(--text-error); }
   .todo-empty { padding: 6px 10px 8px; font-size: 11px; color: var(--text-muted); text-align: center; }
+  .todo-clear {
+    margin-left: auto; flex: 0 0 auto; cursor: pointer; line-height: 1.6;
+    background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+    font-size: 10.5px; padding: 0 7px; border-radius: 8px; font-family: inherit;
+  }
+  .todo-clear:hover { color: var(--text-error); border-color: var(--bg-error); background: var(--bg-error); }
+  .todo-clear[hidden] { display: none; }
   .paste-preview { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--border); background: var(--bg-panel); }
   .quote-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid var(--border); background: var(--bg-panel); }
   .quote-label { font-size: 11px; color: var(--text-secondary); background: var(--bg-card); padding: 2px 6px; border-radius: 4px; flex: 0 0 auto; }
@@ -435,26 +442,52 @@
   .session-clone, .session-del { min-width: 32px; min-height: 32px; display: flex; align-items: center; justify-content: center; }
   /* 引用条与粘贴条统一风格 */
   .quote-bar, .paste-preview { border-top: 1px solid var(--border); background: var(--bg-panel); }
-  .tool-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-warning); }
-  .tool-head .name { font-family: ui-monospace, monospace; font-weight: 600; }
-  .tool-status { font-size: 11px; color: var(--text-secondary); }
-  .tool-card details { margin-top: 6px; }
-  .tool-card summary {
-    cursor: pointer; font-size: 11.5px; color: var(--text-muted); list-style: none;
+  /* ===== 工具调用：一行式平铺 ===== */
+  .tool-calls-container { margin-top: 8px; display: flex; flex-direction: column; gap: 1px; }
+  .tool-card {
+    border: none; background: transparent; border-radius: 6px; padding: 0; min-width: 0;
+    transition: background 0.12s;
   }
-  .tool-card summary::-webkit-details-marker { display: none; }
-  .tool-card summary:hover { color: var(--text-secondary); }
-  .tool-card pre {
-    background: var(--bg-deep); border: 1px solid var(--bg-hover); border-radius: 6px;
-    padding: 8px 10px; overflow-x: auto; font-size: 11.5px; margin: 6px 0 0;
+  .tool-card:hover { background: var(--bg-elevated-1); }
+  .tool-line {
+    display: flex; align-items: baseline; gap: 6px; padding: 3px 8px;
+    font-size: 12px; line-height: 1.5; cursor: pointer; user-select: none;
+    border-radius: 6px; min-width: 0;
+  }
+  .tool-line:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  .tool-dot {
+    flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-muted); transform: translateY(-2px);
+  }
+  .tool-card[data-status="running"] .tool-dot { background: var(--accent); animation: tool-pulse 1.1s ease-in-out infinite; }
+  .tool-card[data-status="done"] .tool-dot { background: var(--text-success); }
+  .tool-card[data-status="error"] .tool-dot { background: var(--text-error); }
+  @keyframes tool-pulse { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
+  .tool-name {
+    flex: 0 0 auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px; font-weight: 600; color: var(--text-warning);
+  }
+  .tool-key {
+    flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-secondary);
+  }
+  .tool-status {
+    flex: 0 0 auto; font-size: 10.5px; color: var(--text-muted); padding: 0 5px;
+    background: var(--bg-elevated-2); border-radius: 3px; line-height: 1.6;
+  }
+  .tool-card[data-status="error"] .tool-status { color: var(--text-error); background: var(--bg-error); }
+  .tool-toggle { flex: 0 0 auto; font-size: 9px; color: var(--text-muted); width: 10px; text-align: center; }
+  .tool-detail { padding: 2px 8px 8px 20px; display: flex; flex-direction: column; gap: 6px; }
+  .tool-detail-block { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .tool-detail-label { font-size: 10.5px; color: var(--text-muted); letter-spacing: 0.3px; }
+  .tool-detail pre {
+    margin: 0; background: var(--bg-deep); border: 1px solid var(--bg-hover); border-radius: 5px;
+    padding: 6px 8px; overflow-x: auto; font-size: 11px; line-height: 1.5;
     max-height: 220px; overflow-y: auto; color: var(--text-secondary);
     font-family: ui-monospace, monospace; white-space: pre-wrap; word-break: break-all;
   }
-  /* 工具卡片合并进 assistant 消息 */
-  .tool-calls-container { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
-  .tool-calls-container .tool-card {
-    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
-  }
+  /* 顶层兜底工具消息也走平铺 */
+  .msg.tool .bubble { padding: 0; background: transparent; border: none; }
 
   .composer {
     display: flex; flex-direction: column; gap: 10px; padding: 12px 18px 16px;
@@ -711,7 +744,7 @@
     </div>
     <div class="tree" id="tree"></div>
     <div class="todo-panel" id="todoPanel">
-      <div class="todo-head"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg> 待办 <span class="todo-count" id="todoCount">0/0</span></div>
+      <div class="todo-head"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg> 待办 <span class="todo-count" id="todoCount">0/0</span><button class="todo-clear" id="todoClearDone" type="button" title="清空已完成的待办" hidden>清空已完成</button></div>
       <div class="todo-list" id="todoList"></div>
     </div>
     <div class="side-foot" id="fsStat">初始化中…</div>
@@ -1972,8 +2005,32 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.05.2';
+const APP_VERSION = '2026.11.05.4';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.05.4',
+    date: '2026-11-05',
+    title: '待办区新增「清空已完成」按钮',
+    items: [
+      '待办面板标题栏右侧新增「清空已完成」小按钮，只在存在已完成待办时出现，无已完成项时自动隐藏',
+      '新增 todoClearDone()：只删除 done=true 的条目、保留未完成项，存盘后刷新面板并 toast 提示清空了几条',
+      'renderTodos 统一计算已完成为止，顺带把计数与按钮显隐收敛到一处',
+      '浅色/深色主题下按钮走变量配色，hover 转为危险色（红底红字）提示这是删除操作'
+    ]
+  },
+  {
+    v: '2026.11.05.3',
+    date: '2026-11-05',
+    title: '工具调用改为一行式平铺',
+    items: [
+      '工具调用从「卡片堆」改为紧凑的一行一条：左侧状态圆点（灰=排队 / 蓝闪=执行中·路由中 / 绿=完成 / 红=出错）+ 工具名 + 关键参数摘要（单行省略）+ 状态徽标 + 展开箭头',
+      '点行（或回车/空格）展开才显示完整参数与结果，参数与结果各有独立小标题；长结果仍按头 5000 + 尾 2000 截断',
+      '新增 toolKeyHint（从 path/query/url/command 等字段挑参数摘要）与 renderToolCardInner（统一生成平铺行+详情），addToolCard / finishToolCard 改为调用它',
+      '历史消息回放（renderMsgRange）也走平铺；找不到对应工具卡片时的兜底行同样改为平铺，并删掉不再使用的 lazyToolResult',
+      'route_ai 流式输出直接写进平铺详情的结果区并保持展开，状态显示「路由中…」；出队执行时同步 dataset.status = running',
+      '删除旧的 .tool-head / details 折叠样式与浅色模式下工具卡片实心底，改为透明行 + 悬停高亮'
+    ]
+  },
   {
     v: '2026.11.05.2',
     date: '2026-11-05',
@@ -4039,6 +4096,16 @@ function todoRemove(seq) {
   saveTodos(); renderTodos();
   return '已删除待办：' + removed.text;
 }
+// 清空已完成：只删 done=true 的项，未完成的保留。返回给 AI 侧调用时的文本说明
+function todoClearDone() {
+  const before = todos.length;
+  todos = todos.filter(t => !t.done);
+  const cleared = before - todos.length;
+  if (!cleared) return '没有已完成的待办需要清空。';
+  saveTodos(); renderTodos();
+  return '已清空 ' + cleared + ' 条已完成待办（剩余 ' + todos.length + ' 条）。';
+}
+
 function todoListText() {
   if (!todos.length) return '暂无待办事项。可用 todo_add 添加。';
   const done = todos.filter(x => x.done).length;
@@ -4046,7 +4113,10 @@ function todoListText() {
 }
 function renderTodos() {
   const list = $('todoList'); if (!list) return;
-  const count = $('todoCount'); if (count) count.textContent = todos.filter(t => t.done).length + '/' + todos.length;
+  const doneCount = todos.filter(t => t.done).length;
+  const count = $('todoCount'); if (count) count.textContent = doneCount + '/' + todos.length;
+  // 有已完成项时才显示「清空已完成」按钮
+  const clearBtn = $('todoClearDone'); if (clearBtn) clearBtn.hidden = doneCount === 0;
   if (!todos.length) { list.innerHTML = '<div class="todo-empty">暂无待办，AI 可用 todo_add 添加</div>'; return; }
   list.innerHTML = '';
   todos.forEach((t, i) => {
@@ -7340,22 +7410,6 @@ function getMsgHtml(m) {
   m._html = html;
   return html;
 }
-// 工具结果折叠的懒渲染：先把全文挂到 dataset，首次展开才写 DOM；
-// 超 10000 字符只保留头 5000 + 尾 2000（历史回放不再一次性铺满长结果）
-function lazyToolResult(det, text) {
-  if (!det) return;
-  const pre = det.querySelector('pre');
-  if (!pre || pre.dataset.full != null) return;
-  let full = String(text == null ? '' : text);
-  if (full.length > 10000) {
-    const cut = full.length - 7000;
-    full = full.slice(0, 5000) + '\n…[中间省略 ' + cut + ' 字符]…\n' + full.slice(full.length - 2000);
-  }
-  pre.dataset.full = full;
-  det.addEventListener('toggle', () => {
-    if (det.open && !pre.dataset.filled) { pre.textContent = pre.dataset.full || ''; pre.dataset.filled = '1'; }
-  });
-}
 // 渲染指定范围内的消息（被 renderConversation 调用）
 function renderMsgRange(startIdx, endIdx) {
   const pendingCards = {};
@@ -7395,22 +7449,21 @@ function renderMsgRange(startIdx, endIdx) {
           try { args = JSON.parse(tc.function && tc.function.arguments || '{}'); } catch (e) {}
           const card = document.createElement('div');
           card.className = 'tool-card';
-          card.innerHTML = `<div class="tool-head"><span class="name">${escapeHtml((tc.function && tc.function.name) || 'unknown')}</span><span class="tool-status">完成</span></div><details><summary>参数</summary><pre class="tool-args"></pre></details><div class="tool-result-wrap"></div>`;
-          card.querySelector('.tool-args').textContent = JSON.stringify(args, null, 2);
+          renderToolCardInner(card, (tc.function && tc.function.name) || 'unknown', args, '完成');
           container.appendChild(card);
           if (tc.id) pendingCards[tc.id] = card;
         }
       }
     } else if (m.role === 'tool') {
-      const resultText = String(m.content || '');
+      let resultText = String(m.content || '');
+      if (resultText.length > 10000) {
+        resultText = resultText.slice(0, 5000) + '\n…[中间省略 ' + (resultText.length - 7000) + ' 字符]…\n' + resultText.slice(-2000);
+      }
       const card = m.tool_call_id ? pendingCards[m.tool_call_id] : null;
       if (card) {
-        // 结果折叠懒渲染：只挂全文，首次展开才写 DOM
         const wrap = card.querySelector('.tool-result-wrap');
-        const det = document.createElement('details');
-        det.innerHTML = `<summary>结果</summary><pre></pre>`;
-        lazyToolResult(det, resultText);
-        wrap.appendChild(det);
+        const pre = card.querySelector('.tool-result');
+        if (wrap && pre) { pre.textContent = resultText; wrap.removeAttribute('hidden'); }
       } else {
         // 找不到对应工具卡片（通常是滑动窗口截断），先在 assistant 历史里反查工具名
         let fallbackName = '工具结果';
@@ -7423,8 +7476,14 @@ function renderMsgRange(startIdx, endIdx) {
         }
         const el = document.createElement('div');
         el.className = 'msg tool';
-        el.innerHTML = `<div class="avatar">🔧</div><div class="bubble tool-card"><div class="tool-head"><span class="name">${escapeHtml(fallbackName)}</span><span class="tool-status">完成</span></div><details><summary>结果</summary><pre></pre></details></div>`;
-        lazyToolResult(el.querySelector('details'), resultText);
+        el.innerHTML = '<div class="avatar">🔧</div><div class="bubble"></div>';
+        const card2 = document.createElement('div');
+        card2.className = 'tool-card';
+        renderToolCardInner(card2, fallbackName, {}, '完成');
+        const wrap2 = card2.querySelector('.tool-result-wrap');
+        const pre2 = card2.querySelector('.tool-result');
+        if (wrap2 && pre2) { pre2.textContent = resultText; wrap2.removeAttribute('hidden'); }
+        el.querySelector('.bubble').appendChild(card2);
         messagesEl.appendChild(el);
       }
     }
@@ -7934,13 +7993,53 @@ function addErrorMsg(text) { appendMsg('error', mdToHtml(text)); }
 
 // 本轮 assistant 气泡（agentLoop 每轮 streamChat 返回后赋值）：工具卡片只挂它，避免多轮/并发时挂载位置漂移
 let roundAssistantEl = null;
+// 从参数里挑一个最能代表这次调用的字段，作为平铺行内的摘要
+function toolKeyHint(name, args) {
+  if (!args || typeof args !== 'object') return '';
+  const keys = ['path', 'query', 'url', 'command', 'expression', 'prompt', 'from', 'to', 'message'];
+  for (const k of keys) {
+    if (args[k] != null && String(args[k]).trim()) {
+      const v = String(args[k]).replace(/\s+/g, ' ').trim();
+      return v.length > 60 ? v.slice(0, 60) + '…' : v;
+    }
+  }
+  return '';
+}
+
+// 生成平铺行 + 可展开详情；状态通过 card.dataset.status 控制小圆点颜色
+function renderToolCardInner(card, name, args, status) {
+  const key = toolKeyHint(name, args);
+  const stText = status || '准备中';
+  card.dataset.status = stText === '执行中…' ? 'running' : (stText === '完成' ? 'done' : (stText === '出错' ? 'error' : 'pending'));
+  card.innerHTML =
+    '<div class="tool-line" role="button" tabindex="0">' +
+      '<span class="tool-dot"></span>' +
+      '<span class="tool-name">' + escapeHtml(name) + '</span>' +
+      (key ? '<span class="tool-key">' + escapeHtml(key) + '</span>' : '<span class="tool-key"></span>') +
+      '<span class="tool-status">' + escapeHtml(stText) + '</span>' +
+      '<span class="tool-toggle">▸</span>' +
+    '</div>' +
+    '<div class="tool-detail" hidden>' +
+      '<div class="tool-detail-block"><span class="tool-detail-label">参数</span><pre class="tool-args"></pre></div>' +
+      '<div class="tool-result-wrap" hidden><span class="tool-detail-label">结果</span><pre class="tool-result"></pre></div>' +
+    '</div>';
+  card.querySelector('.tool-args').textContent = JSON.stringify(args || {}, null, 2);
+  const line = card.querySelector('.tool-line');
+  const detail = card.querySelector('.tool-detail');
+  const toggle = card.querySelector('.tool-toggle');
+  const flip = () => {
+    if (detail.hasAttribute('hidden')) { detail.removeAttribute('hidden'); toggle.textContent = '▾'; }
+    else { detail.setAttribute('hidden', ''); toggle.textContent = '▸'; }
+  };
+  line.addEventListener('click', flip);
+  line.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+}
+
 function addToolCard(name, args, status) {
   clearEmptyHint();
   const card = document.createElement('div');
   card.className = 'tool-card';
-  const stText = status || '准备中';
-  card.innerHTML = `<div class="tool-head"><span class="name">${escapeHtml(name)}</span><span class="tool-status">${escapeHtml(stText)}</span></div><details><summary>参数</summary><pre class="tool-args"></pre></details><div class="tool-result-wrap"></div>`;
-  card.querySelector('.tool-args').textContent = JSON.stringify(args, null, 2);
+  renderToolCardInner(card, name, args, status || '准备中');
   // 只挂本轮 assistant 消息的工具容器，使一条消息成为整体；不再回退到 currentAssistantEl（已删竞态分支）
   if (roundAssistantEl && roundAssistantEl.isConnected) {
     const container = roundAssistantEl.querySelector('.tool-calls-container');
@@ -7959,19 +8058,12 @@ function addToolCard(name, args, status) {
 function finishToolCard(el, ok, resultText) {
   const statusEl = el.querySelector('.tool-status');
   if (statusEl) statusEl.textContent = ok ? '完成' : '出错';
-  // 已有实时输出区域（route_ai 流式）时不再重复创建结果折叠
-  if (el.querySelector('.route-live')) { scrollBottom(); return; }
-  // 兜底：卡片结构异常（无 .tool-result-wrap）时动态创建，避免抛异常中断整轮流程
-  let wrap = el.querySelector('.tool-result-wrap');
-  if (!wrap) {
-    wrap = document.createElement('div');
-    wrap.className = 'tool-result-wrap';
-    el.appendChild(wrap);
-  }
-  const det = document.createElement('details');
-  det.innerHTML = `<summary>结果</summary><pre></pre>`;
-  det.querySelector('pre').textContent = String(resultText == null ? '(无返回内容)' : resultText).slice(0, 4000);
-  wrap.appendChild(det);
+  el.dataset.status = ok ? 'done' : 'error';
+  const wrap = el.querySelector('.tool-result-wrap');
+  const pre = el.querySelector('.tool-result');
+  if (!wrap || !pre) { scrollBottom(); return; }
+  pre.textContent = String(resultText == null ? '(无返回内容)' : resultText).slice(0, 4000);
+  wrap.removeAttribute('hidden');
   scrollBottom();
 }
 
@@ -9503,17 +9595,15 @@ async function agentLoop() {
         // 出队真正开始执行时才置为「执行中…」（之前可能一直在队列里排队）
         const preStatusEl = card.querySelector('.tool-status');
         if (preStatusEl) preStatusEl.textContent = '执行中…';
-        let livePre = null;
+        if (preStatusEl) card.dataset.status = 'running';
         try {
           const result = await executeTool(tc.function.name, args, (chunk) => {
-            if (!livePre) {
-              livePre = document.createElement('pre');
-              livePre.className = 'route-live';
-              livePre.style.cssText = 'margin:8px 0 0;padding:8px;background:#0f1115;border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;color:#c8cdd6';
-              card.querySelector('.tool-result-wrap').appendChild(livePre);
-              card.querySelector('.tool-status').textContent = '路由中…';
-            }
-            livePre.textContent = chunk;
+            const wrap = card.querySelector('.tool-result-wrap');
+            const pre = card.querySelector('.tool-result');
+            const st = card.querySelector('.tool-status');
+            if (wrap && pre) { wrap.removeAttribute('hidden'); pre.textContent = chunk; }
+            if (st) st.textContent = '路由中…';
+            card.dataset.status = 'running';
             scrollBottom();
           }, { roundWritePaths });
           finishToolCard(card, true, result);
@@ -10154,6 +10244,13 @@ async function maybeShowUpdateModal() {
 }
 
 function bindEvents() {
+  // 待办区：清空已完成（只删 done=true 的项）
+  on('todoClearDone', 'click', () => {
+    const doneCount = todos.filter(t => t.done).length;
+    if (!doneCount) return;
+    const msg = todoClearDone();
+    toast(msg);
+  });
   on('btnStop', 'click', () => {
     if (!chatAbort) return;
     const ac = chatAbort;
