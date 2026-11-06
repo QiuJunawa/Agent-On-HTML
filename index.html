@@ -913,6 +913,10 @@
         <input id="cfgLoops" type="number" min="1" max="100">
       </div>
       <div class="field">
+        <label>工具超时（秒，超时转后台；写操作与交互类工具不转）</label>
+        <input id="cfgToolTimeout" type="number" min="5" max="600" value="120">
+      </div>
+      <div class="field">
         <label>调度层预算（0=不限制）</label>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:12px;color:#888">
           <div>工具调用上限（次）<br><input id="cfgMaxToolCalls" type="number" min="0" style="width:100%;margin-top:2px"></div>
@@ -2012,8 +2016,48 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.05.6';
+const APP_VERSION = '2026.11.06.3';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.06.3',
+    date: '2026-11-06',
+    title: '修复「幽灵卡片」与「无限重试」',
+    items: [
+      '重写 isToolFailure：只有结果以「错误：/工具执行失败：/抓取失败：/下载失败：」开头才可能是失败，避免 read_file 读到源码里的「超时」「timeout」等字样被误判成失败而无限重试',
+      '可重试判定收敛为 HTTP 429 / HTTP 5xx / 请求超时 / Failed to fetch / NetworkError；同时移除过宽的「冲突 / conflict / ref / sha」子串匹配（曾把含 sha 的正常结果判为失败）',
+      'streamChat 收尾对工具调用按「函数名|参数」签名强力去重，防止代理 API 重传同一段流导致重复卡片与幻觉并发',
+      'agentLoop 的 execOne 增加逻辑层防重：read_file / list_files / search_files / kb_list / kb_search / kb_read 参数完全相同时直接复用上次结果，返回「⏭ 检测到重复调用」',
+      'execOne 增加 UI 层防重：重复执行同一 tool_call 时复用已有卡片（tc._uiCard）并重置为「执行中…」，不再叠加新卡片',
+      '新增常量 EXEC_READ_ONLY_TOOLS 白名单；只读工具执行成功的结果写入 tc._cacheResult 作为去重缓存'
+    ]
+  },
+  {
+    v: '2026.11.06.2',
+    date: '2026-11-06',
+    title: '文件树右键菜单新增「下载文件」',
+    items: [
+      '右键菜单（showCtxMenu）在「复制路径 / 复制文件名」之后新增「下载文件」，仅对文件显示，目录不显示（目录打包下载需 JSZip，后续可另做 downloadDirAsZip）',
+      '新增 downloadSingleFile(path)：VFS.getContent 以 bypassCache 取正文，data URL（图片、download_url 存下的二进制）经新增的 dataUrlToBlob 还原成 Blob 并按原 MIME 保存，普通文本走 UTF-8 text/plain Blob',
+      '文件名取 path.split("/").pop()，与文件树显示一致；下载完成 toast 提示大小，1.5 秒后 revokeObjectURL 释放内存',
+      '内容不可用（getContent 返回 undefined）时不下载，直接提示错误，避免生成 0 字节的「空气文件」'
+    ]
+  },
+  {
+    v: '2026.11.06.1',
+    date: '2026-11-06',
+    title: '工具超时自动转后台，结果回流运行时上下文',
+    items: [
+      '新增后台任务注册表 bgTasks：工具执行超过「工具超时」阈值后不再一直阻塞，转为后台继续跑，AI 与用户都不会被卡住',
+      '关键时序：超时那一刻立刻给原 tool_call 补一条 tool 响应（「已转后台，task_id=xxx」），保证 tool_calls 配对完整，不会出现 400 tool must be a response to tool_calls；后台结果走下一轮 runtime_context 回流，两条通道互不干扰',
+      '结果回流：buildBackgroundTaskContext() 把「已完成且未通知」的任务拼进 <runtime_context> 末尾（紧贴用户消息，比 system 更可靠），AI 无需轮询即可拿到结果；结果超 1500 字符时截断为 1000+400，全文可用 task_status 取',
+      '失败回滚：本轮请求失败（网络错误/400）时把刚标记为已通知的任务回滚为未通知，避免结果永久丢失；agentLoop 收尾调用 gcTasks() 保留最近 20 条供查询',
+      '新增工具 task_status（按 task_id 查单个 / 不传列出当前会话全部）与 task_cancel（尽力而为标记取消）；两者本身不转后台',
+      '不转后台白名单 NO_BACKGROUND_TOOLS：写操作（write_file/edit_file/delete_path/移动/建目录、kb_*）、todo_*、ask_user、undo_*、deliver、render_chart、remember 直接执行，避免写一半转后台破坏撤销栈与资源锁',
+      '设置 → AI 模型新增「工具超时（秒，超时转后台）」输入框，默认 120 秒，范围 5-600，配置项 cfg.toolTimeoutMs',
+      '任务在 AI 已停止后才完成时用 toast 提示「后台任务完成：<工具>（<task_id>）」，用户下轮发消息时再注入',
+      '边界：纯前端内存态，关页面任务即丢；切会话不中断任务，但只注入到任务所属会话（sessionId 匹配）'
+    ]
+  },
   {
     v: '2026.11.05.6',
     date: '2026-11-05',
@@ -2784,6 +2828,8 @@ const TOOLS = [
   { type: 'function', function: { name: 'kb_search', description: '检索知识库路径', parameters: { type: 'object', properties: { query: { type: 'string', description: '关键词，空格=AND' }, in_path: { type: 'string', description: '可选，限定子目录' }, limit: { type: 'integer', description: '可选，默认 20' } }, required: ['query'] } } },
   { type: 'function', function: { name: 'undo_last', description: '撤销最近一轮的所有写操作（最多保留 3 轮）', parameters: { type: 'object', properties: {} } } },
   { type: 'function', function: { name: 'undo_list', description: '列出当前可撤销的轮次', parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'task_status', description: '查询后台任务状态。传 task_id 查单个，不传则列出当前会话所有任务', parameters: { type: 'object', properties: { task_id: { type: 'string', description: '可选，任务 ID（如 task_a3f2k）' } } } } },
+  { type: 'function', function: { name: 'task_cancel', description: '取消一个还在运行的后台任务（尽力而为；已发出的网络请求可能无法中断）', parameters: { type: 'object', properties: { task_id: { type: 'string' } }, required: ['task_id'] } } },
   { type: 'function', function: { name: 'deliver', description: '展示交付卡片', parameters: { type: 'object', properties: { title: { type: 'string', description: '标题' }, description: { type: 'string', description: '简述' }, files: { type: 'array', items: { type: 'string' }, description: '文件路径列表' } }, required: ['title'] } } },
   { type: 'function', function: { name: 'ask_user', description: '向用户提问/确认', parameters: { type: 'object', properties: { question: { type: 'string', description: '问题' }, options: { type: 'array', items: { type: 'string' }, description: '可选，按钮选项' } }, required: ['question'] } } },
   { type: 'function', function: { name: 'remember', description: '记录用户主动要求长期记忆的内容（偏好、约定、项目决定、称呼等）。跨会话有效，下次对话会自动召回', parameters: { type: 'object', properties: { content: { type: 'string', description: '要记住的内容，尽量精简（≤500 字符）' }, tags: { type: 'array', items: { type: 'string' }, description: '可选标签，如 ["偏好","中文"]' }, scope: { type: 'string', description: '可选，默认 user；项目相关可填项目名' } }, required: ['content'] } } },
@@ -3619,6 +3665,40 @@ async function executeTool(name, args, onChunk, refCtx) {
         } catch (e) {
           return '记忆写入失败：' + (e && e.message ? e.message : e);
         }
+      }
+      case 'task_status': {
+        const id = String(args.task_id || '').trim();
+        if (id) {
+          const t = bgTasks.get(id);
+          if (!t) return '错误：找不到任务 ' + id + '（可能已清理或会话已切换）';
+          if (t.status === 'running') {
+            return '任务 ' + id + '（' + t.tool + '）仍在运行，已执行 ' + Math.round((Date.now() - t.startedAt) / 1000) + ' 秒。\n完成后会自动出现在下一轮运行时上下文里，无需轮询。';
+          }
+          const body = t.status === 'done' ? String(t.result || '') : ('错误：' + String(t.error || ''));
+          return '任务 ' + id + '（' + t.tool + '）· ' + (t.status === 'done' ? '完成' : '失败') +
+            ' · 耗时 ' + Math.round(((t.finishedAt || 0) - (t.startedAt || 0)) / 1000) + 's\n\n' +
+            (body.length > 8000 ? body.slice(0, 8000) + '\n…[截断]' : body);
+        }
+        const list = [...bgTasks.values()].filter(taskBelongsToSession);
+        if (!list.length) return '当前会话没有后台任务。';
+        return '当前会话后台任务（共 ' + list.length + ' 个）：\n' + list.map(t => {
+          const dur = t.status === 'running'
+            ? Math.round((Date.now() - t.startedAt) / 1000) + 's 运行中'
+            : Math.round(((t.finishedAt || 0) - (t.startedAt || 0)) / 1000) + 's';
+          return '- ' + t.id + ' · ' + t.tool + ' · ' + t.status + ' · ' + dur + (t.notified ? ' · 已通知' : ' · 未通知');
+        }).join('\n');
+      }
+      case 'task_cancel': {
+        const id = String(args.task_id || '').trim();
+        const t = bgTasks.get(id);
+        if (!t) return '错误：找不到任务 ' + id;
+        if (t.status !== 'running') return '任务 ' + id + ' 已结束，无需取消。';
+        // 尽力而为：标记取消，实际网络请求是否中断取决于工具实现
+        t.status = 'error';
+        t.error = '用户取消';
+        t.finishedAt = Date.now();
+        t.notified = true;   // 取消结果不需要注入
+        return '已标记任务 ' + id + ' 为取消。注意：已发出的网络请求可能仍在后台完成，但结果不会再注入。';
       }
       default:
         return `错误：未知工具 ${name}`;
@@ -4993,7 +5073,7 @@ const DEFAULT_SYSTEM = `你是一个运行在浏览器中的 AI Agent，拥有�
 11. 工具返回错误时，先读错误信息再决定重试或换策略，不要盲目重试相同参数。
 12. **同一文件同轮禁止混用 write_file 和 edit_file**。如必须先整写再修改，请分两轮：第一轮 write_file，下一轮再 edit_file。否则整写会抹掉编辑。
 13. **思考过程不跨轮次**：你的 reasoning 只对当轮有效，下一轮开始时会被整段丢弃，不会留在上下文里。所以只要有东西需要跨轮次（计划、待办、用户的决定、中途结论、文件路径、下一步动作），就必须输出到正文或写进文件；不要把「我记在心里了」当成保存。`;
-let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', autoPasteLong: true, disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true };
+let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, toolTimeoutMs: 120000, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', autoPasteLong: true, disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true };
 /* ---------- 密钥加密（主密码 + PBKDF2 + AES-GCM） ---------- */
 const SECRET_FIELDS = ['apiKey', 'giteeToken', 'wdPass', 'gistToken', 'kbToken', 'searchApiKey', 'csToken', 'csBridgeToken'];
 let masterPassword = '';  // 运行时主密码，不存储
@@ -5277,6 +5357,63 @@ function fallbackCopy(text) {
   try { document.execCommand('copy'); toastCopied(text); } catch (e) { toast('复制失败', 'err'); }
   document.body.removeChild(ta);
 }
+/* ---------- 单个文件下载 ---------- */
+// data URL → Blob（图片和 download_url 存下的二进制都走这条）
+function dataUrlToBlob(dataUrl) {
+  const s = String(dataUrl || '');
+  const idx = s.indexOf(',');
+  if (idx < 0) throw new Error('不是合法的 data URL');
+  const head = s.slice(0, idx);
+  const body = s.slice(idx + 1);
+  const mime = (head.match(/data:([^;]+)/) || [])[1] || 'application/octet-stream';
+  if (/;base64/i.test(head)) {
+    const bin = atob(body);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  }
+  return new Blob([decodeURIComponent(body)], { type: mime });
+}
+
+async function downloadSingleFile(path) {
+  const node = VFS.stat(path);
+  if (!node || node.type !== 'file') { toast('不是文件：' + path, 'err'); return; }
+  let content;
+  try {
+    content = await VFS.getContent(path, { bypassCache: true });
+  } catch (e) {
+    toast('读取失败：' + (e && e.message ? e.message : e), 'err');
+    return;
+  }
+  if (content === undefined) {
+    toast('⚠ 内容不可用：本地与云端都取不到正文，无法下载。\n可先点「从云端恢复」，或检查 Gitee 上是否还有该文件。', 'err');
+    return;
+  }
+  const name = path.split('/').pop() || 'download';
+  let blob;
+  try {
+    if (typeof content === 'string' && /^data:[\w.+-]+\/[\w.+-]+/.test(content)) {
+      // 图片或二进制：内容就是 data URL
+      blob = dataUrlToBlob(content);
+    } else {
+      blob = new Blob([content == null ? '' : String(content)], { type: 'text/plain;charset=utf-8' });
+    }
+  } catch (e) {
+    toast('构造文件失败：' + (e && e.message ? e.message : e), 'err');
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  toast('已下载：' + name + '（' + fmtSize(blob.size) + '）');
+}
+
 function showCtxMenu(x, y, child) {
   const m = $('ctxMenu'); if (!m) return;
   const isDir = child.type === 'dir';
@@ -5284,8 +5421,13 @@ function showCtxMenu(x, y, child) {
   const items = [
     { label: icon('copy') + ' 复制路径', action: () => copyTextToClipboard(child.path) },
     { label: icon('file') + ' 复制文件名', action: () => copyTextToClipboard(child.name) },
-    { sep: true },
-    { label: icon('trash') + ' 删除' + (isDir ? '（递归）' : ''), danger: true, action: async () => {
+  ];
+  // 只有文件才给"下载"；目录暂不提供（要打包下载另做）
+  if (!isDir) {
+    items.push({ label: icon('download') + ' 下载文件', action: () => downloadSingleFile(child.path) });
+  }
+  items.push({ sep: true });
+  items.push({ label: icon('trash') + ' 删除' + (isDir ? '（递归）' : ''), danger: true, action: async () => {
         try { await requireVfs(); } catch (err) { return; }
         try {
           await VFS.deletePath(child.path);
@@ -8115,6 +8257,92 @@ function finishToolCard(el, ok, resultText) {
   scrollBottom();
 }
 
+/* ---------- 后台任务注册表（工具超时转后台） ----------
+   时序：tool_call 超时 → 立刻给原 tool_call 补一条 tool 响应（配对完成，避免 400）
+        → execPromise 继续跑 → 完成后把结果拼进下一轮 runtime_context */
+const bgTasks = new Map();   // id -> { id, tool, args, sessionId, status, startedAt, finishedAt, result, error, notified }
+let currentInjectedTaskIds = [];   // 本轮注入过的 task id，请求失败时回滚 notified 标记
+
+// 写操作、需要用户交互的、瞬时完成的工具不转后台
+const NO_BACKGROUND_TOOLS = new Set([
+  'write_file', 'edit_file', 'append_file', 'delete_path', 'move_path', 'create_dir',
+  'todo_add', 'todo_done', 'todo_remove', 'todo_list',
+  'ask_user', 'undo_last', 'undo_list', 'deliver', 'render_chart',
+  'task_status', 'task_cancel', 'remember', 'kb_write', 'kb_delete', 'kb_commit'
+]);
+
+// 只读工具白名单：同一轮内参数完全相同时直接复用上次结果，避免重复调用刷出重复卡片
+const EXEC_READ_ONLY_TOOLS = new Set([
+  'read_file', 'list_files', 'search_files', 'kb_list', 'kb_search', 'kb_read'
+]);
+
+function makeTaskId() {
+  return 'task_' + Date.now().toString(36).slice(-5) + Math.random().toString(36).slice(2, 5);
+}
+function taskBelongsToSession(t) {
+  return !t.sessionId || t.sessionId === currentSessionId;
+}
+function startTaskRecord(tool, args) {
+  const rec = {
+    id: makeTaskId(),
+    tool,
+    args,
+    sessionId: currentSessionId,
+    status: 'running',
+    startedAt: Date.now(),
+    finishedAt: null,
+    result: null,
+    error: null,
+    notified: false
+  };
+  bgTasks.set(rec.id, rec);
+  return rec;
+}
+function finishTaskRecord(rec, result) {
+  rec.status = 'done';
+  rec.result = String(result == null ? '' : result);
+  rec.finishedAt = Date.now();
+  // 本轮已结束（AI 不在跑）→ 直接 toast；在跑的话留给 runtime_context 注入
+  if (!isRunning) {
+    toast('后台任务完成：' + rec.tool + '（' + rec.id + '）');
+    scheduleThumbUpdate();
+  }
+}
+function failTaskRecord(rec, err) {
+  rec.status = 'error';
+  rec.error = String((err && err.message) || err || '未知错误');
+  rec.finishedAt = Date.now();
+  if (!isRunning) {
+    toast('后台任务失败：' + rec.tool + '（' + rec.id + '）', 'err');
+    scheduleThumbUpdate();
+  }
+}
+// 清理已完成且已通知的任务（保留最近 20 条供 task_status 查询）
+function gcTasks() {
+  const done = [...bgTasks.values()].filter(t => t.status !== 'running' && t.notified);
+  if (done.length > 20) {
+    done.sort((a, b) => (a.finishedAt || 0) - (b.finishedAt || 0));
+    done.slice(0, done.length - 20).forEach(t => bgTasks.delete(t.id));
+  }
+}
+// 把已完成、未通知、属于当前会话的任务格式化成注入文本（调用即标记 notified）
+function buildBackgroundTaskContext() {
+  const finished = [...bgTasks.values()]
+    .filter(t => t.status !== 'running' && !t.notified && taskBelongsToSession(t));
+  if (!finished.length) return '';
+  finished.sort((a, b) => (a.finishedAt || 0) - (b.finishedAt || 0));
+  const blocks = finished.map(t => {
+    const head = t.id + ' · ' + t.tool + ' · ' + (t.status === 'done' ? '完成' : '失败') + ' · 耗时 ' + Math.round(((t.finishedAt || 0) - (t.startedAt || 0)) / 1000) + 's';
+    let body = t.status === 'done' ? String(t.result || '') : ('错误：' + String(t.error || ''));
+    if (body.length > 1500) body = body.slice(0, 1000) + '\n…[结果过长，已截断；可用 task_status 取全文]…\n' + body.slice(-400);
+    return head + '\n' + body;
+  });
+  currentInjectedTaskIds = finished.map(t => t.id);
+  finished.forEach(t => { t.notified = true; });
+  return '<background_tasks>\n以下后台任务已在上一轮执行期间完成，结果如下（不需要再调用 task_status 查询）：\n\n' +
+    blocks.join('\n\n---\n\n') + '\n</background_tasks>';
+}
+
 /* ---------- 请求上下文调试（旁路记录器，仅内存） ---------- */
 const DEBUG_LOG_MAX = 50;
 const debugLog = [];   // [{ id, ts, roundId, source, model, payload, response, usage, duration, error, streaming, status }]
@@ -8942,6 +9170,9 @@ async function streamChat() {
   }
   if (planningHint) dynamicParts.push(planningHint);
   dynamicParts.push('上下文规则：思考过程不跨轮次，本轮结束即整段丢弃。任何需要跨轮次保留的信息（计划、结论、用户决定、文件路径、下一步动作）必须输出到正文或写进文件，不要只写在思考里。');
+  // 后台任务完成结果注入（放最后，紧贴用户消息；失败时由 agentLoop 回滚 notified）
+  const bgTaskContext = buildBackgroundTaskContext();
+  if (bgTaskContext) dynamicParts.push(bgTaskContext);
   // 思考过程不跨轮次：不回放历史思考。需要跨轮次保留的信息由模型写进正文或文件。
 
   // 消息组装：system（静态）+ 裁剪后历史 + 动态上下文（合并进最后一条 user，避免连续两条 user）
@@ -9172,7 +9403,17 @@ async function streamChat() {
     text = '⚠ 模型只输出了思考过程，没有生成正式回复。可能原因：max_tokens 截断、内容过滤、或模型认为任务已完成。\n\n思考摘要：' + brief + '\n\n[请点「重新生成」重试，或在设置中调大「输出 token 上限」]';
   }
   if (stopDiag && text.indexOf(stopDiag.trim()) < 0) text += stopDiag;
-  const toolCalls = toolAcc.filter(Boolean).map((tc, i) => ({ id: tc.id || ('call_' + Date.now() + '_' + i), type: 'function', function: { name: tc.function.name, arguments: tc.function.arguments || '{}' } }));
+  // 强力去重：防止代理 API 重发同一段流导致的"幽灵工具卡片 / 幻觉并发"
+  const rawCalls = toolAcc.filter(Boolean);
+  const seenSigs = new Set();
+  const uniqueCalls = [];
+  for (const tc of rawCalls) {
+    const sig = ((tc.function && tc.function.name) || '') + '|' + ((tc.function && tc.function.arguments) || '{}');
+    if (seenSigs.has(sig)) continue;
+    seenSigs.add(sig);
+    uniqueCalls.push(tc);
+  }
+  const toolCalls = uniqueCalls.map((tc, i) => ({ id: tc.id || ('call_' + Date.now() + '_' + i), type: 'function', function: { name: tc.function.name, arguments: tc.function.arguments || '{}' } }));
   // 清理残留的 DSML 标记（未闭合/孤立标签），避免渲染出乱码
   text = text.replace(/<\/?[｜]{1,2}\s*DSML\s*[｜]{1,2}\s*\/?(?:tool_calls|calls|invoke|parameter|tool_calls|calls|invoke|parameter)[^>]*>/gi, '').replace(/<[｜]{1,2}\s*DSML\s*[｜]{0,2}[^>\n]*$/gi, '').trim();
   // 兜底：GLM4.7 等模型输出的 <tool_call> 文本格式，从显示中剔除并解析成工具调用
@@ -9348,13 +9589,16 @@ function extractResource(name, args) {
 // 判断结果是否失败（需要重试）——只对瞬时/可重试错误重试，不对 4xx 客户端错误重试
 function isToolFailure(result) {
   const s = String(result || '');
+  // 只有明确以错误前缀开头的才可能是失败：防止 read_file 读到源码里的"超时"等词误触发无限重试
+  const isErrorPrefix = s.startsWith('错误：') || s.startsWith('工具执行失败：') || s.startsWith('抓取失败：') || s.startsWith('下载失败：');
+  if (!isErrorPrefix) return false;
+
   // 明确的客户端错误不重试（Key错/权限不足/文件不存在/参数错误）
   if (s.includes('HTTP 401') || s.includes('HTTP 403') || s.includes('HTTP 404') || s.includes('HTTP 400')) return false;
   if (s.includes('已禁用') || s.includes('未配置') || s.includes('需要在设置') || s.includes('暂存区为空')) return false;
-  // 可重试：限流、服务端错误、网络超时、ref冲突、临时失败
-  if (s.includes('HTTP 429') || s.includes('HTTP 5') || s.includes('超时') || s.includes('timeout') || s.includes('Failed to fetch') || s.includes('NetworkError')) return true;
-  if (s.includes('冲突') || s.includes('conflict') || s.includes('ref') || s.includes('sha')) return true;
-  if (s.startsWith('工具执行失败')) return true;
+  // 可重试：限流、服务端错误、网络超时
+  if (s.includes('HTTP 429') || s.includes('HTTP 5') || s.includes('请求超时') || s.includes('Failed to fetch') || s.includes('NetworkError')) return true;
+
   return false;
 }
 
@@ -9583,8 +9827,15 @@ async function agentLoop() {
     let overflowRetried = false;
     while (!round) {
       try {
+        currentInjectedTaskIds = [];
         round = await streamChat();
       } catch (e) {
+        // 本轮请求失败：刚标记为已通知的后台任务模型其实没看到，回滚以便下一轮重新注入
+        (currentInjectedTaskIds || []).forEach(id => {
+          const t = bgTasks.get(id);
+          if (t) t.notified = false;
+        });
+        currentInjectedTaskIds = [];
         if (!overflowRetried && isContextOverflowError(e)) {
           overflowRetried = true;
           contextBudgetScale = Math.max(0.3, contextBudgetScale * 0.5);
@@ -9639,36 +9890,94 @@ async function agentLoop() {
           return { tc, result: tc._blockedMsg };
         }
         let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch (e) {}
-        const card = addToolCard(tc.function.name, args);
-        // 出队真正开始执行时才置为「执行中…」（之前可能一直在队列里排队）
-        const preStatusEl = card.querySelector('.tool-status');
-        if (preStatusEl) preStatusEl.textContent = '执行中…';
-        if (preStatusEl) card.dataset.status = 'running';
-        try {
-          let liveOpened = false;   // 流式首帧自动展开一次详情，之后尊重用户手动收起
-          const result = await executeTool(tc.function.name, args, (chunk) => {
-            const wrap = card.querySelector('.tool-result-wrap');
-            const pre = card.querySelector('.tool-result');
-            const st = card.querySelector('.tool-status');
-            if (wrap && pre) { wrap.removeAttribute('hidden'); pre.textContent = chunk; }
-            if (!liveOpened) {
-              liveOpened = true;
-              const det = card.querySelector('.tool-detail');
-              const tg = card.querySelector('.tool-toggle');
-              if (det && det.hidden) { det.hidden = false; if (tg) tg.textContent = '▾'; }
-            }
-            if (st) st.textContent = '路由中…';
-            card.dataset.status = 'running';
-            scrollBottom();
-          }, { roundWritePaths });
-          finishToolCard(card, true, result);
-          return { tc, result };
+        // 1. 逻辑层防重：拦截本轮内完全相同的只读工具调用，直接复用上次结果
+        const READ_ONLY = EXEC_READ_ONLY_TOOLS;
+        if (READ_ONLY.has(tc.function.name) && tc._cacheResult !== undefined) {
+          return { tc, result: '⏭ 检测到重复调用（参数与上一次完全一致），结果与之前相同：\n' + tc._cacheResult };
         }
-        catch (e) {
-          const result = '工具执行失败：' + e.message;
+        // 2. UI 层防重：重试/重入时复用已存在的卡片，避免刷出"幽灵卡片"
+        let card = tc._uiCard;
+        if (!card) {
+          card = addToolCard(tc.function.name, args);
+          tc._uiCard = card;
+        } else {
+          card.dataset.status = 'running';
+          const st = card.querySelector('.tool-status');
+          if (st) st.textContent = '执行中…';
+        }
+        const toolName = tc.function.name;
+        const timeoutMs = Math.max(5000, Number(cfg.toolTimeoutMs) || 120000);
+        let liveOpened = false;   // 流式首帧自动展开一次详情，之后尊重用户手动收起
+        const onChunk = (chunk) => {
+          const wrap = card.querySelector('.tool-result-wrap');
+          const pre = card.querySelector('.tool-result');
+          const st = card.querySelector('.tool-status');
+          if (wrap && pre) { wrap.removeAttribute('hidden'); pre.textContent = chunk; }
+          if (!liveOpened) {
+            liveOpened = true;
+            const det = card.querySelector('.tool-detail');
+            const tg = card.querySelector('.tool-toggle');
+            if (det && det.hidden) { det.hidden = false; if (tg) tg.textContent = '▾'; }
+          }
+          if (st) st.textContent = '路由中…';
+          card.dataset.status = 'running';
+          scrollBottom();
+        };
+        // 不转后台的工具：直接执行（这些工具本身都很快）
+        if (NO_BACKGROUND_TOOLS.has(toolName)) {
+          try {
+            const result = await executeTool(toolName, args, onChunk, { roundWritePaths });
+            finishToolCard(card, true, result);
+            // 只读工具成功结果入缓存，供逻辑层防重复调用
+            if (READ_ONLY.has(toolName)) tc._cacheResult = result;
+            return { tc, result };
+          } catch (e) {
+            const result = '工具执行失败：' + (e && e.message ? e.message : e);
+            finishToolCard(card, false, result);
+            return { tc, result };
+          }
+        }
+        // 可转后台的工具：超时即注册后台任务，同时给原 tool_call 补一条响应（保证配对）
+        let timedOut = false;
+        let timeoutTimer = null;
+        const execPromise = executeTool(toolName, args, onChunk, { roundWritePaths });
+        const timeoutPromise = new Promise((resolve) => {
+          timeoutTimer = setTimeout(() => { timedOut = true; resolve('__TIMEOUT__'); }, timeoutMs);
+          if (chatAbort) chatAbort.signal.addEventListener('abort', () => { clearTimeout(timeoutTimer); resolve('__ABORTED__'); }, { once: true });
+        });
+        let outcome = null;
+        try {
+          outcome = await Promise.race([execPromise, timeoutPromise]);
+        } catch (e) {
+          clearTimeout(timeoutTimer);
+          const result = '工具执行失败：' + (e && e.message ? e.message : e);
           finishToolCard(card, false, result);
           return { tc, result };
         }
+        clearTimeout(timeoutTimer);
+        if (outcome === '__ABORTED__') {
+          execPromise.catch(() => {});
+          return { tc, result: '用户已停止' };
+        }
+        if (timedOut) {
+          const rec = startTaskRecord(toolName, args);
+          execPromise
+            .then(r => { finishTaskRecord(rec, r); })
+            .catch(e => { failTaskRecord(rec, e); });
+          const msg = '⏳ 工具 ' + toolName + ' 执行超过 ' + Math.round(timeoutMs / 1000) + ' 秒，已转入后台。\n' +
+            'task_id：' + rec.id + '\n' +
+            '后续用 task_status(task_id="' + rec.id + '") 查询；若在本轮结束前完成，结果会自动出现在下一轮的运行时上下文里。';
+          finishToolCard(card, true, msg);
+          card.dataset.status = 'running';
+          const stEl = card.querySelector('.tool-status');
+          if (stEl) stEl.textContent = '后台运行中';
+          return { tc, result: msg };
+        }
+        const result = outcome;
+        finishToolCard(card, true, result);
+        // 只读工具成功结果入缓存，供逻辑层防重复调用
+        if (READ_ONLY.has(toolName)) tc._cacheResult = result;
+        return { tc, result };
       };
       // 资源感知调度：同资源串行，不同资源并行；kb_commit 最后执行；失败自动重试（最多2次）
       const results = await scheduleToolCalls(toolCalls, execOne, 2);
@@ -9682,6 +9991,7 @@ async function agentLoop() {
     conversation.push({ role: 'assistant', content: content || '', reasoning_content: '', _thinking: thinking || '' });
     break;
   }
+  gcTasks();   // 收尾清理已完成且已通知的后台任务（保留最近 20 条供 task_status 查询）
   if (loops >= maxLoops) addErrorMsg(`⚠️ 已达到最大工具循环次数（${maxLoops}），任务可能未完成。可在设置中调大该值。`);
   // 结尾兜底：只有思考没有正文的 assistant 会让用户以为"莫名其妙停了"，直接把诊断贴到对话里
   const lastMsg = conversation[conversation.length - 1];
@@ -10043,6 +10353,7 @@ async function openSettings() {
     const kbb = $('cfgKbBranch'); if (kbb) kbb.value = cfg.kbBranch || 'master';
     const sak = $('cfgSearchApiKey'); if (sak) sak.value = cfg.searchApiKey || '';
     $('cfgLoops').value = cfg.maxLoops; $('cfgSystem').value = cfg.systemPrompt || DEFAULT_SYSTEM;
+    const ctt = $('cfgToolTimeout'); if (ctt) ctt.value = Math.round((cfg.toolTimeoutMs || 120000) / 1000);
     $('cfgMaxToolCalls').value = cfg.maxToolCalls || 0; $('cfgMaxWallTime').value = cfg.maxWallTime || 0;
     $('cfgMaxInputTokens').value = cfg.maxInputTokens || 0; $('cfgMaxOutputTokens').value = cfg.maxOutputTokens || 0;
     $('cfgMaxCost').value = cfg.maxCost || 0;
@@ -10492,7 +10803,7 @@ function bindEvents() {
   on('btnCfgSave', 'click', async () => {
     cfg.baseUrl = $('cfgBaseUrl').value.trim() || 'https://api.openai.com/v1';
     cfg.apiKey = $('cfgApiKey').value.trim(); cfg.model = $('cfgModel').value.trim() || 'gpt-4o-mini';
-    cfg.temperature = parseFloat($('cfgTemp').value) || 0; cfg.reasoningEffort = $('cfgReasonEffort').value || ''; cfg.maxLoops = Math.max(1, parseInt($('cfgLoops').value) || 20); cfg.maxToolCalls = Math.max(0, parseInt($('cfgMaxToolCalls').value) || 0); cfg.maxWallTime = Math.max(0, parseInt($('cfgMaxWallTime').value) || 0); cfg.maxInputTokens = Math.max(0, parseInt($('cfgMaxInputTokens').value) || 0); cfg.maxOutputTokens = Math.max(0, parseInt($('cfgMaxOutputTokens').value) || 0); cfg.maxCost = Math.max(0, parseFloat($('cfgMaxCost').value) || 0); cfg.corsProxy = ($('cfgCorsProxy').value || '').trim(); cfg.kbPlatform = $('cfgKbPlatform').value || 'github'; cfg.kbRepo = ($('cfgKbRepo').value || '').trim(); cfg.kbToken = ($('cfgKbToken').value || '').trim(); cfg.kbBranch = ($('cfgKbBranch').value || '').trim() || 'master'; cfg.searchApiKey = ($('cfgSearchApiKey').value || '').trim();
+    cfg.temperature = parseFloat($('cfgTemp').value) || 0; cfg.reasoningEffort = $('cfgReasonEffort').value || ''; cfg.maxLoops = Math.max(1, parseInt($('cfgLoops').value) || 20); cfg.toolTimeoutMs = Math.max(5, Math.min(600, parseInt(($('cfgToolTimeout') || {}).value) || 120)) * 1000; cfg.maxToolCalls = Math.max(0, parseInt($('cfgMaxToolCalls').value) || 0); cfg.maxWallTime = Math.max(0, parseInt($('cfgMaxWallTime').value) || 0); cfg.maxInputTokens = Math.max(0, parseInt($('cfgMaxInputTokens').value) || 0); cfg.maxOutputTokens = Math.max(0, parseInt($('cfgMaxOutputTokens').value) || 0); cfg.maxCost = Math.max(0, parseFloat($('cfgMaxCost').value) || 0); cfg.corsProxy = ($('cfgCorsProxy').value || '').trim(); cfg.kbPlatform = $('cfgKbPlatform').value || 'github'; cfg.kbRepo = ($('cfgKbRepo').value || '').trim(); cfg.kbToken = ($('cfgKbToken').value || '').trim(); cfg.kbBranch = ($('cfgKbBranch').value || '').trim() || 'master'; cfg.searchApiKey = ($('cfgSearchApiKey').value || '').trim();
     const am = $('cfgAgentMode'); if (am) cfg.agentMode = am.value;
     cfg.systemPrompt = $('cfgSystem').value || DEFAULT_SYSTEM;
     cfg.cloudBackend = $('cfgCloudBackend').value || 'gitee';
