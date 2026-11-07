@@ -2016,8 +2016,21 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.06.3';
+const APP_VERSION = '2026.11.06.4';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.06.4',
+    date: '2026-11-06',
+    title: 'check_code 用隐藏 iframe 真实执行 HTML 内联 JS',
+    items: [
+      '新增 checkHtmlWithIframe(html)：创建隐藏 iframe（srcdoc + sandbox="allow-scripts allow-same-origin"）真实执行 HTML 里的脚本，补齐「只查标签闭合、漏掉全部 JS 语法错误」的重大漏洞',
+      'iframe 内注入 window.onerror + unhandledrejection 反射器，把 SyntaxError / ReferenceError / 未处理 Promise 异常统一收集到 __errs',
+      '注入器压缩成严格一行（不含任何换行符），插在 </head> 前不会造成原始 HTML 行号偏移，报错行号可被 AI 直接用于 read_file 定位',
+      '3 秒超时释放 iframe 并返回「可能存在死循环」；onload 后延迟 100ms 收集异步报错；跨域等异常默认放行（不误报）',
+      '报错去重后最多回传 3 条，格式为「行 N 列 M: 消息」',
+      'toolCheckCode 的 html/htm/svg 分支改为两步：先 checkHtml 基础闭合检查，通过后再 checkHtmlWithIframe 实执行'
+    ]
+  },
   {
     v: '2026.11.06.3',
     date: '2026-11-06',
@@ -4065,6 +4078,65 @@ function detectLang(code) {
   if (/\b(import\s+[A-Za-z_"{']|export\s+(default\s+)?(const|let|var|function|class|\{))/m.test(t)) return 'mjs';
   return 'js';
 }
+/* ---------- 使用隐藏 iframe 真实执行 HTML 中的 JS（单行注入，0 行号偏移） ---------- */
+function checkHtmlWithIframe(html) {
+  return new Promise((resolve) => {
+    if (typeof document === 'undefined' || !document.body) return resolve(null);
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px;';
+    iframe.sandbox = 'allow-scripts allow-same-origin';
+    // 关键：注入代码压缩成严格一行（不含任何换行符），插到 head 里也不会让原始行号偏移
+    // 标签用拼接构造，源码中不出现该标签的尖括号字面量序列
+    const STAG = '<scr' + 'ipt>';
+    const ETAG = '<' + '/scr' + 'ipt>';
+    const injector = STAG
+      + 'window.__errs=[];'
+      + 'window.onerror=function(m,u,l,c,e){if(m&&m!=="Script error."){window.__errs.push({msg:m,line:l,col:c});}return true;};'
+      + 'window.addEventListener("unhandledrejection",function(e){var r=e&&e.reason;window.__errs.push({msg:"Promise 异常: "+(r&&r.message?r.message:String(r)),line:0,col:0});});'
+      + ETAG;
+
+    let finalHtml = html;
+    if (/<\/head>/i.test(finalHtml)) finalHtml = finalHtml.replace(/<\/head>/i, injector + '</head>');
+    else finalHtml = injector + finalHtml;
+
+    let done = false;
+    const cleanup = () => { try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); } catch (e) {} };
+    // 3 秒超时保护，防止死循环卡死主线程
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      cleanup();
+      resolve('⚠ HTML 内联脚本执行超时（超过 3 秒），可能存在死循环或阻塞主线程的代码。');
+    }, 3000);
+
+    iframe.onload = () => {
+      clearTimeout(timer);
+      // 给 setTimeout 等异步代码留 100ms 反应时间
+      setTimeout(() => {
+        if (done) return;
+        done = true;
+        try {
+          const errs = iframe.contentWindow.__errs || [];
+          cleanup();
+          if (!errs.length) return resolve(null);
+          const seen = new Set(), uniq = [];
+          for (const e of errs) {
+            const sig = e.msg + '|' + e.line;
+            if (!seen.has(sig)) { seen.add(sig); uniq.push(e); }
+          }
+          const msgLines = uniq.slice(0, 3).map(e => e.line > 0 ? '行 ' + e.line + ' 列 ' + e.col + ': ' + e.msg : e.msg);
+          resolve('HTML 内联脚本检测到错误：\n' + msgLines.join('\n'));
+        } catch (e) {
+          cleanup();
+          resolve(null); // 跨域等异常，默认放行
+        }
+      }, 100);
+    };
+
+    iframe.srcdoc = finalHtml;
+    document.body.appendChild(iframe);
+  });
+}
 function checkHtml(code) {
   // 先剥离 script/style 内容，避免 JS/CSS 里的 < 被当成标签
   // 注意：此处禁止出现 script/style 标签的尖括号字面量序列（含其闭合写法）——
@@ -4167,7 +4239,12 @@ async function toolCheckCode(args) {
   if (lang === 'json') err = checkJson(raw);
   else if (['js', 'cjs'].includes(lang)) err = checkJs(raw, false);
   else if (lang === 'mjs') err = checkJs(raw, true);
-  else if (['html', 'htm', 'svg'].includes(lang)) err = checkHtml(raw);
+  else if (['html', 'htm', 'svg'].includes(lang)) {
+    // 1) 先做基础标签闭合检查
+    err = checkHtml(raw);
+    // 2) 标签没问题，再用隐藏 iframe 真实跑一遍内联 JS（抓语法错/运行时错）
+    if (!err) err = await checkHtmlWithIframe(raw);
+  }
   else if (lang === 'py') err = checkPy(raw);
   else if (['md', 'txt', 'log', 'css'].includes(lang)) return '该类型（.' + lang + '）无需语法校验。';
   else return '暂不支持 .' + lang + ' 的语法校验（支持 json / js / mjs / html / py）。';
@@ -5435,7 +5512,8 @@ function showCtxMenu(x, y, child) {
           await refreshFS();
           toast('已删除 ' + child.path);
         } catch (err) { toast('删除失败：' + (err && err.message ? err.message : err), 'err'); }
-      } });
+      } }
+  ];
   for (const it of items) {
     if (it.sep) { const s = document.createElement('div'); s.className = 'ctx-sep'; m.appendChild(s); continue; }
     const d = document.createElement('div');
