@@ -5512,8 +5512,7 @@ function showCtxMenu(x, y, child) {
           await refreshFS();
           toast('已删除 ' + child.path);
         } catch (err) { toast('删除失败：' + (err && err.message ? err.message : err), 'err'); }
-      } }
-  ];
+      } });
   for (const it of items) {
     if (it.sep) { const s = document.createElement('div'); s.className = 'ctx-sep'; m.appendChild(s); continue; }
     const d = document.createElement('div');
