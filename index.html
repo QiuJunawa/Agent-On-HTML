@@ -747,7 +747,7 @@
     position: fixed; left: 0; top: 0; bottom: 0; width: 56px;
     background: var(--bg-sidebar); border-right: 1px solid var(--border);
     display: flex; flex-direction: column; align-items: center; gap: 4px;
-    padding: 10px 0; z-index: 60;
+    padding: 10px 0; z-index: 95;   /* 必须高于设置内联页的 90，否则 nav-rail-btn::after 的悬停文字会被设置页背景盖住 */
   }
   body { padding-left: 56px; }
   .nav-rail-btn {
@@ -762,7 +762,7 @@
     content: attr(title); position: absolute; left: 100%; margin-left: 6px;
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
     padding: 4px 10px; font-size: 12px; white-space: nowrap; opacity: 0; pointer-events: none;
-    transition: opacity .15s; color: var(--text-primary); z-index: 61;
+    transition: opacity .15s; color: var(--text-primary); z-index: 96;
   }
   .nav-rail-btn:hover::after { opacity: 1; }
 
@@ -2157,8 +2157,46 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.07.9';
+const APP_VERSION = '2026.11.07.12';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.07.12',
+    date: '2026-11-07',
+    title: 'check_code 的 iframe 实执行不再被规范级校验短路',
+    items: [
+      '问题：html 分支里 iframe 真实执行写在 if (!err) 之后，一旦规范级校验（parse5 / html-validate）报出 a11y 或写法规则，规范级 err 一赋值，内联 JS 实执行这层就再也不会跑',
+      '后果：校验 /index.html 时只看到「Landmarks must have a non-empty accessible name」「Inline style is not allowed」这类规则提示，脚本里真实存在的 SyntaxError / ReferenceError 完全测不出来，报「校验未通过」却没指出要害',
+      '修法：iframe 实执行改为无条件执行，结果追加而不是覆盖——err 已有内容时用换行拼接，两层的错误一起回报给 AI',
+      '顺带保证「校验未通过」的输出结构稳定：先列标签闭合 / 规范级问题，再列脚本执行错误，AI 能按顺序逐个修'
+    ]
+  },
+  {
+    v: '2026.11.07.11',
+    date: '2026-11-07',
+    title: '工具提前并发执行、思考状态切换修复',
+    items: [
+      '流式解析阶段新增提前并发执行：tool_calls 参数一旦凑成合法 JSON 且属于只读白名单，立刻通过 syncToolCards 挂起 Promise 开跑，不等整条回复输出完',
+      'agentLoop 的 execOne 优先检查 tc._earlyRun，直接 await 提前执行的结果并补 finishToolCard，杜绝结果丢弃与二次重复执行',
+      '修复思考状态不切换：新增 thinkingFinished 标志，收到正文或工具调用即置真，思考标签立刻从「思考中…」变成「思考过程」',
+      '工具卡片状态流转补全：参数未输出完显示「准备中」，参数齐了立刻切「执行中…」，结束切「完成 / 出错」',
+      '每来一个 SSE chunk 就调 syncToolCards，卡片与状态实时跟手，不再等一轮结束才出现',
+      'dsmlIngest 与 flush 阶段补调 syncToolCards，XML / DSML 文本通道解析出的调用也能触发卡片与提前执行',
+      'earlyRuns 在 streamChat return 前 clear()：引用已通过 tc._earlyRun 透传给 agentLoop，Map 不再占用内存',
+      '修复卡片被连带删除：收尾处「只有工具调用没有正文」由 msgEl.remove() 改为清空 .bubble，避免把已提前创建并执行的工具卡片、结果、roundAssistantEl 一起丢掉'
+    ]
+  },
+  {
+    v: '2026.11.07.10',
+    date: '2026-11-07',
+    title: '设置内联页盖住导航栏悬停提示',
+    items: [
+      '现象：进入设置页（内联模式）后，把鼠标移到左侧导航按钮上，右侧浮出的「对话 / 工具流 / VFS…」文字提示看不见，位置是空的',
+      '原因：.nav-rail 是 z-index:60，提示框 ::after（z-index:61）是它的子元素，被限制在导航栏这个层叠上下文里，实际最高只能到 60；而设置内联页 #settingsModal 是 z-index:90，且从 left:56px 起铺满，提示框正好向左伸进这块区域 → 被设置页背景压住',
+      '修法：.nav-rail 提到 z-index:95（提示框 ::after 同步 61→96，虽然受父层叠上下文限制不生效，写出来表明意图）。两者几何上不重叠（导航栏 0~56px，设置页 56px 起），只是提示框会越界到 56px 右侧，抬高导航栏即可',
+      '不牺牲弹窗层级：普通弹窗 .modal 仍是 z-index:100/3000/3100/3200，依旧压在导航栏之上；toast(200) 也不受影响',
+      '这条是回归修复：nav-rail 原本 60 只是高于页面内容，做设置内联页（90）时没回头抬高它'
+    ]
+  },
   {
     v: '2026.11.07.9',
     date: '2026-11-07',
@@ -4662,8 +4700,11 @@ async function toolCheckCode(args) {
         htmlSpecFail = (e && e.message) || String(e);
       }
     }
-    // 3) 标签没问题，再用隐藏 iframe 真实跑一遍内联 JS（抓语法错/运行时错）
-    if (!err) err = await checkHtmlWithIframe(raw);
+    // 3) 无论前面是否已有结论，都再真实跑一遍内联 JS（跟在现有检查之后，结果追加，不短路）
+    //    原因：规范级规则（parse5 / html-validate）里大量是 a11y 与写法建议，
+    //    一旦用它短路，就会把「脚本根本跑不起来」这类致命错误整层藏掉
+    const iframeErr = await checkHtmlWithIframe(raw);
+    if (iframeErr) err = err ? (err + '\n' + iframeErr) : iframeErr;
   }
   else if (lang === 'py') err = checkPy(raw);
   else if (['md', 'txt', 'log', 'css'].includes(lang)) return '该类型（.' + lang + '）无需语法校验。';
@@ -9569,6 +9610,8 @@ async function streamChat() {
   let thinkingCollapsed = false;
   let thinkEl = null;   // 思考过程文本节点（增量更新，避免每次重写整个 DOM）
   let bodyEl = null;    // 正文容器
+  // 思考是否已「输出完」：一旦出现正文/工具调用，或流结束，就不再是「思考中」
+  let thinkingFinished = false;
   const renderBubble = () => {
     // 首次渲染真实内容（思考/正文）时，清空 status 设置的状态提示文字
     if ((thinking || text) && !thinkEl && !bodyEl) bubble.innerHTML = '';
@@ -9587,7 +9630,7 @@ async function streamChat() {
     if (thinkEl) {
       thinkEl.classList.toggle('collapsed', thinkingCollapsed);
       const label = thinkEl.querySelector('.thinking-label');
-      if (label) label.textContent = text.trim() ? '思考过程' : '思考中…';
+      if (label) label.textContent = (thinkingFinished || text.trim()) ? '思考过程' : '思考中…';
       const tt = thinkEl.querySelector('.thinking-text');
       if (tt && !thinkingCollapsed) tt.textContent = thinking;
     }
@@ -9640,6 +9683,56 @@ async function streamChat() {
     if (r.text) { text += r.text; }
     if (r.calls.length) r.calls.forEach(tc => { toolAcc[toolAcc.length] = tc; });
     if (r.text || r.calls.length) scheduleRender();
+    // XML / DSML 文本通道解析出的调用同样要同步卡片（它们不进 delta.tool_calls）
+    if (r.calls.length) syncToolCards();
+  };
+  /* ===== 工具卡片即时渲染 + 只读工具提前执行 =====
+     参数还没输出完：卡片已平铺在对话里，状态显示「准备中」；
+     参数一凑成合法 JSON 且属于只读白名单：立刻开跑，不等模型把整条消息说完。
+     只放只读 / 无副作用 / 不弹窗确认的工具，避免绕过调度层资源串行锁与 HITL 确认 */
+  const EARLY_EXEC_TOOLS = new Set([
+    'read_file', 'list_files', 'search_files', 'check_code', 'calculator', 'statistics',
+    'run_js', 'run_py', 'web_search', 'kb_list', 'kb_search', 'kb_read',
+    'git_list', 'git_read', 'todo_list', 'task_status'
+  ]);
+  const earlyRuns = new Map();      // sig -> Promise<result>（流式阶段已提前开始执行）
+  const earlyCards = new Map();     // idx -> card（每槽位只建一次，参数增量不重建）
+  const earlyStarted = new Set();   // idx（该槽位已开始执行）
+  const tryParseArgs = (s) => {
+    const t = String(s || '').trim();
+    if (!t || t.charAt(0) !== '{' || t.charAt(t.length - 1) !== '}') return null;   // 未闭合 = 参数还没输出完
+    try { const v = JSON.parse(t); return (v && typeof v === 'object') ? v : null; } catch (e) { return null; }
+  };
+  const syncToolCards = () => {
+    toolAcc.forEach((tc, idx) => {
+      const fn = tc && tc.function;
+      if (!fn || !fn.name) return;
+      const rawArgs = fn.arguments || '';
+      const args = tryParseArgs(rawArgs);
+      let card = earlyCards.get(idx);
+      if (!card) {
+        card = addToolCard(fn.name, args || {}, '准备中');
+        earlyCards.set(idx, card);
+      }
+      tc._uiCard = card;   // 交给 agentLoop 复用，避免执行时再刷一张卡片
+      if (!args || earlyStarted.has(idx) || !EARLY_EXEC_TOOLS.has(fn.name)) return;
+      earlyStarted.add(idx);
+      const sig = fn.name + '|' + rawArgs;
+      tc._earlySig = sig;
+      const stEl = card.querySelector('.tool-status');
+      if (stEl) stEl.textContent = '执行中…';
+      card.dataset.status = 'running';
+      const liveChunk = (chunk) => {
+        const wrap = card.querySelector('.tool-result-wrap');
+        const pre = card.querySelector('.tool-result');
+        if (wrap && pre) { wrap.removeAttribute('hidden'); pre.textContent = chunk; }
+      };
+      // 永不 reject：万一没人 await（流中断等），也不会产生 unhandled rejection
+      earlyRuns.set(sig, (async () => {
+        try { return await executeTool(fn.name, args, liveChunk, {}); }
+        catch (e) { return '工具执行失败：' + (e && e.message ? e.message : e); }
+      })());
+    });
   };
   // 状态提示：只在还没有任何正文/思考/工具调用时显示
   const status = (t) => { if (!text.trim() && !thinking && toolAcc.filter(Boolean).length === 0) bubble.innerHTML = '<span style="color:var(--text-muted)">' + t + '</span>'; };
@@ -9840,6 +9933,8 @@ async function streamChat() {
       const delta = choice.delta || {};
       // DeepSeek 等推理模型：先发 reasoning_content（思考中），正文稍后才到
       if (delta.reasoning_content) { thinking += delta.reasoning_content; scheduleRender(); }
+      // 正文或工具调用一到，说明思考阶段已结束：「思考中…」应立即变成「思考过程」
+      if (delta.content || delta.tool_calls) thinkingFinished = true;
       if (delta.content) {
         dsmlIngest(delta.content);
       }
@@ -9854,6 +9949,8 @@ async function streamChat() {
           }
         }
       }
+      // 每来一段就同步卡片：未输出完显示「准备中」，输出完且只读则立刻开跑
+      if (delta.content || delta.tool_calls) syncToolCards();
     }
   }
 
@@ -9883,6 +9980,10 @@ async function streamChat() {
   const flush = toolFilterFlush();
   if (flush.text) text += flush.text;
   flush.calls.forEach(tc => { toolAcc[toolAcc.length] = tc; });
+  // flush 阶段可能补出最后几个调用：同步卡片，能提前跑的就提前跑
+  if (flush.calls.length) syncToolCards();
+  // 流已经结束：思考阶段一定结束了，即便模型只输出思考没写正文也要把标签切回「思考过程」
+  thinkingFinished = true;
   // 流层/模型层停止诊断：截断、内容过滤、流提前关闭（都要显式告诉用户，不要静默停止）
   let stopDiag = '';
   if (finishReason === 'length') {
@@ -9901,8 +10002,11 @@ async function streamChat() {
     throw new Error('API 返回了空响应（无内容、无工具调用、无思考过程）。可能是：模型名称错误、Base URL 不正确、或 API 不支持 stream 模式。');
   }
   if (!text.trim() && hasToolCalls && !hasThinking) {
-    // 只有工具调用没有文本和思考，移除空气泡（工具卡片会单独显示）
-    msgEl.remove();
+    // 只有工具调用没有文本和思考：清空气泡即可。
+    // 不能 msgEl.remove()——工具卡片（可能已提前创建并执行）挂在 msgEl 的 .tool-calls-container 里，
+    // 整块删掉会让提前执行的卡片和结果一起消失，roundAssistantEl 也会失联。
+    const b0 = msgEl.querySelector('.bubble');
+    if (b0) b0.innerHTML = '';
   }
   if (!text.trim() && !hasToolCalls && hasThinking) {
     // 模型只输出了思考、没生成正文：把思考摘要回填到 content，避免"静默停止"
@@ -9920,7 +10024,17 @@ async function streamChat() {
     seenSigs.add(sig);
     uniqueCalls.push(tc);
   }
-  const toolCalls = uniqueCalls.map((tc, i) => ({ id: tc.id || ('call_' + Date.now() + '_' + i), type: 'function', function: { name: tc.function.name, arguments: tc.function.arguments || '{}' } }));
+  const toolCalls = uniqueCalls.map((tc, i) => ({
+    id: tc.id || ('call_' + Date.now() + '_' + i),
+    type: 'function',
+    function: { name: tc.function.name, arguments: tc.function.arguments || '{}' },
+    // 透传流式阶段提前执行的成果：卡片 DOM + 已在跑的 Promise
+    _uiCard: tc._uiCard,
+    _earlySig: tc._earlySig,
+    _earlyRun: tc._earlyRun || (tc._earlySig ? earlyRuns.get(tc._earlySig) : undefined)
+  }));
+  // 引用已挂到 toolCalls 上，清空 Map 释放内存
+  earlyRuns.clear();
   // 清理残留的 DSML 标记（未闭合/孤立标签），避免渲染出乱码
   text = text.replace(/<\/?[｜]{1,2}\s*DSML\s*[｜]{1,2}\s*\/?(?:tool_calls|calls|invoke|parameter|tool_calls|calls|invoke|parameter)[^>]*>/gi, '').replace(/<[｜]{1,2}\s*DSML\s*[｜]{0,2}[^>\n]*$/gi, '').trim();
   // 兜底：GLM4.7 等模型输出的 <tool_call> 文本格式，从显示中剔除并解析成工具调用
@@ -10368,7 +10482,10 @@ async function agentLoop() {
       }
     }
     if (toolCalls.length > 0) {
-      conversation.push({ role: 'assistant', content: content || null, tool_calls: toolCalls, reasoning_content: '', _thinking: thinking || '' });
+      // 入上下文前剥掉 UI 专用字段（_uiCard 是 DOM、_earlyRun 是 Promise、_earlySig/_cacheResult 是缓存标记），
+      // 这些只给 execOne 用，绝不能跟着 tool_calls 进请求体
+      const cleanToolCalls = toolCalls.map(tc => ({ id: tc.id, type: tc.type, function: { name: tc.function.name, arguments: tc.function.arguments } }));
+      conversation.push({ role: 'assistant', content: content || null, tool_calls: cleanToolCalls, reasoning_content: '', _thinking: thinking || '' });
       // 预算检查（工具调用数）：本批工具照常执行完，超限留到下一轮 while 开头再停，
       // 这样不会出现「有 tool_calls 但缺对应 tool 消息」的断裂序列
       budget.toolCalls += toolCalls.length;
@@ -10395,6 +10512,18 @@ async function agentLoop() {
           const bCard = addToolCard(tc.function.name, bArgs);
           finishToolCard(bCard, false, tc._blockedMsg);
           return { tc, result: tc._blockedMsg };
+        }
+        // 0. 流式阶段已提前开跑：直接等结果，绝不重复执行第二遍
+        if (tc._earlyRun) {
+          let earlyResult = null;
+          try { earlyResult = await tc._earlyRun; }
+          catch (e) { earlyResult = '工具执行失败：' + (e && e.message ? e.message : e); }
+          const earlyCard = tc._uiCard;
+          const okEarly = !/^(工具执行失败：|错误：|抓取失败：|下载失败：)/.test(String(earlyResult || ''));
+          if (earlyCard && earlyCard.isConnected) finishToolCard(earlyCard, okEarly, earlyResult);
+          tc._earlyRun = null;
+          if (EXEC_READ_ONLY_TOOLS.has(tc.function.name)) tc._cacheResult = earlyResult;
+          return { tc, result: earlyResult };
         }
         let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch (e) {}
         // 1. 逻辑层防重：拦截本轮内完全相同的只读工具调用，直接复用上次结果
