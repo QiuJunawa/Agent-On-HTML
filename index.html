@@ -2157,8 +2157,36 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.07.12';
+const APP_VERSION = '2026.11.07.14';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.07.14',
+    date: '2026-11-07',
+    title: '对话历史存档改为「原子块」格式，刷新后历史可继续发送不再 400',
+    items: [
+      '问题：刷新页面后历史看得见但发不出去，API 报 400。根因是 tool_calls 与 tool 结果在存储里是两条平铺消息，只靠位置关联；md 兜底解析还给两边各生成一套假 id（restored_ / restored_tc_），永远配不上，修复步骤直接把工具结果全丢了',
+      '新存档格式 v3：把「一次工具调用」存成一个对象 tool_block.calls[{id,name,args,result}]，调用与结果同体，物理上不可能错位；卡片存 card{kind}，无主工具结果存 orphan_tool',
+      '统一入口 conversationToItems / itemsToConversation 双向转换，按 tool_call_id 精确配对，缺结果补「（结果未保存）」，多轮工具调用各自归位（旧逻辑会把所有调用挂到最近一条 assistant 上）',
+      '兼容旧格式：v1 裸数组、v2 {version:2,sessions}、v3 {schema:3,sessions} 都能读，读取时经 normalizeStoredSession 统一迁移',
+      '发送前接入 sanitizeApiMessages 硬校验（接返回值，原先该函数存在但没被调用，等于没生效）：丢弃无主的 tool 消息、丢弃空 assistant、给缺失结果的 call 补空结果、剥掉卡片消息，从链路上杜绝 400',
+      '修 md 存档往返：convToMarkdown 现在把 (id=xxx) 写进标题，parseConversationMarkdown 按 id 精确回配，旧 md 无 id 时按出现顺序兜底',
+      '修 localStorage 5MB 配额：写入失败不再直接 return 跳过 VFS 写入，改为逐级瘦身（截思考 → 截工具结果 → 脱图片）重试，避免整段持久化失败导致「好多东西消失」',
+      'assistant 消息 content 用空串替代 null，兼容严格网关'
+    ]
+  },
+  {
+    v: '2026.11.07.13',
+    date: '2026-11-07',
+    title: '工具卡片详情里的「参数」不再永远显示 {}',
+    items: [
+      '问题：流式阶段 syncToolCards 每次只给参数还没输出完的工具槽位建一次卡片，建卡时传的是 args || {}（解析结果是 null），而卡片建好后再也没人回写参数',
+      '后果：展开工具卡片详情，参数区永远停在 {}，看起来像工具根本没收到参数；行内摘要（tool-key）也一直是空的',
+      '修法：renderToolCardInner 新增 card._setArgs(a) 复用接口，参数未就绪时显示「（参数生成中…）」，就绪后写格式化 JSON 并同步刷新行内摘要',
+      'syncToolCards 在卡片已存在时调用 card._setArgs(args)，把后续解析出的完整参数刷回同一张卡片',
+      'execOne 复用流式阶段卡片（tc._uiCard）时补一次 _setArgs(args)，兜住「卡片建好但那轮没触发刷新」的路径',
+      '新建卡片统一传 args（可能为 null），不再用 args || {} 把「未就绪」伪装成「空参数」'
+    ]
+  },
   {
     v: '2026.11.07.12',
     date: '2026-11-07',
@@ -7683,46 +7711,211 @@ async function csUiCopyInstall() {
 let sessions = [];
 let currentSessionId = null;
 
+/* ---------- 会话存档格式 v3：原子块 ----------
+ * 核心：tool_calls 与它的结果存在同一个对象里（items[].calls[]），物理上不可能错位。
+ * 落盘形态（localStorage 与 /config/sessions.json 完全一致）：
+ *   { schema:3, version:3, savedAt, sessions:[{id,title,createdAt,updatedAt,mdFile,items:[]}], deleted:[] }
+ * items 元素：
+ *   { role:'user',        text, images:[url] }
+ *   { role:'assistant',   text, think }
+ *   { role:'tool_block',  text, think, calls:[{id,name,args,result}] }
+ *   { role:'card',        kind:'ask'|'deliver'|'chart', data:{...} }
+ *   { role:'orphan_tool', id, name, result }   // 无主的工具结果，只作正文展示
+ * 读取兼容：v1=裸数组、v2={version:2,sessions}、v3={schema:3,sessions}，全部先归一再转内存消息。
+ */
+const SESSIONS_SCHEMA = 3;
+function clipThinking(t) {
+  const s = String(t || '');
+  return s.length > 4000 ? s.slice(0, 4000) + '\n…（思考过程过长，已截断存档）' : s;
+}
+// user 的 content 可能是字符串或 [{type:'text'},{type:'image_url'}]，拆成 text + images
+function splitUserContent(content) {
+  if (Array.isArray(content)) {
+    let text = ''; const images = [];
+    for (const p of content) {
+      if (!p) continue;
+      if (p.type === 'text') text += String(p.text || '');
+      else if (p.type === 'image_url' && p.image_url && p.image_url.url) images.push(p.image_url.url);
+    }
+    return { text, images };
+  }
+  return { text: contentToText(content), images: [] };
+}
+// 内存消息 → 原子块（顺带脱敏、思考截断、按 tool_call_id 精确配对结果）
+function conversationToItems(conv) {
+  const items = [];
+  const list = Array.isArray(conv) ? conv : [];
+  const consumed = new Set();
+  // 工具 id → 工具名，供孤立 tool 消息回填名字用
+  const callNameById = new Map();
+  for (const m of list) {
+    if (m && m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls) {
+        if (tc && tc.id) callNameById.set(tc.id, (tc.function && tc.function.name) || '');
+      }
+    }
+  }
+  for (let i = 0; i < list.length; i++) {
+    if (consumed.has(i)) continue;
+    const m = list[i];
+    if (!m || typeof m !== 'object') continue;
+    if (m.role === 'user') {
+      const { text, images } = splitUserContent(m.content);
+      items.push({ role: 'user', text: redactCached(text), images: images.map(u => redactCached(u)) });
+      continue;
+    }
+    if (m.role === 'tool') {
+      // 无主工具结果：从前面 assistant 的 tool_calls 里尽量回填工具名，方便阅读
+      items.push({ role: 'orphan_tool', id: m.tool_call_id || '', name: callNameById.get(m.tool_call_id) || '', result: redactCached(contentToText(m.content)) });
+      continue;
+    }
+    if (m.role !== 'assistant') continue;
+    // 卡片消息用显式 kind，读取时不会再混进协议消息
+    if (m.ask) { items.push({ role: 'card', kind: 'ask', data: m.ask }); continue; }
+    if (m.deliver) { items.push({ role: 'card', kind: 'deliver', data: m.deliver }); continue; }
+    if (m.chart) { items.push({ role: 'card', kind: 'chart', data: m.chart }); continue; }
+    const think = redactCached(clipThinking((m._thinking && m._thinking.trim()) ? m._thinking : (m.reasoning_content || '')));
+    const text = redactCached(contentToText(m.content));
+    const tcs = Array.isArray(m.tool_calls) ? m.tool_calls.filter(tc => tc && tc.function) : [];
+    if (!tcs.length) {
+      if (text || think) items.push({ role: 'assistant', text, think });
+      continue;
+    }
+    // 建块，并向后按 id 吸收紧随其后的 tool 消息
+    const calls = tcs.map((tc, k) => ({
+      id: tc.id || ('call_mig' + i + '_' + k), name: tc.function.name || '',
+      args: redactCached(tc.function.arguments || '{}'), result: null
+    }));
+    const byId = new Map(calls.map(c => [c.id, c]));
+    let j = i + 1;
+    while (j < list.length && list[j] && list[j].role === 'tool') {
+      consumed.add(j);
+      const c = byId.get(list[j].tool_call_id);
+      if (c) c.result = redactCached(contentToText(list[j].content));
+      j++;
+    }
+    items.push({ role: 'tool_block', text, think, calls });
+  }
+  return items;
+}
+// 原子块 → 内存消息（tool_calls 与 tool 消息一一对应，可直接发 API）
+function itemsToConversation(items) {
+  const conv = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item || typeof item !== 'object') continue;
+    if (item.role === 'user') {
+      const text = String(item.text || '');
+      const images = Array.isArray(item.images) ? item.images.filter(u => typeof u === 'string' && u) : [];
+      if (images.length) {
+        const parts = [];
+        if (text) parts.push({ type: 'text', text });
+        images.forEach(u => parts.push({ type: 'image_url', image_url: { url: u } }));
+        conv.push({ role: 'user', content: parts });
+      } else conv.push({ role: 'user', content: text });
+      continue;
+    }
+    if (item.role === 'assistant') {
+      conv.push({ role: 'assistant', content: String(item.text || ''), reasoning_content: '', _thinking: String(item.think || '') });
+      continue;
+    }
+    if (item.role === 'tool_block') {
+      const calls = Array.isArray(item.calls) ? item.calls.filter(Boolean) : [];
+      if (!calls.length) {
+        if (item.text || item.think) conv.push({ role: 'assistant', content: String(item.text || ''), reasoning_content: '', _thinking: String(item.think || '') });
+        continue;
+      }
+      const tool_calls = calls.map((c, k) => ({ id: c.id || ('call_r' + k), type: 'function', function: { name: c.name || '', arguments: c.args || '{}' } }));
+      conv.push({ role: 'assistant', content: String(item.text || ''), tool_calls, reasoning_content: '', _thinking: String(item.think || '') });
+      calls.forEach((c, k) => {
+        const r = c.result;
+        conv.push({ role: 'tool', tool_call_id: tool_calls[k].id, content: (r === null || r === undefined || r === '') ? '（结果未保存）' : String(r) });
+      });
+      continue;
+    }
+    if (item.role === 'card') {
+      if (!item.kind || !item.data) continue;
+      const msg = { role: 'assistant', content: '', reasoning_content: '' };
+      if (item.kind === 'ask') msg.ask = item.data;
+      else if (item.kind === 'deliver') msg.deliver = item.data;
+      else if (item.kind === 'chart') msg.chart = item.data;
+      else continue;
+      conv.push(msg);
+      continue;
+    }
+    if (item.role === 'orphan_tool') {
+      // 无主工具结果：转普通 assistant 文本，仍然可见，但不破坏消息序列
+      conv.push({ role: 'assistant', content: '🛠 工具结果' + (item.name ? '（' + item.name + '）' : '') + '：' + String(item.result || ''), reasoning_content: '' });
+    }
+  }
+  return conv;
+}
+// 任意历史格式 → 合法内存消息（v1/v2 扁平流、v3 items 都能吃）
+function normalizeStoredSession(s) {
+  if (!s || typeof s !== 'object') return null;
+  const conv = Array.isArray(s.items)
+    ? itemsToConversation(s.items)
+    : itemsToConversation(conversationToItems(s.conversation || []));
+  return {
+    id: s.id, title: s.title || '新对话', conversation: conv,
+    createdAt: s.createdAt || Date.now(), updatedAt: s.updatedAt || Date.now(),
+    mdFile: s.mdFile || ''
+  };
+}
+// 兼容读取：裸数组(v1) / {sessions:[]}(v2,v3) → 会话数组
+function extractStoredSessions(j) {
+  if (Array.isArray(j)) return j;
+  if (j && Array.isArray(j.sessions)) return j.sessions;
+  return [];
+}
 // 序列化会话（脱敏后同时用于 localStorage 与 VFS 双写）
 function serializeSessions() {
   try {
-    const data = sessions.map(s => ({
+    return sessions.filter(Boolean).map(s => ({
       id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt,
       mdFile: s.mdFile || '',   // 对应 /conversations/*.md 存档路径，跨设备去重用
-      conversation: (s.conversation || []).map(m => {
-        // 过滤掉内存级渲染缓存，不占 localStorage
-        const { _html, ...rest } = m;
-        // 脱敏（对齐 saveConversation 的存档策略）：内容文本和工具调用参数里的密钥 → ****
-        const out = { ...rest };
-        // 思考过程只用于 UI 回显：截断到 4000 字符，避免把 localStorage 5MB 配额撑爆（撑爆后会整段持久化失败）
-        if (typeof out._thinking === 'string' && out._thinking.length > 4000) {
-          out._thinking = out._thinking.slice(0, 4000) + '\n…（思考过程过长，已截断存档）';
-        }
-        if (typeof out.content === 'string') out.content = redactCached(out.content);
-        else if (Array.isArray(out.content)) {
-          out.content = out.content.map(p => (p && p.type === 'text') ? { ...p, text: redactCached(String(p.text || '')) } : p);
-        }
-        if (Array.isArray(out.tool_calls)) {
-          out.tool_calls = out.tool_calls.map(tc => {
-            if (tc && tc.function && typeof tc.function.arguments === 'string') {
-              try {
-                const a = JSON.parse(tc.function.arguments);
-                const r = {};
-                for (const k of Object.keys(a)) r[k] = typeof a[k] === 'string' ? redactCached(a[k]) : a[k];
-                return { ...tc, function: { ...tc.function, arguments: JSON.stringify(r) } };
-              } catch (e) {
-                return { ...tc, function: { ...tc.function, arguments: redactCached(tc.function.arguments) } };
-              }
-            }
-            return tc;
-          });
-        }
-        return out;
-      })
+      items: conversationToItems(s.conversation || [])
     }));
-    return data;
   } catch (e) { console.warn('序列化会话失败', e); return []; }
 }
+// 逐级瘦身，供 localStorage 配额不足时降级
+function stripItemsHeavy(items, opt) {
+  return (Array.isArray(items) ? items : []).map(it => {
+    if (!it || typeof it !== 'object') return it;
+    const c = { ...it };
+    if (opt.think) c.think = '';
+    if (opt.result && Array.isArray(c.calls)) {
+      c.calls = c.calls.map(cl => (cl && typeof cl.result === 'string' && cl.result.length > opt.result)
+        ? { ...cl, result: cl.result.slice(0, opt.result) + '…（存档截断）' } : cl);
+    }
+    if (opt.dropImages && Array.isArray(c.images)) c.images = [];
+    return c;
+  });
+}
+// localStorage 写满（图片 dataURL 常见）时逐级降级重试，绝不因它失败而跳过 VFS 写入
+function writeSessionsLocal(data) {
+  const attempts = [
+    null,
+    d => d.map(s => ({ ...s, items: stripItemsHeavy(s.items, { think: true }) })),
+    d => d.map(s => ({ ...s, items: stripItemsHeavy(s.items, { think: true, result: 500 }) })),
+    d => d.map(s => ({ ...s, items: stripItemsHeavy(s.items, { think: true, result: 200, dropImages: true }) }))
+  ];
+  for (const t of attempts) {
+    try {
+      const list = t ? t(data) : data;
+      // 与 /config/sessions.json 同一套信封结构，读的时候两个来源走同一个解析入口
+      localStorage.setItem(SESSIONS_KEY, JSON.stringify({
+        schema: SESSIONS_SCHEMA, version: SESSIONS_SCHEMA, savedAt: Date.now(),
+        sessions: list, deleted: deletedSessionIds
+      }));
+      return true;
+    } catch (e) { /* 配额不足，继续下一级 */ }
+  }
+  console.warn('localStorage 会话保存失败：配额不足，本次仅写入 VFS');
+  return false;
+}
+// 说明：发送前的结构硬校验统一用 sanitizeApiMessages（定义在请求体安全化一节），
+// 这里不再重复实现，避免两个相似函数各自演化导致行为不一致。
+
 const SESSIONS_VFS_PATH = '/config/sessions.json';
 let _sessionsVfsTimer = null;
 // 删除墓碑：记录被删掉的会话 id / 存档路径，防止它们随云端同步或 md 兜底被"复活"
@@ -7746,8 +7939,9 @@ function saveSessions() {
   let data = [];
   try {
     data = serializeSessions();
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(data));
   } catch (e) { console.warn('保存会话失败', e); return; }
+  try { writeSessionsLocal(data); } catch (e) { console.warn('localStorage 写入异常', e); }
+  // localStorage 配额不足也照常写 VFS（大对话/图片过多时的最终保障）
   scheduleSessionsSaveToVfs(data);
 }
 // 防抖保存会话：高频操作（删除消息、渲染卡片、重新生成）不必每次都跑完整序列化
@@ -7766,9 +7960,17 @@ function scheduleSessionsSaveToVfs(data) {
     _sessionsVfsTimer = null;
     try {
       if (!vfsReady || memoryOnly) return;   // VFS 未就绪或内存模式时跳过
-      const json = JSON.stringify({ version: 2, sessions: data, deleted: deletedSessionIds }, null, 1);
+      const body = JSON.stringify({ schema: SESSIONS_SCHEMA, version: SESSIONS_SCHEMA, sessions: data, deleted: deletedSessionIds }, null, 1);
       const cur = await VFS.getContent(SESSIONS_VFS_PATH, { bypassCache: true });
-      if (cur === json) return;   // 内容未变不重复写，避免制造无意义的云端改动
+      // 比较时忽略 savedAt：否则每次生成的时间戳都不同，永远判定为「内容变了」，白白制造云端改动
+      if (cur) {
+        try {
+          const curJ = JSON.parse(cur);
+          if (JSON.stringify(curJ.sessions || []) === JSON.stringify(data) &&
+              JSON.stringify(curJ.deleted || []) === JSON.stringify(deletedSessionIds)) return;
+        } catch (e) { /* 旧内容不是合法信封 → 直接覆盖写 */ }
+      }
+      const json = JSON.stringify({ schema: SESSIONS_SCHEMA, version: SESSIONS_SCHEMA, savedAt: Date.now(), sessions: data, deleted: deletedSessionIds }, null, 1);
       await VFS.writeFile(SESSIONS_VFS_PATH, json);
     } catch (e) { console.warn('会话写入 VFS 失败', e); }
   }, 1000);
@@ -7778,13 +7980,17 @@ function loadSessions() {
   try {
     const raw = localStorage.getItem(SESSIONS_KEY);
     if (raw) {
-      const data = JSON.parse(raw);
-      if (Array.isArray(data) && data.length > 0) {
-        sessions = data;
-        currentSessionId = data[0].id;
-        conversation = data[0].conversation;
-        currentTitle = data[0].title || '';
-        sessionFile = data[0].mdFile || null;
+      // 兼容三种历史形态：v1 裸数组 / v2 {version:2,sessions} / v3 {schema:3,sessions}
+      const stored = extractStoredSessions(JSON.parse(raw))
+        .map(normalizeStoredSession)
+        .filter(s => s && s.id);
+      if (stored.length > 0) {
+        sessions = stored;
+        const first = stored[0];
+        currentSessionId = first.id;
+        conversation = first.conversation;
+        currentTitle = first.title || '';
+        sessionFile = first.mdFile || null;
         return;
       }
     }
@@ -7796,45 +8002,76 @@ function loadSessions() {
 }
 /* ---------- 跨设备会话合并：VFS /config/sessions.json + /conversations/*.md 兜底 ---------- */
 // 把 /conversations/*.md 存档解析成对话消息（旧设备只留下 md 文件时的恢复路径）
+// 解析结果先整理成原子块再转消息，保证 tool_calls 与工具结果严格配对
 function parseConversationMarkdown(md) {
-  const out = [];
   const src = String(md || '');
-  // 按 "## 用户 / ## 助手 / ## 思考过程 / ## 工具结果 / ## 调用工具: xx" 切段
-  const re = /^## (用户|助手|思考过程|工具结果|调用工具:\s*(.+?))\s*$/gm;
+  const re = /^## (.+)$/gm;
   const marks = [];
-  let m;
-  while ((m = re.exec(src)) !== null) marks.push({ kind: m[1], name: m[2] || '', start: m.index, bodyStart: re.lastIndex });
+  let mm;
+  while ((mm = re.exec(src)) !== null) marks.push({ title: mm[1].trim(), start: mm.index, bodyStart: re.lastIndex });
+  const items = [];
+  const pending = [];          // 还没有结果的 calls（按出现顺序）
+  let pendingThink = '';       // md 里思考段写在助手段之前，先缓存再挂上去
+  let lastKind = '';           // 上一段的语义位置：user / assistant / call / result
+  const idOf = (t) => { const im = t.match(/\(id=([^)]*)\)\s*$/); return im ? im[1] : ''; };
   for (let i = 0; i < marks.length; i++) {
-    const cur = marks[i];
+    const mk = marks[i];
     const end = i + 1 < marks.length ? marks[i + 1].start : src.length;
-    let body = src.slice(cur.bodyStart, end).trim();
-    // 去掉代码围栏（工具结果/调用参数被存档成 ```json / ``` 块）
-    const fence = body.match(/^```[a-zA-Z]*\n([\s\S]*?)\n```$/);
-    if (fence && cur.kind !== '助手' && cur.kind !== '用户' && cur.kind !== '思考过程') body = fence[1];
-    if (cur.kind === '用户') out.push({ role: 'user', content: body });
-    else if (cur.kind === '助手') out.push({ role: 'assistant', content: body, reasoning_content: '' });
-    else if (cur.kind === '思考过程') {
-      // 挂到上一条 assistant 上
-      const last = [...out].reverse().find(x => x.role === 'assistant');
-      if (last) last._thinking = (last._thinking ? last._thinking + '\n' : '') + body;
-    } else if (cur.kind === '工具结果') {
-      out.push({ role: 'tool', tool_call_id: 'restored_' + i, content: body });
-    } else if (cur.kind.startsWith('调用工具')) {
-      const last = [...out].reverse().find(x => x.role === 'assistant');
-      const tc = { id: 'restored_tc_' + i, type: 'function', function: { name: cur.name || '', arguments: body || '{}' } };
-      if (last) { (last.tool_calls = last.tool_calls || []).push(tc); }
+    let body = src.slice(mk.bodyStart, end).trim();
+    const t = mk.title;
+    if (!/^(用户|助手|思考过程)/.test(t)) {
+      // 工具参数/结果是存档成 ```json / ``` 块的，脱掉围栏
+      const fence = body.match(/^```[a-zA-Z]*\n([\s\S]*?)\n```$/);
+      if (fence) body = fence[1];
+    }
+    if (t === '用户') {
+      items.push({ role: 'user', text: body, images: [] });
+      pendingThink = ''; lastKind = 'user';
+    } else if (t === '助手') {
+      // 只有紧跟在工具调用之后（结果还没出现）时，正文才属于同一个 assistant 消息；
+      // 工具结果之后的「助手」是新一轮回复，必须独立成条，否则正文会被摆到工具调用前面。
+      const prev = items.length ? items[items.length - 1] : null;
+      if (lastKind === 'call' && prev && prev.role === 'tool_block' && !prev.text) {
+        prev.text = body;
+        if (!prev.think) prev.think = pendingThink;
+      } else {
+        items.push({ role: 'assistant', text: body, think: pendingThink });
+      }
+      pendingThink = ''; lastKind = 'assistant';
+    } else if (t === '思考过程') {
+      pendingThink = pendingThink ? pendingThink + '\n' + body : body;   // 不改变 lastKind
+    } else if (t.startsWith('工具结果')) {
+      const id = idOf(t);
+      // 新格式按 id 精确配对；旧 md 没有 id，就按出现顺序给最早的未完成调用
+      const target = id ? pending.find(c => c.id === id) : pending[0];
+      if (target) {
+        target.result = body;
+        pending.splice(pending.indexOf(target), 1);
+      } else {
+        items.push({ role: 'orphan_tool', id, name: '', result: body });
+      }
+      lastKind = 'result';
+    } else if (t.startsWith('调用工具')) {
+      const id = idOf(t);
+      const name = t.replace(/^调用工具[:：]?\s*/, '').replace(/\(id=[^)]*\)\s*$/, '').trim();
+      let block = items.length ? items[items.length - 1] : null;
+      if (lastKind === 'assistant' && block && block.role === 'assistant') {
+        // 同一条 assistant 既有正文又有工具调用（OpenAI 本来就允许）：原地升级成工具块，
+        // 不能拆成「assistant 正文 + assistant(空正文+tool_calls)」两条连续 assistant
+        block = { role: 'tool_block', text: block.text || '', think: block.think || '', calls: [] };
+        items[items.length - 1] = block;
+      } else if (!(lastKind === 'call' && block && block.role === 'tool_block')) {
+        block = { role: 'tool_block', text: '', think: pendingThink, calls: [] };
+        items.push(block);
+        pendingThink = '';
+      }
+      const call = { id: id || ('call_md' + i), name, args: body || '{}', result: null };
+      block.calls.push(call);
+      pending.push(call);
+      lastKind = 'call';
     }
   }
-  // 修复：孤立的 tool 消息（前面没有带 tool_calls 的 assistant）直接丢掉，避免 API 400
-  const fixed = [];
-  for (const msg of out) {
-    if (msg.role === 'tool') {
-      const hasCall = fixed.some(x => x.role === 'assistant' && Array.isArray(x.tool_calls) && x.tool_calls.some(tc => tc.id === msg.tool_call_id));
-      if (!hasCall) continue;
-    }
-    fixed.push(msg);
-  }
-  return fixed;
+  return itemsToConversation(items);
 }
 // 从 VFS 合并会话：先读 /config/sessions.json，再用 /conversations/*.md 兜底补齐缺失会话
 async function mergeSessionsFromVfs() {
@@ -7847,18 +8084,15 @@ async function mergeSessionsFromVfs() {
     try {
       const raw = await VFS.getContent(SESSIONS_VFS_PATH, { bypassCache: true });
       if (raw && String(raw).trim()) {
+        // 兼容三种历史格式：v1 裸数组 / v2 {version:2,sessions} / v3 {schema:3,sessions}
         const j = JSON.parse(raw);
-        // 兼容两种格式：{version, sessions, deleted} 与旧版裸数组
-        if (Array.isArray(j)) remote = j;
-        else if (j && Array.isArray(j.sessions)) {
-          remote = j.sessions;
-          // 云端墓碑（别的设备删掉的会话）并进本地，避免它在本机被 md 兜底复活
-          if (Array.isArray(j.deleted)) {
-            for (const d of j.deleted) {
-              if (typeof d === 'string' && !deletedSessionIds.includes(d)) deletedSessionIds.push(d);
-            }
-            try { localStorage.setItem(SESSIONS_DELETED_KEY, JSON.stringify(deletedSessionIds)); } catch (e) {}
+        remote = extractStoredSessions(j);
+        // 云端墓碑（别的设备删掉的会话）并进本地，避免它在本机被 md 兜底复活
+        if (j && Array.isArray(j.deleted)) {
+          for (const d of j.deleted) {
+            if (typeof d === 'string' && !deletedSessionIds.includes(d)) deletedSessionIds.push(d);
           }
+          try { localStorage.setItem(SESSIONS_DELETED_KEY, JSON.stringify(deletedSessionIds)); } catch (e) {}
         }
       }
     } catch (e) { console.warn('读取云端会话失败', e); }
@@ -7869,21 +8103,26 @@ async function mergeSessionsFromVfs() {
         if (r.mdFile && deletedSessionIds.includes(r.mdFile)) continue;
         const local = byId.get(r.id);
         if (!local) {
-          const conv = Array.isArray(r.conversation) ? r.conversation : [];
+          const norm = normalizeStoredSession(r);
+          if (!norm) continue;
           const s = {
-            id: r.id, title: r.title || '新对话', conversation: conv,
-            createdAt: r.createdAt || Date.now(), updatedAt: r.updatedAt || Date.now(),
-            mdFile: r.mdFile || '', fromCloud: true
+            id: norm.id, title: norm.title, conversation: norm.conversation,
+            createdAt: norm.createdAt, updatedAt: norm.updatedAt,
+            mdFile: norm.mdFile || '', fromCloud: true
           };
           sessions.push(s); byId.set(s.id, s);
           if (s.mdFile) byMd.set(s.mdFile, s);
           changed = true;
-        } else if ((r.updatedAt || 0) > (local.updatedAt || 0) && !isSameConv(r.conversation, local.conversation)) {
+        } else if ((r.updatedAt || 0) > (local.updatedAt || 0)) {
           // 云端更新且内容不同 → 以云端为准（跨设备编辑后回到旧设备的情况）
-          local.conversation = Array.isArray(r.conversation) ? r.conversation : local.conversation;
-          local.title = r.title || local.title;
-          local.updatedAt = r.updatedAt || local.updatedAt;
-          if (r.mdFile) local.mdFile = r.mdFile;
+          // 注意：必须先归一成内存消息再比较，v3 的 items 与 conversation 结构不同，直接比会永远不相等
+          const norm = normalizeStoredSession(r);
+          if (!norm) continue;
+          if (isSameConv(norm.conversation, local.conversation)) continue;
+          local.conversation = norm.conversation;
+          local.title = norm.title || local.title;
+          local.updatedAt = norm.updatedAt || local.updatedAt;
+          if (norm.mdFile) local.mdFile = norm.mdFile;
           if (local.id === currentSessionId) conversation = local.conversation;
           changed = true;
         }
@@ -8757,7 +8996,16 @@ function renderToolCardInner(card, name, args, status) {
       '<div class="tool-detail-block"><span class="tool-detail-label">参数</span><pre class="tool-args"></pre></div>' +
       '<div class="tool-result-wrap" hidden><span class="tool-detail-label">结果</span><pre class="tool-result"></pre></div>' +
     '</div>';
-  card.querySelector('.tool-args').textContent = JSON.stringify(args || {}, null, 2);
+  // 参数可能在流式阶段还没输出完（此时 args 为 null）。卡片先建好后要能再刷新，
+  // 否则详情区的「参数」会永久停在 {}，看起来像工具根本没收到参数
+  const argsPre = card.querySelector('.tool-args');
+  const keyEl = card.querySelector('.tool-key');
+  card._setArgs = (a) => {
+    const ready = !!a && typeof a === 'object';
+    argsPre.textContent = ready ? JSON.stringify(a, null, 2) : '（参数生成中…）';
+    if (keyEl) keyEl.textContent = ready ? toolKeyHint(name, a) : '';
+  };
+  card._setArgs(args);
   const line = card.querySelector('.tool-line');
   const detail = card.querySelector('.tool-detail');
   const toggle = card.querySelector('.tool-toggle');
@@ -9711,8 +9959,11 @@ async function streamChat() {
       const args = tryParseArgs(rawArgs);
       let card = earlyCards.get(idx);
       if (!card) {
-        card = addToolCard(fn.name, args || {}, '准备中');
+        card = addToolCard(fn.name, args, '准备中');
         earlyCards.set(idx, card);
+      } else {
+        // 每槽位只建一次卡片，参数是增量到达的：必须把后续解析出的完整参数刷回同一张卡片
+        if (card._setArgs) card._setArgs(args);
       }
       tc._uiCard = card;   // 交给 agentLoop 复用，避免执行时再刷一张卡片
       if (!args || earlyStarted.has(idx) || !EARLY_EXEC_TOOLS.has(fn.name)) return;
@@ -9812,7 +10063,10 @@ async function streamChat() {
       });
     }
   });
-  const payload = { model: cfg.model, messages, stream: true, stream_options: { include_usage: true } };
+  // 发送前结构校验：刷新页面重建的历史若有 tool_calls ↔ tool 断裂，API 会直接 400
+  // 注意：sanitizeApiMessages 返回新数组（不改入参），必须接返回值
+  const apiMessages = sanitizeApiMessages(messages);
+  const payload = { model: cfg.model, messages: apiMessages, stream: true, stream_options: { include_usage: true } };
   // max_tokens 按模型夹上限：chat 最大 8192，reasoner 最大 64000（不传则服务端用很小的默认值，会静默截断）
   const modelMax = /reasoner/i.test(String(cfg.model || '')) ? 64000 : 8192;
   payload.max_tokens = Math.min(Math.max(1, Number(cfg.maxOutputTokens) || modelMax), modelMax);
@@ -10485,7 +10739,7 @@ async function agentLoop() {
       // 入上下文前剥掉 UI 专用字段（_uiCard 是 DOM、_earlyRun 是 Promise、_earlySig/_cacheResult 是缓存标记），
       // 这些只给 execOne 用，绝不能跟着 tool_calls 进请求体
       const cleanToolCalls = toolCalls.map(tc => ({ id: tc.id, type: tc.type, function: { name: tc.function.name, arguments: tc.function.arguments } }));
-      conversation.push({ role: 'assistant', content: content || null, tool_calls: cleanToolCalls, reasoning_content: '', _thinking: thinking || '' });
+      conversation.push({ role: 'assistant', content: content || '', tool_calls: cleanToolCalls, reasoning_content: '', _thinking: thinking || '' });
       // 预算检查（工具调用数）：本批工具照常执行完，超限留到下一轮 while 开头再停，
       // 这样不会出现「有 tool_calls 但缺对应 tool 消息」的断裂序列
       budget.toolCalls += toolCalls.length;
@@ -10540,6 +10794,8 @@ async function agentLoop() {
           card.dataset.status = 'running';
           const st = card.querySelector('.tool-status');
           if (st) st.textContent = '执行中…';
+          // 复用流式阶段建的卡片时，补一次参数刷新（那时参数可能还没解析出来）
+          if (card._setArgs) card._setArgs(args);
         }
         const toolName = tc.function.name;
         const timeoutMs = Math.max(5000, Number(cfg.toolTimeoutMs) || 120000);
@@ -10648,11 +10904,11 @@ function convToMarkdown() {
       if (m.content) lines.push('## 助手\n\n' + contentToText(m.content));
       if (m.tool_calls) {
         for (const tc of m.tool_calls) {
-          lines.push('## 调用工具: ' + (tc.function && tc.function.name || '') + '\n\n```json\n' + ((tc.function && tc.function.arguments) || '{}') + '\n```');
+          lines.push('## 调用工具: ' + (tc.function && tc.function.name || '') + ' (id=' + (tc.id || '') + ')\n\n```json\n' + ((tc.function && tc.function.arguments) || '{}') + '\n```');
         }
       }
     } else if (m.role === 'tool') {
-      lines.push('## 工具结果\n\n```\n' + contentToText(m.content) + '\n```');
+      lines.push('## 工具结果 (id=' + (m.tool_call_id || '') + ')\n\n```\n' + contentToText(m.content) + '\n```');
     }
   }
   return lines.join('\n\n');
