@@ -594,7 +594,7 @@
     width: 580px; max-width: 100%; max-height: 88vh; overflow-y: auto; padding: 22px;
   }
   .modal-box h2 { margin: 0 0 16px; font-size: 16px; }
-  .modal#settingsModal .modal-box { width:640px; height:min(680px,86vh); display:flex; flex-direction:column; overflow:hidden; }
+  .modal#settingsModal .modal-box { width:min(1120px, 96vw); height:min(680px,86vh); display:flex; flex-direction:column; overflow:hidden; }
   .settings-body { display:flex; gap:16px; flex:1; min-height:0; }
   .settings-nav { width:148px; flex:0 0 148px; display:flex; flex-direction:column; gap:2px; border-right:1px solid var(--bg-hover); padding-right:12px; }
   .settings-nav-btn { text-align:left; padding:9px 12px; border-radius:8px; cursor:pointer; font-size:13px; color:var(--text-secondary); background:transparent; border:none; font-family:inherit; }
@@ -714,7 +714,10 @@
     .chart-msg canvas { width: 100% !important; height: auto !important; }
     .session-list { max-height: 50vh; }
   }
-  body.hide-preview .editor { display: none !important; }
+  /* 注意 :not([data-mode="vfs"])：VFS 页是文件管理页，右侧编辑器/预览区必须始终存在，
+     不能被「隐藏预览面板」这个开关和窄屏媒体查询一起藏掉。:not() 里的属性选择器按类级计权重，
+     因此这条 (0,3,1) 永远压过下面 body[data-mode="vfs"] .editor 的 (0,2,1)，不依赖源码顺序。 */
+  body.hide-preview:not([data-mode="vfs"]) .editor { display: none !important; }
   /* 自定义下拉（替代原生 select，避免移动端弹出系统大滚轮） */
   .cselect-btn {
     display: inline-flex; align-items: center; justify-content: space-between; gap: 6px;
@@ -774,7 +777,8 @@
   body[data-mode="vfs"] .chat { display: none !important; }
   /* VFS 单页铺满：侧栏与编辑器原本都是 flex:0 0 固定宽，隐藏对话区后右侧会留一条空白，这里改成编辑器吃掉剩余宽度 */
   body[data-mode="vfs"] .sidebar { flex: 0 0 300px; width: 300px; }
-  body[data-mode="vfs"] .editor { flex: 1 1 auto; width: auto; min-width: 0; }
+  /* VFS 页的编辑/预览区始终显示：!important 同时压过 body.hide-preview 与窄屏媒体查询里的 .editor{display:none} */
+  body[data-mode="vfs"] .editor { display: flex !important; flex: 1 1 auto; width: auto; min-width: 0; }
   body[data-mode="settings"] .sidebar, body[data-mode="settings"] .chat, body[data-mode="settings"] .editor,
   body[data-mode="settings"] .tools-page, body[data-mode="settings"] .plugins-page { display: none !important; }
   /* 设置页内联模式：占满 .app 区域，左侧导航条仍可见（避免扣住 56px 后盖住导航栏无法返回） */
@@ -793,6 +797,8 @@
     display: flex; align-items: center; gap: 10px; padding: 12px 18px;
     border-bottom: 1px solid var(--border); font-weight: 600;
   }
+  .ph-title { display: inline-flex; align-items: center; gap: 6px; }
+  .ph-title .ico-svg { width: 15px; height: 15px; }
   .page-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
   .tool-flow-item {
     background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
@@ -871,7 +877,7 @@
       <button class="ghost-btn" id="btnClear" type="button">清空对话</button>
       <button class="ghost-btn" id="btnToggleSidebar" type="button">隐藏侧栏</button>
       <button class="ghost-btn" id="btnTogglePreview" type="button">隐藏预览</button>
-      <button class="ghost-btn" id="btnDebug" type="button" title="查看发出去的请求上下文">🐞 调试</button>
+      <button class="ghost-btn" id="btnDebug" type="button" title="查看发出去的请求上下文"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg> 调试</button>
       <button class="ghost-btn" id="btnSettings" type="button"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> 设置</button>
       <div class="session-list" id="sessionList" style="display:none"></div>
     </header>
@@ -934,14 +940,14 @@
 
   <!-- 工具流页 -->
   <section class="tools-page">
-    <div class="page-header"><span>🔧 工具流</span><span style="font-size:12px;color:var(--text-muted);font-weight:400">当前对话的全部工具调用</span></div>
+    <div class="page-header"><span class="ph-title"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>工具流</span><span style="font-size:12px;color:var(--text-muted);font-weight:400">当前对话的全部工具调用</span></div>
     <div class="page-body" id="toolsPageBody"></div>
   </section>
 
   <!-- 插件页 -->
   <section class="plugins-page">
     <div class="page-header">
-      <span>🧩 插件</span>
+      <span class="ph-title"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>插件</span>
       <div style="flex:1"></div>
       <button class="ghost-btn" id="btnNewPlugin" type="button">+ 新建插件</button>
     </div>
@@ -955,7 +961,7 @@
         <button class="ghost-btn" id="btnSavePlugin" type="button">保存</button>
         <button class="ghost-btn" id="btnCancelPlugin" type="button">取消</button>
       </div>
-      <textarea id="pluginCode" spellcheck="false" placeholder="// 插件代码（IIFE 内执行，可用 AgentAPI 和 onUnload）&#10;// AgentAPI.VFS / cfg / toast / executeTool / getConversation / version&#10;// onUnload(fn) 注册清理函数&#10;&#10;AgentAPI.toast('Hello from plugin');"></textarea>
+      <textarea id="pluginCode" spellcheck="false" placeholder="// 插件代码（AsyncFunction 内执行，可用 await、AgentAPI 和 onUnload）&#10;// AgentAPI.VFS / cfg / toast / executeTool / getConversation / version&#10;// onUnload(fn) 注册清理函数&#10;&#10;AgentAPI.toast('Hello from plugin');"></textarea>
     </div>
   </section>
 </div>
@@ -965,8 +971,8 @@
 
 <!-- 设置弹窗 -->
 <div class="modal" id="settingsModal">
-  <div class="modal-box" style="width:640px">
-    <h2>⚙ 设置</h2>
+  <div class="modal-box">
+    <h2><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true" style="margin-right:6px;vertical-align:-0.15em"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置</h2>
     <div class="settings-body">
       <div class="settings-nav">
         <button type="button" class="settings-nav-btn active" data-tab="ai">AI 模型</button>
@@ -1088,7 +1094,7 @@
 
     <div class="settings-pane" data-pane="cloud">
       <div class="field">
-        <label style="color:#9ec3ff">☁ 云端后端</label>
+        <label style="color:#9ec3ff">云端后端</label>
         <select id="cfgCloudBackend">
           <option value="gitee">Gitee 码云（国内，推荐）</option>
           <option value="webdav">坚果云 WebDAV（国内）</option>
@@ -1172,14 +1178,14 @@
         </label>
       </div>
       <div class="field" style="margin-top:4px">
-        <button class="ghost-btn" id="btnCloudUp" type="button" style="margin-right:8px">⬆ 上传到云端</button>
-        <button class="ghost-btn" id="btnCloudDown" type="button">⬇ 从云端恢复</button>
+        <button class="ghost-btn" id="btnCloudUp" type="button" style="margin-right:8px">上传到云端</button>
+        <button class="ghost-btn" id="btnCloudDown" type="button">从云端恢复</button>
       </div>
     </div>
 
     <div class="settings-pane" data-pane="cs">
       <div class="field">
-        <label style="color:#9ec3ff">🛰 GitHub Codespaces（远程执行环境）</label>
+        <label style="color:#9ec3ff">GitHub Codespaces（远程执行环境）</label>
         <div style="font-size:11.5px;color:var(--text-muted);line-height:1.7">配置后 AI 可以在你的 Codespace 里执行真实命令、读写仓库文件、起服务，并把生成的页面用 <code>*.app.github.dev</code> 链接预览。浏览器进不了 Codespace 的 SSH，所以需要在 Codespace 里跑一个零依赖桥接脚本（见下方安装命令）。</div>
       </div>
       <div class="field">
@@ -1246,7 +1252,7 @@
 
     <div class="settings-pane" data-pane="git">
       <div class="field">
-        <label style="color:#9ec3ff">🔗 Git 仓库（AI 的 git_list / git_read / git_write / git_delete / git_commit_batch 用这套配置）</label>
+        <label style="color:#9ec3ff">Git 仓库（AI 的 git_list / git_read / git_write / git_delete / git_commit_batch 用这套配置）</label>
         <div style="font-size:11.5px;color:var(--text-muted);line-height:1.7">配置保存在 <code>/config/git.json</code>。AI 调用 git_* 工具时若没传 platform / repo / token / ref，会自动回落到这里。令牌只保存在本地浏览器里，但会随备份和云端同步一起被带走，请注意检查。</div>
       </div>
       <div class="field">
@@ -1381,7 +1387,7 @@
       </div>
       <div class="field">
         <label>更新日志</label>
-        <button class="ghost-btn" id="btnShowChangelog" type="button">📜 查看更新日志</button>
+        <button class="ghost-btn" id="btnShowChangelog" type="button">查看更新日志</button>
         <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;line-height:1.6">查看本应用全部历史版本更新内容（不影响「已读」记录，纯查看）。</div>
       </div>
       <div class="field">
@@ -1426,7 +1432,7 @@
 <!-- 更新通知（非原生弹窗；上次记录版本与当前不同或从未记录时弹出，内容显示更新条目） -->
 <div class="modal" id="updateModal" style="z-index:3200">
   <div class="modal-box" style="width:600px">
-    <h2>🚀 应用已更新</h2>
+    <h2>应用已更新</h2>
     <div id="updateBody" style="font-size:13px;line-height:1.85;color:var(--text-dim,#aab3c2);max-height:55vh;overflow:auto;padding-right:4px"></div>
     <div class="modal-actions">
       <button class="ghost-btn" id="btnUpdateOk" type="button" style="padding:8px 24px">知道了</button>
@@ -1438,7 +1444,7 @@
 <div class="modal" id="debugModal" style="z-index:3100">
   <div class="modal-box" style="width:min(1100px,94vw);height:min(780px,88vh);display:flex;flex-direction:column;overflow:hidden;padding:0">
     <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)">
-      <h2 style="margin:0;font-size:15px">🐞 请求上下文调试</h2>
+      <h2 style="margin:0;font-size:15px">请求上下文调试</h2>
       <span id="debugCount" style="font-size:12px;color:var(--text-muted)"></span>
       <div style="flex:1"></div>
       <button class="ghost-btn" id="btnDebugClear" type="button">清空记录</button>
@@ -2151,8 +2157,22 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.07.8';
+const APP_VERSION = '2026.11.07.9';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.07.9',
+    date: '2026-11-07',
+    title: '清理插件页遗留、设置页铺满横向、修复 VFS 页预览被藏',
+    items: [
+      '插件页遗留：编辑器占位符原写「IIFE 内执行」，与 loadPlugin 里实际用的 AsyncFunction 包裹不符（AsyncFunction 内部可用 await，IIFE 不能）——插件作者照占位符写会误以为不能用 await，已改为「AsyncFunction 内执行，可用 await、AgentAPI 和 onUnload」',
+      '设置页横向不占满：.modal#settingsModal .modal-box 原为 width:640px（普通弹窗 580px 的略宽版），在内联模式之外打开设置时右侧大片留白。改为 width:min(1120px, 96vw)，高度仍是 min(680px,86vh)；内联模式那条 width:100% 规则权重更高，不受影响',
+      'VFS 页预览被藏（真 bug）：body.hide-preview .editor 与 body[data-mode="vfs"] .editor 的 specificity 完全相同（都是 0,2,1），且都带 !important，谁生效只取决于源码顺序。.hide-preview 那条在 717 行、vfs 那条在 781 行，于是「设置 → 界面 → 隐藏预览面板」一勾，进 VFS 页右侧编辑器/预览区就整个消失——但 VFS 是文件管理页，没有它等于废掉一半功能',
+      '修法：把规则改成 body.hide-preview:not([data-mode="vfs"]) .editor，:not() 内的属性选择器按类级计权重，总权重升到 (0,3,1)，恒定压过 vfs 那条 (0,2,1)，不再依赖源码先后；同时不再需要额外加 !important 去对抗',
+      '遗留 emoji 清理（延续 2026.10.26 起的「图标统一内联 SVG」约定）：设置页标签的 ☁ 云端后端 / 🛰 GitHub Codespaces / 🔗 Git 仓库、按钮的 ⬆ 上传到云端 / ⬇ 从云端恢复 / 📜 查看更新日志、更新弹窗标题的 🚀、云端同步 toast 与进度里的 ☁（共 10 处）、工具返回文本里的 📄/📁（list_files、search_files、cs_ls）、deliver 卡片与引用卡片的 📄/📦、ask_user 的 ❓、图表消息的 📊、对话头像里的 🔧 全部移除或换成 icon() 内联 SVG',
+      '其中 .msg .avatar 本身是 display:none，头像里的 emoji 从来没显示过；role==="tool" 的 avatarText 也一并清成空串，避免将来改样式时 emoji 突然冒出来',
+      'APP_CHANGELOG 里 2026.11.07.8 那条「窄屏 <860px 下 .editor{display:none} 依旧生效」的说明在本次改动后已不准确（vfs 模式下 781 行那条本就带 !important，会压过媒体查询），保留原文不作修改，以本条为准'
+    ]
+  },
   {
     v: '2026.11.07.8',
     date: '2026-11-07',
@@ -3474,7 +3494,7 @@ async function executeTool(name, args, onChunk, refCtx) {
         const limit = Math.max(1, parseInt(args.limit) || 100);
         if (r.files.length) {
           const shown = r.files.slice(0, limit);
-          lines.push('📄 文件：\n' + shown.map(f => {
+          lines.push('文件：\n' + shown.map(f => {
             const full = (p === '/' ? '' : p) + '/' + f;
             const m = VFS.stat(full);
             return `  ${f}  (${fmtSize(m ? m.size : 0)})`;
@@ -3765,8 +3785,8 @@ async function executeTool(name, args, onChunk, refCtx) {
         if (!results.length) return `未找到 "${q}"${inPath ? ' in ' + inPath : ''}。\n建议：换更短关键词；或用 list_files 浏览目录结构；或 read_file 指定文件后加 query 参数。`;
         let out = `找到 ${results.length} 个结果${results.length >= limit ? '（已达上限，可加 in_path 缩小范围）' : ''}：\n\n`;
         for (const r of results) {
-          if (r.line === 0) out += `📄 ${r.path} (${fmtSize(r.size)}) — 文件名匹配\n`;
-          else out += `📄 ${r.path}:${r.line} (${fmtSize(r.size)})\n${r.content}\n`;
+          if (r.line === 0) out += `[文件] ${r.path} (${fmtSize(r.size)}) — 文件名匹配\n`;
+          else out += `[文件] ${r.path}:${r.line} (${fmtSize(r.size)})\n${r.content}\n`;
         }
         out += `\n[可直接用 edit_file(path, old_string=匹配行原文, new_string=新内容) 修改，无需再 read_file]`;
         return out;
@@ -5241,7 +5261,7 @@ async function kbSearch(query, inPath, limit) {
     matched.sort((a, b) => b.score - a.score);
     const results = matched.slice(0, max);
     if (results.length === 0) return '未找到匹配 "' + query + '" 的文件。建议：①换更短的关键词 ②先读 /SEARCH_INDEX.md 看各目录主题 ③用 kb_list 浏览目录';
-    let out = '🔍 搜索 "' + query + '" → 命中 ' + matched.length + ' 个（显示前 ' + results.length + '）：\n';
+    let out = '搜索 "' + query + '" → 命中 ' + matched.length + ' 个（显示前 ' + results.length + '）：\n';
     results.forEach((r, i) => {
       out += (i + 1) + '. ' + r.path + '\n';
     });
@@ -5293,7 +5313,7 @@ function renderDeliverCard(msg) {
   const fileListHtml = files.length > 0 ? files.map(f => {
     const exists = !!VFS.meta[f];
     return `<div class="deliver-file" data-path="${escapeHtml(f)}">
-      <span class="deliver-file-icon">${exists ? '📄' : '⚠'}</span>
+      <span class="deliver-file-icon">${exists ? icon('file') : icon('info')}</span>
       <span class="deliver-file-path">${escapeHtml(f)}</span>
       <span class="deliver-file-actions">
         <button class="ghost-btn deliver-open" type="button">打开</button>
@@ -5301,7 +5321,7 @@ function renderDeliverCard(msg) {
       </span>
     </div>`;
   }).join('') : '<div class="deliver-no-files">（无文件）</div>';
-  el.innerHTML = `<div class="avatar">📦</div><div class="bubble deliver-card">
+  el.innerHTML = `<div class="avatar"></div><div class="bubble deliver-card">
     <div class="deliver-header">
       <span class="deliver-badge">交付</span>
       <span class="deliver-title">${escapeHtml(d.title || '任务完成')}</span>
@@ -5337,7 +5357,7 @@ function renderAskCard(askMsg, callback) {
     return `<button class="ask-btn ${i === 0 ? 'primary' : ''}" data-choice="${escapeHtml(opt)}" type="button" ${existingChoice ? 'disabled' : ''} style="${selected ? 'opacity:1;outline:2px solid var(--accent)' : (existingChoice ? 'opacity:0.5' : '')}">${escapeHtml(opt)}</button>`;
   }).join('');
   const resultHtml = existingChoice ? `<div class="ask-result">→ 你选择了：${escapeHtml(existingChoice)}</div>` : '';
-  el.innerHTML = `<div class="avatar">❓</div><div class="bubble ask-card">
+  el.innerHTML = `<div class="avatar"></div><div class="bubble ask-card">
     <div class="ask-question">${escapeHtml(question)}</div>
     <div class="ask-options">${btnsHtml}</div>
     ${resultHtml}
@@ -5376,7 +5396,7 @@ function renderChart(msg) {
   // 创建图表容器消息
   const el = document.createElement('div');
   el.className = 'msg assistant chart-msg';
-  el.innerHTML = `<div class="avatar">📊</div><div class="bubble"><div class="chart-title"></div><canvas width="560" height="320"></canvas><div class="chart-legend"></div></div>`;
+  el.innerHTML = `<div class="avatar"></div><div class="bubble"><div class="chart-title"></div><canvas width="560" height="320"></canvas><div class="chart-legend"></div></div>`;
   el.querySelector('.chart-title').textContent = title;
   const canvas = el.querySelector('canvas');
   const ctx = canvas.getContext('2d');
@@ -6433,7 +6453,7 @@ function wdUrl() {
 async function uploadWebDAV() {
   const data = await collectBackupData();
   const content = JSON.stringify(data, null, 2);
-  toast('☁ 正在上传到坚果云…');
+  toast('正在上传到坚果云…');
   try {
     const resp = await fetch(wdUrl(), {
       method: 'PUT',
@@ -6447,7 +6467,7 @@ async function uploadWebDAV() {
 }
 async function downloadWebDAV() {
   if (!(await customConfirm('从云端恢复会覆盖当前所有本地文件，确定继续？', 'cloud_restore'))) return;
-  toast('☁ 正在从坚果云下载…');
+  toast('正在从坚果云下载…');
   try {
     const resp = await fetch(wdUrl(), { headers: { 'Authorization': wdAuth() } });
     if (resp.status === 404) throw new Error('云端没有备份文件，请先上传');
@@ -6807,7 +6827,7 @@ async function uploadGitee() {
   if (!owner || !name) { toast('仓库格式应为 用户名/仓库名', 'err'); return false; }
   const files = VFS.allFiles();
   if (!files.length) { toast('本地没有文件可上传', 'err'); return false; }
-  const tp = toastProgress('☁ 正在按文件结构同步到 Gitee（' + files.length + ' 个文件）…');
+  const tp = toastProgress('正在按文件结构同步到 Gitee（' + files.length + ' 个文件）…');
   try {
     let skipped = 0, removed = 0, unavailable = [];
     const localPaths = new Set(files);
@@ -6831,7 +6851,7 @@ async function uploadGitee() {
     let processed = 0;
     for (const p of files) {
       processed++;
-      tp.update('☁ 收集改动 ' + processed + '/' + files.length, (processed / files.length) * 50);
+      tp.update('收集改动 ' + processed + '/' + files.length, (processed / files.length) * 50);
       const content = await VFS.getContent(p);
       if (content === undefined) {
         if (cloudShas[p] || isImagePath(p) || (VFS.meta[p] && (VFS.meta[p].size || 0) > 1024 * 1024)) { skipped++; continue; }
@@ -6883,7 +6903,7 @@ async function uploadGitee() {
       const size = (action.content || '').length;
       if (chunkBytes + size > CHUNK_BYTES && chunk.length > 0) {
         chunkIdx++;
-        tp.update('☁ 提交 ' + chunkIdx + '/' + totalChunks + '（本批 ' + chunk.length + ' 项）…', 50 + (chunkIdx / totalChunks) * 50);
+        tp.update('提交 ' + chunkIdx + '/' + totalChunks + '（本批 ' + chunk.length + ' 项）…', 50 + (chunkIdx / totalChunks) * 50);
         await giteeCommit(owner, name, defaultBranch, 'vfs sync: ' + chunk.length + ' 个文件', chunk);
         totalCommits++;
         chunk = []; chunkBytes = 0;
@@ -6892,7 +6912,7 @@ async function uploadGitee() {
     }
     if (chunk.length > 0) {
       chunkIdx++;
-      tp.update('☁ 提交 ' + chunkIdx + '/' + totalChunks + '（本批 ' + chunk.length + ' 项）…', 100);
+      tp.update('提交 ' + chunkIdx + '/' + totalChunks + '（本批 ' + chunk.length + ' 项）…', 100);
       await giteeCommit(owner, name, defaultBranch, 'vfs sync: ' + chunk.length + ' 个文件', chunk);
       totalCommits++;
     }
@@ -6906,7 +6926,7 @@ async function downloadGitee() {
   const owner = repo.split('/')[0], name = repo.split('/')[1];
   if (!owner || !name) { toast('仓库格式应为 用户名/仓库名', 'err'); return; }
   if (!(await customConfirm('从云端恢复会覆盖当前所有本地文件，确定继续？', 'cloud_restore'))) return;
-  const tp = toastProgress('☁ 正在从 Gitee 获取文件列表…');
+  const tp = toastProgress('正在从 Gitee 获取文件列表…');
   try {
     const tree = await giteeTree(owner, name);
     const paths = Object.keys(tree);
@@ -6916,13 +6936,13 @@ async function downloadGitee() {
     const data = {};
     for (let i = 0; i < files.length; i++) {
       const fp = files[i];
-      tp.update('☁ 下载 ' + (i + 1) + '/' + files.length + '：' + fp.split('/').pop(), ((i + 1) / files.length) * 100);
+      tp.update('下载 ' + (i + 1) + '/' + files.length + '：' + fp.split('/').pop(), ((i + 1) / files.length) * 100);
       const text = await giteeFetchFileContent(owner, name, fp);
       if (text == null) continue;
       data['/' + fp.slice(prefix.length)] = { type: 'file', mtime: Date.now(), content: text };
     }
     if (!Object.keys(data).length) throw new Error('没有下载到任何文件内容');
-    tp.update('☁ 写入本地 VFS…', 100);
+    tp.update('写入本地 VFS…', 100);
     await VFS.replaceAll(data);
     closeEditor();
     await refreshFS();
@@ -6937,7 +6957,7 @@ async function uploadGist() {
   const filename = cfg.gistFilename || 'vfs-backup.json';
   const data = await collectBackupData();
   const content = JSON.stringify(data, null, 2);
-  toast('☁ 正在上传…');
+  toast('正在上传…');
   try {
     const url = cfg.gistId ? 'https://api.github.com/gists/' + cfg.gistId : 'https://api.github.com/gists';
     const method = cfg.gistId ? 'PATCH' : 'POST';
@@ -6975,7 +6995,7 @@ async function uploadGist() {
 async function downloadGist() {
   if (!cfg.gistToken || !cfg.gistId) { toast('请先配置 Gist Token 和 ID', 'err'); openSettings(); return; }
   if (!(await customConfirm('从云端恢复会覆盖当前所有本地文件，确定继续？', 'cloud_restore'))) return;
-  toast('☁ 正在下载…');
+  toast('正在下载…');
   try {
     const resp = await fetch('https://api.github.com/gists/' + cfg.gistId, {
       headers: { 'Authorization': 'Bearer ' + cfg.gistToken, 'Accept': 'application/vnd.github+json' }
@@ -7379,8 +7399,8 @@ async function csToolLs(args) {
   const dirs = entries.filter(e => e.type === 'dir');
   const files = entries.filter(e => e.type !== 'dir');
   const lines = ['目录：' + data.path];
-  if (dirs.length) lines.push('📁 子目录：\n' + dirs.map(e => '  ' + e.name + '/').join('\n'));
-  if (files.length) lines.push('📄 文件：\n' + files.map(e => '  ' + e.name + '  (' + fmtSize(e.size) + ')').join('\n'));
+  if (dirs.length) lines.push('子目录：\n' + dirs.map(e => '  ' + e.name + '/').join('\n'));
+  if (files.length) lines.push('文件：\n' + files.map(e => '  ' + e.name + '  (' + fmtSize(e.size) + ')').join('\n'));
   return lines.join('\n');
 }
 
@@ -8001,7 +8021,7 @@ function refCardHtml(path) {
       '<img class="ref-thumb" alt="' + escapeHtml(name) + '"><span class="ref-meta">' + label + '</span></span>';
   }
   return '<span class="ref-card" data-ref-path="' + escapeHtml(path) + '" title="' + escapeHtml(path) + '">' +
-    '<span class="ref-icon">📄</span><span class="ref-meta">' + label + '</span></span>';
+    '<span class="ref-icon">' + icon('file') + '</span><span class="ref-meta">' + label + '</span></span>';
 }
 // 反斜杠转义的占位符在 UI 侧同样不渲染成卡片：先换成哨兵，渲染完再还原成字面量文本
 const REF_ESC_UI_SENTINEL = '\u0001E\u0001';
@@ -8148,7 +8168,7 @@ function renderMsgRange(startIdx, endIdx) {
         }
         const el = document.createElement('div');
         el.className = 'msg tool';
-        el.innerHTML = '<div class="avatar">🔧</div><div class="bubble"></div>';
+        el.innerHTML = '<div class="avatar"></div><div class="bubble"></div>';
         const card2 = document.createElement('div');
         card2.className = 'tool-card';
         renderToolCardInner(card2, fallbackName, {}, '完成');
@@ -8500,7 +8520,7 @@ function appendMsg(role, html, idx) {
   el.className = 'msg ' + role;
   // 未显式指定索引时，默认是追加到 conversation 末尾的新消息
   el.dataset.idx = (idx != null ? idx : conversation.length).toString();
-  const avatarText = role === 'user' ? '我' : role === 'assistant' ? 'AI' : role === 'tool' ? '🔧' : '!';
+  const avatarText = role === 'user' ? '我' : role === 'assistant' ? 'AI' : role === 'tool' ? '' : '!';
   const toolContainer = role === 'assistant' ? '<div class="tool-calls-container"></div>' : '';
   el.innerHTML = `<div class="avatar">${avatarText}</div><div class="bubble"></div>${toolContainer}<div class="msg-actions"><button class="msg-action-btn" type="button" data-action="copy">复制</button>${role !== 'tool' ? '<button class="msg-action-btn" type="button" data-action="quote">引用</button>' : ''}${role === 'user' ? '<button class="msg-action-btn" type="button" data-action="edit">编辑</button>' : ''}${role === 'assistant' ? '<button class="msg-action-btn" type="button" data-action="regenerate">重新生成</button>' : ''}<button class="msg-action-btn" type="button" data-action="delete" style="color:#d06060">删除</button></div>`;
   if (role === 'assistant') currentAssistantEl = el;
@@ -8725,7 +8745,7 @@ function addToolCard(name, args, status) {
   // 兜底：独立元素（渲染历史消息等场景）
   const el = document.createElement('div');
   el.className = 'msg tool';
-  el.innerHTML = `<div class="avatar">🔧</div><div class="bubble"></div>`;
+  el.innerHTML = `<div class="avatar"></div><div class="bubble"></div>`;
   el.querySelector('.bubble').appendChild(card);
   messagesEl.appendChild(el);
   scrollBottom();
