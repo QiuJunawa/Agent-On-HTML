@@ -113,10 +113,16 @@
   body.theme-light .profile-row { background: var(--bg-card); }
   body.theme-light .tool-card:hover { background: var(--bg-elevated-2); }
   * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
+  /* 视口锁定：document 不可滚动（clip 连程序滚动一起禁，hidden 挡不住 focus/scrollIntoView/滚动锚定）
+     overflow-anchor:none 提到根：渲染历史消息时浏览器不再"修正滚动位置"导致整页上移 */
+  html, body {
+    height: 100%; margin: 0;
+    overflow: hidden; overflow: clip;
+    overflow-anchor: none;
+  }
   body {
     font-family: var(--font-body);
-    background: var(--bg-main); color: var(--text-primary); font-size: 14px; overflow: hidden;
+    background: var(--bg-main); color: var(--text-primary); font-size: 14px;
   }
   /* UI 层书写感字体（标题/按钮/品牌；用户可在设置里自定义覆盖） */
   .brand, .settings-nav-btn, .ghost-btn, .btn-primary, .send-btn, .new-chat-btn, h2, h3, .msg .name, .file-item,
@@ -153,7 +159,8 @@
   ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
   ::-webkit-scrollbar-track { background: transparent; }
 
-  .app { display: flex; height: 100vh; }
+  /* height:100% 跟随 body content box：写 100vh 会在移动端比可视区高，多出的部分变成 document 滚动余量 */
+  .app { display: flex; height: 100%; overflow: hidden; }
 
   /* ---------- 侧边栏 ---------- */
   .sidebar {
@@ -304,7 +311,8 @@
   .ghost-btn:active { background: var(--border); }
   .ghost-btn.danger:hover { background: var(--bg-error); border-color: var(--bg-error); color: var(--text-error); }
 
-  .messages { flex: 1; overflow-y: auto; padding: 20px 18px 8px; }
+  /* overflow-x:hidden 必写：只写 overflow-y:auto 时 overflow-x 会被强制成 auto，宽内容一出现就长出横向滚动条 */
+  .messages { flex: 1; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 20px 18px 8px; }
   /* 超长对话：浏览器跳过屏幕外内容的布局与绘制 */
   .messages.cv-auto .msg {
     content-visibility: auto;
@@ -731,9 +739,105 @@
   .cselect-item:hover { background: var(--border); color: var(--text-primary); }
   .cselect-item.selected { background: var(--bg-info); color: var(--text-link); }
   .cselect-item.selected::after { content: ' ✓'; font-size: 11px; }
+  /* ===== 左侧导航栏 ===== */
+  .nav-rail {
+    position: fixed; left: 0; top: 0; bottom: 0; width: 56px;
+    background: var(--bg-sidebar); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 10px 0; z-index: 60;
+  }
+  body { padding-left: 56px; }
+  .nav-rail-btn {
+    width: 40px; height: 40px; border-radius: 10px; border: none; background: transparent;
+    color: var(--text-secondary); cursor: pointer; font-size: 18px; display: flex;
+    align-items: center; justify-content: center; position: relative;
+  }
+  .nav-rail-btn .ico-svg { width: 20px; height: 20px; stroke-width: 1.8; }
+  .nav-rail-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .nav-rail-btn.active { background: var(--bg-active); color: var(--text-link); }
+  .nav-rail-btn::after {
+    content: attr(title); position: absolute; left: 100%; margin-left: 6px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 10px; font-size: 12px; white-space: nowrap; opacity: 0; pointer-events: none;
+    transition: opacity .15s; color: var(--text-primary); z-index: 61;
+  }
+  .nav-rail-btn:hover::after { opacity: 1; }
+
+  /* ===== 页面模式切换 ===== */
+  .tools-page, .plugins-page { display: none; }
+  body[data-mode="tools"] .tools-page,
+  body[data-mode="plugins"] .plugins-page {
+    display: flex; flex: 1; min-width: 0; flex-direction: column; background: var(--bg-main);
+  }
+  body[data-mode="tools"] .sidebar, body[data-mode="tools"] .chat, body[data-mode="tools"] .editor,
+  body[data-mode="plugins"] .sidebar, body[data-mode="plugins"] .chat, body[data-mode="plugins"] .editor { display: none !important; }
+  body[data-mode="vfs"] .chat { display: none !important; }
+  /* VFS 单页铺满：侧栏与编辑器原本都是 flex:0 0 固定宽，隐藏对话区后右侧会留一条空白，这里改成编辑器吃掉剩余宽度 */
+  body[data-mode="vfs"] .sidebar { flex: 0 0 300px; width: 300px; }
+  body[data-mode="vfs"] .editor { flex: 1 1 auto; width: auto; min-width: 0; }
+  body[data-mode="settings"] .sidebar, body[data-mode="settings"] .chat, body[data-mode="settings"] .editor,
+  body[data-mode="settings"] .tools-page, body[data-mode="settings"] .plugins-page { display: none !important; }
+  /* 设置页内联模式：占满 .app 区域，左侧导航条仍可见（避免扣住 56px 后盖住导航栏无法返回） */
+  body[data-mode="settings"] #settingsModal {
+    position: fixed; left: 56px; top: 0; right: 0; bottom: 0; background: transparent;
+    display: flex !important; padding: 0; z-index: 90;
+  }
+  body[data-mode="settings"] #settingsModal .modal-box {
+    width: 100%; max-width: none; height: 100%; max-height: none; border-radius: 0; border: none;
+  }
+
+  .plugins-page, .tools-page { overflow: hidden; }
+
+  /* ===== 工具流页 ===== */
+  .page-header {
+    display: flex; align-items: center; gap: 10px; padding: 12px 18px;
+    border-bottom: 1px solid var(--border); font-weight: 600;
+  }
+  .page-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+  .tool-flow-item {
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 10px;
+  }
+  .tf-head { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--text-warning); margin-bottom: 6px; }
+  .tf-head code { font-family: ui-monospace, monospace; font-weight: 600; }
+  .tool-flow-item summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+  .tool-flow-item pre {
+    background: var(--bg-deep); border: 1px solid var(--bg-hover); border-radius: 6px;
+    padding: 8px 10px; margin: 6px 0 0; font-size: 11.5px; white-space: pre-wrap;
+    word-break: break-all; max-height: 300px; overflow-y: auto;
+  }
+
+  /* ===== 插件页 ===== */
+  .plugin-list { padding: 0 18px 18px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+  .plugin-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
+    margin-top: 10px;
+  }
+  .plugin-row .pr-name { flex: 1; font-weight: 600; }
+  .plugin-row .pr-ver { font-size: 11px; color: var(--text-muted); }
+  .plugin-row .pr-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+  .plugin-row .pr-status.on { background: rgba(112,192,112,.15); color: var(--text-success); }
+  .plugin-row .pr-status.off { background: var(--bg-hover); color: var(--text-muted); }
+  .plugin-editor { padding: 14px 18px; border-top: 1px solid var(--border); overflow-y: auto; flex: 0 0 auto; max-height: 65%; }
+  .pe-head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .pe-head input[type=text] { background: var(--bg-panel); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+  .plugin-editor textarea {
+    width: 100%; min-height: 300px; background: var(--bg-deep); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; color: var(--text-primary);
+    font-family: ui-monospace, monospace; font-size: 12.5px; line-height: 1.6; resize: vertical;
+  }
 </style>
 </head>
-<body>
+<body data-mode="chat">
+
+<nav class="nav-rail">
+  <button class="nav-rail-btn active" data-mode="chat" title="对话" type="button" aria-label="对话"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+  <button class="nav-rail-btn" data-mode="tools" title="工具流" type="button" aria-label="工具流"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></button>
+  <button class="nav-rail-btn" data-mode="vfs" title="VFS" type="button" aria-label="VFS"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
+  <button class="nav-rail-btn" data-mode="settings" title="设置" type="button" aria-label="设置"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+  <button class="nav-rail-btn" data-mode="plugins" title="插件" type="button" aria-label="插件"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></button>
+</nav>
 
 <div class="app">
   <!-- 侧栏：文件树 -->
@@ -827,6 +931,33 @@
     </div>
     <div class="img-preview" id="imgPreview" style="display:none"><img id="imgPreviewImg" alt="预览"></div>
   </aside>
+
+  <!-- 工具流页 -->
+  <section class="tools-page">
+    <div class="page-header"><span>🔧 工具流</span><span style="font-size:12px;color:var(--text-muted);font-weight:400">当前对话的全部工具调用</span></div>
+    <div class="page-body" id="toolsPageBody"></div>
+  </section>
+
+  <!-- 插件页 -->
+  <section class="plugins-page">
+    <div class="page-header">
+      <span>🧩 插件</span>
+      <div style="flex:1"></div>
+      <button class="ghost-btn" id="btnNewPlugin" type="button">+ 新建插件</button>
+    </div>
+    <div class="plugin-list" id="pluginList"></div>
+    <div class="plugin-editor" id="pluginEditor" style="display:none">
+      <div class="pe-head">
+        <input type="text" id="pluginName" placeholder="插件名（文件名，如 my-plugin）" style="flex:0 0 220px">
+        <input type="text" id="pluginVersion" placeholder="版本" value="0.0.1" style="flex:0 0 90px">
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary)"><input type="checkbox" id="pluginEnabled" checked> 启用</label>
+        <div style="flex:1"></div>
+        <button class="ghost-btn" id="btnSavePlugin" type="button">保存</button>
+        <button class="ghost-btn" id="btnCancelPlugin" type="button">取消</button>
+      </div>
+      <textarea id="pluginCode" spellcheck="false" placeholder="// 插件代码（IIFE 内执行，可用 AgentAPI 和 onUnload）&#10;// AgentAPI.VFS / cfg / toast / executeTool / getConversation / version&#10;// onUnload(fn) 注册清理函数&#10;&#10;AgentAPI.toast('Hello from plugin');"></textarea>
+    </div>
+  </section>
 </div>
 
 <!-- 右键菜单 -->
@@ -915,6 +1046,11 @@
       <div class="field">
         <label>工具超时（秒，超时转后台；写操作与交互类工具不转）</label>
         <input id="cfgToolTimeout" type="number" min="5" max="600" value="120">
+      </div>
+      <div class="field">
+        <label>HTML 校验超时（秒，check_code 实执行 HTML 的等待上限）</label>
+        <input id="cfgHtmlCheckTimeout" type="number" min="1" max="120" value="6">
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;line-height:1.6">check_code 校验 HTML 时会用隐藏 iframe 真实跑一遍内联 JS，超过这个时长就跳过并注明「不计入失败」。页面大、脚本重、机器慢时可调大。</div>
       </div>
       <div class="field">
         <label>调度层预算（0=不限制）</label>
@@ -1075,15 +1211,14 @@
         <label>桥接地址（可空，默认按「Codespace 名-端口」自动推导）</label>
         <input id="cfgCsBridgeUrl" type="text" placeholder="https://xxxx-8787.app.github.dev" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
       </div>
-      <div class="row2">
-        <div class="field">
-          <label>命令超时（秒）</label>
-          <input id="cfgCsTimeoutSec" type="number" min="5" max="900" value="120">
-        </div>
-        <div class="field">
-          <label>端口转发域名</label>
-          <input id="cfgCsDomain" placeholder="app.github.dev">
-        </div>
+      <div class="field">
+        <label>端口转发域名（拼预览链接用，一般不用改）</label>
+        <input id="cfgCsDomain" placeholder="app.github.dev">
+      </div>
+      <div class="field">
+        <label>命令超时（秒）</label>
+        <input id="cfgCsTimeoutSec" type="number" min="5" max="900" value="120">
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;line-height:1.6">cs_exec 远程执行的等待上限；AI 调用时可传 timeout_sec 单独覆盖（1~900）。同一个值也用作桥接 HTTP 请求的超时，所以 cs_ls / cs_read / cs_serve 等远程操作最长也等这么久。</div>
       </div>
       <div class="field">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;color:#c8cdd6;margin-bottom:0">
@@ -2016,8 +2151,122 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.06.4';
+const APP_VERSION = '2026.11.07.8';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.07.8',
+    date: '2026-11-07',
+    title: 'VFS 单页铺满全屏',
+    items: [
+      '问题：点左侧导航栏的 VFS 进入单页模式后，右侧总留一条空白没铺满。原因是 .sidebar（flex:0 0 260px）和 .editor（flex:0 0 380px）都是固定宽度，vfs 模式只把 .chat 设了 display:none，两个固定宽加起来 640px，剩下的宽度没有任何 flex 项目去吃掉',
+      '修法：vfs 模式下 .sidebar 改为 300px 固定（文件树留宽一点更好读长文件名），.editor 改成 flex:1 1 auto + width:auto + min-width:0（min-width:0 是必要的，否则编辑器里的 pre/长行会把 flex 项撑破），编辑器自动吃掉全部剩余宽度',
+      '只动 vfs 模式，聊天/工具流/插件/设置四种模式的布局完全不变；窄屏（<860px）下 .editor{display:none} 的媒体查询依旧生效，此时文件树独占整宽'
+    ]
+  },
+  {
+    v: '2026.11.07.7',
+    date: '2026-11-07',
+    title: '左侧导航栏图标改为 SVG',
+    items: [
+      '上一次做左侧竖向导航栏时图省事直接塞了 emoji（💬 🔧 📁 ⚙ 🧩），和全局「图标统一用内联 SVG」的约定不符：emoji 在不同系统上字形差异大，颜色也不跟主题走（深色下依旧彩色），且 ⚙ 在某些字体里会退化成纯文字符号',
+      '五个按钮全部换成 Lucide 风格内联 SVG：对话=message、工具流=wrench、VFS=folder、设置=settings、插件=package，路径与文件树/顶部按钮里已有的图标保持一致（同一个齿轮、同一个文件夹形状）',
+      '新增 .nav-rail-btn .ico-svg { width:20px; height:20px; stroke-width:1.8 }：原按钮 font-size:18px 靠 em 撑图标尺寸，换成 SVG 后显式给 20px 更稳，并单独放细描边（1.8）避免小尺寸下发糊',
+      '每个按钮补 aria-label（原本只有 title），图标本身 aria-hidden，屏幕阅读器仍能读出「对话/工具流/VFS/设置/插件」',
+      '按钮的 data-mode 与 title 不变，switchPage 与 .active 切换逻辑完全不用动'
+    ]
+  },
+  {
+    v: '2026.11.07.6',
+    date: '2026-11-07',
+    title: 'Codespace「命令超时」重排位置并补全含义',
+    items: [
+      '位置修正：「命令超时」原来和「端口转发域名」挤在同一个 row2 里，这两项一个管执行时长、一个管预览链接的域名，毫无关系；而真正同类的「桥接端口」「默认工作目录」却在上面另一组。现在域名上移，紧跟「桥接地址」（都是地址推导相关），超时单独占一行',
+      '含义补全：这个值不只用于 cs_exec 的远程命令（第 7333 行传给 /exec 的 timeout_ms），同时也是 csBridgeRequest 里所有桥接 HTTP 请求的超时（第 7258 行），cs_ls / cs_read / cs_serve / cs_download 都受影响。原来标签只写「命令超时」，看不到后半截',
+      '标签下加了说明：可被 AI 调用时的 timeout_sec 单独覆盖（1~900），并注明远程操作最长等待时长也由它决定',
+      '「端口转发域名」补注「拼预览链接用，一般不用改」'
+    ]
+  },
+  {
+    v: '2026.11.07.5',
+    date: '2026-11-07',
+    title: 'HTML 校验超时改成设置项',
+    items: [
+      '设置 → AI 模型 新增「HTML 校验超时（秒）」，默认 6、可调 1~120：原来 checkHtmlWithIframe 的 6000ms 硬编码在函数里，校验大页面/重脚本/慢机器时会被误伤，而 6 秒本身没有任何依据',
+      '新增 htmlCheckTimeoutMs()：从 cfg.htmlCheckTimeoutMs 读取并 clamp 到 1000~120000ms，读取失败（cfg 未初始化）回落 6000，不影响页面早期调用',
+      '超时提示文案改成实际生效的秒数，并注明「可在设置里调大 HTML 校验超时」，不再写死「超过 6 秒」',
+      '修复上一次编辑误删的 <div class="field"> 外壳：「调度层预算」那组的 label 和容器被一并删掉，导致该组样式错乱',
+      'cfg 由 let 改 const：它是被 Object.assign 原地修改的对象，重新赋值属于意外行为，锁成 const 能第一时间暴露这类 bug'
+    ]
+  },
+  {
+    v: '2026.11.07.4',
+    date: '2026-11-07',
+    title: 'check_code 的 HTML 校验接入规范级 parse error',
+    items: [
+      '原文：浏览器自带的 HTML 解析器是「错误恢复」式的，规范要求它把残缺标签静默修好且不报告——DOMParser / innerHTML 拿到的都是修复后的树，没有错误流可读；原来只有正则式的标签配对检查，属性值含 <、注释、script/style 的 raw text、template 惰性内容这四处都会翻车',
+      '新增 checkHtmlSpec(code, lang)：动态 import parse5@7.3.0，用 onParseError 抓规范定义的 parse error（unexpected-character-in-unquoted-attribute-value、duplicate-attribute、missing-end-tag 等），浏览器知道但从不告诉你的那批；同类错误按 code+行号去重，最多 10 条',
+      '新增 html-validate@9.7.1（html-validate:recommended 规则集）：只采信 severity=2 的 error，warning 不阻塞；SVG 单文件跳过它（会撞缺 doctype / title 这类文档级规则）',
+      '两个库在首次校验时动态 import 并缓存（esm.sh 主源 + jsdelivr 兜底，单源 8 秒超时）；本应用本来就必须联网才能用，所以不做「离线降级」这种自欺欺人的分支——拉不到就明确报「校验未完成 ⚠ + 具体原因」，绝不静默当成通过',
+      'HTML 校验新增第三态「校验未完成 ⚠」：校验器不可用时既不报通过（假绿灯），也不报未通过（假警报），只如实说明哪一层没跑到',
+      'toolCheckCode 的 html/htm/svg 分支改为三步：本地闭合检查 → 规范级检查（含规则集）→ 隐藏 iframe 实执行内联 JS；前三步任一失败即停，不叠加噪音',
+      '报错格式统一为「· 行 N 列 M：消息（parse5 / rule:xxx）」，与原有 prettyPrint 风格一致，方便直接 read_file 定位'
+    ]
+  },
+  {
+    v: '2026.11.07.3',
+    date: '2026-11-07',
+    title: 'check_code 校验 HTML 时不再卡主线程',
+    items: [
+      '根因：校验 iframe 与主页面同 origin，srcdoc 等于把整个应用在后台再启动一遍——写真实 localStorage、抢真实 IndexedDB 句柄、打字机 setInterval 常驻、还要排整棵 1 万行页面的版。工具卡片此时一展开触发 reflow，就表现为「展开就卡」',
+      '注入器新增环境隔离（全部包 try/catch，失败即退回原行为）：localStorage / sessionStorage 换成内存假实现，绝不写用户真实配置与会话',
+      'indexedDB 换成永不回调的 open() 桩：既不建库也不写数据，也不会因 reject 触发 unhandledrejection 误报',
+      'fetch 返回永不 resolve 的 Promise；XMLHttpRequest / WebSocket / EventSource 换成空实现（不用抛错，避免被当成真错误）；navigator.sendBeacon 置为返回 false',
+      'setInterval / requestIdleCallback 置为返回 0，掐掉校验期泄漏的常驻轮询；setTimeout 保留（异步报错收集还要靠它）',
+      'documentElement 加 content-visibility:hidden，跳过整棵子树的布局与绘制，JS 照常执行但排版开销几乎归零',
+      'srcdoc 前先把外链样式表（link href 为 http/https 或 //）整条删掉：等境外 CDN 会把 iframe.onload 拖进超时，那与代码对错无关；只删标签不增删换行，原始行号不变',
+      '外链 script src / img src / video / audio / source / embed 同样会拖住 iframe 的 load 事件，一并掐掉（外链脚本本来也不该校验执行）',
+      '超时阈值 3 秒 → 6 秒，并且**超时不再判定为校验失败**：resolve(null) 放行，通过文案追加「HTML 实际执行超过 6 秒已跳过，不计入失败」。原来超时直接报「校验未通过」，等于因外部资源慢而随机给人扣帽子',
+      'checkHtmlWithIframe 增加 timedOut 标记，toolCheckCode 据此区分「验失败」与「没验完」；已在 /index.html 实测复现原 3 秒超时'
+    ]
+  },
+  {
+    v: '2026.11.07.2',
+    date: '2026-11-07',
+    title: '修复移动端整页自动上移、底部露出空白、滑不到顶/底',
+    items: [
+      '根因：document 被程序滚动。html 未设 overflow 时 body 的 overflow:hidden 会传播给视口、body 自身退回 visible，导致「用户滚不动但程序能滚」，滚动后没有滚动条可拉回，表现为整页上移 + 底部空白 + 卡片/Toast 位置不动',
+      '.app 高度由 100vh 改为 100%：100vh 在移动端取「地址栏收起」的大视口，比 body 的 100% 更高，多出的部分正是 document 的滚动余量（用户反馈「空缺很高，远大于 15px」）',
+      'html/body 增加 overflow:clip：hidden 只禁用户手势、禁不住 focus / scrollIntoView / 滚动锚定 / 键盘弹起自动滚入，clip 连程序滚动一起禁（老浏览器自动降级为 hidden）',
+      'overflow-anchor:none 提到 html 根元素：渲染历史对话时浏览器不再因滚动锚定「修正」document 的 scrollTop，这正是「加载对话后开始向上滚」的直接触发点',
+      '.messages 补 overflow-x:hidden + overscroll-behavior:contain：只写 overflow-y:auto 时 overflow-x 会被强制成 auto，宽内容（表格/长 token/chart）一出现就长出横向滚动条',
+      '三处 focus() 全部加 preventScroll：第 7712 / 9689 / 11118 行，解决「点开输入框页面又向上滚一截」',
+      '两处 scrollIntoView 全部移除：缩略导航条改用 messagesEl.scrollTo 手动计算，插件编辑器改为 focus 输入框（scrollIntoView 会一路滚到最外层 document，是第三条推动整页的路径）',
+      '启动新增 pinTop 兜底：监听 window scroll 与 visualViewport scroll，一旦 scrollingElement.scrollTop 非 0 立即归零，防将来新代码回归'
+    ]
+  },
+  {
+    v: '2026.11.07.1',
+    date: '2026-11-07',
+    title: '左侧导航栏 + 工具流页 + 插件系统',
+    items: [
+      '新增左侧竖向导航栏（💬 对话 / 🔧 工具流 / 📁 VFS / ⚙ 设置 / 🧩 插件），用 body[data-mode] 切换页面模式，默认对话模式与改造前完全一致',
+      '新增「工具流」页：汇总当前对话全部工具调用，参数与结果折叠展示，超长结果截断到 3000 字符，无调用时显示空态',
+      '新增「插件」页：插件列表（启用状态、编辑、删除）、内置代码编辑器；插件存放于 VFS 的 /plugins/<id>.js + <id>.json',
+      '插件用 AsyncFunction 包裹执行（不污染全局命名空间、内部可用 await），通过 AgentAPI 暴露 VFS / cfg / toast / executeTool / getConversation / version，并提供 onUnload(fn) 注册清理函数',
+      '安全默认值：插件一律默认禁用；启用前弹窗警告「插件可读取 API Key、发网络请求、修改对话和文件」，经用户确认后才加载；刷新页面只自动加载已启用的插件',
+      '设置面板支持内联模式：data-mode="settings" 时铺满 .app 区域（无遮罩），左侧导航仍保留，可从导航或 Esc / 取消按钮退回对话页',
+      '稳健性：插件卸载/重载幂等（编辑保存时先卸载旧实例再按新代码加载）；插件目录不存在或读取失败时列表降级为空，不抛错'
+    ]
+  },
+  {
+    v: '2026.11.06.5',
+    date: '2026-11-06',
+    title: '修复 showCtxMenu 语法错误导致整页脚本挂掉',
+    items: [
+      '修复文件树右键菜单 showCtxMenu 中「删除」项：items.push 调用少写一个右括号，写成 `} }` 导致整段内联脚本 SyntaxError（missing ) after argument list），页面所有 JS 失效',
+      '修正后 items.push({...}) 正确闭合，随后的 `];` 数组结尾语句一并整理，右键菜单恢复正常'
+    ]
+  },
   {
     v: '2026.11.06.4',
     date: '2026-11-06',
@@ -4079,6 +4328,14 @@ function detectLang(code) {
   return 'js';
 }
 /* ---------- 使用隐藏 iframe 真实执行 HTML 中的 JS（单行注入，0 行号偏移） ---------- */
+// HTML 实执行校验的超时（毫秒）：用户可在「设置 → AI 模型」里调，默认 6 秒。
+// 大页面/重脚本/慢机器容易被 6 秒误伤，而 6 秒本身没有任何规范依据，所以做成可配置项。
+function htmlCheckTimeoutMs() {
+  let v = 0;
+  try { v = Number(cfg && cfg.htmlCheckTimeoutMs); } catch (e) {}
+  if (!v || !isFinite(v)) v = 6000;
+  return Math.max(1000, Math.min(120000, v));
+}
 function checkHtmlWithIframe(html) {
   return new Promise((resolve) => {
     if (typeof document === 'undefined' || !document.body) return resolve(null);
@@ -4093,21 +4350,51 @@ function checkHtmlWithIframe(html) {
       + 'window.__errs=[];'
       + 'window.onerror=function(m,u,l,c,e){if(m&&m!=="Script error."){window.__errs.push({msg:m,line:l,col:c});}return true;};'
       + 'window.addEventListener("unhandledrejection",function(e){var r=e&&e.reason;window.__errs.push({msg:"Promise 异常: "+(r&&r.message?r.message:String(r)),line:0,col:0});});'
+      // ---- 环境隔离：校验 iframe 与主页面同 origin，不隔离等于把整个应用在后台再跑一遍 ----
+      // 1) 存储换成内存假实现：绝不写真实 localStorage / sessionStorage（否则会把用户配置、会话、种子标记一起改掉）
+      + 'try{var _ms={};var _st={getItem:function(k){return Object.prototype.hasOwnProperty.call(_ms,k)?_ms[k]:null;},setItem:function(k,v){_ms[k]=String(v);},removeItem:function(k){delete _ms[k];},clear:function(){_ms={};},key:function(i){var a=Object.keys(_ms);return a[i]||null;},get length(){return Object.keys(_ms).length;}};'
+      + 'Object.defineProperty(window,"localStorage",{configurable:true,get:function(){return _st;}});'
+      + 'Object.defineProperty(window,"sessionStorage",{configurable:true,get:function(){return _st;}});}catch(e){}'
+      // 2) IndexedDB 换成永不回调的 open()：既不建库也不写数据，也不会 reject 触发 unhandledrejection 误报
+      + 'try{var _req={onupgradeneeded:null,onsuccess:null,onerror:null,onblocked:null,result:null};'
+      + 'Object.defineProperty(window,"indexedDB",{configurable:true,value:{open:function(){return _req;},deleteDatabase:function(){return _req;},databases:function(){return Promise.resolve([]);}}});}catch(e){}'
+      // 3) 网络全部换成空实现：不发请求、不等待、也不抛错（抛错会被当成「真错误」误报出来）
+      + 'try{window.fetch=function(){return new Promise(function(){});};'
+      + 'window.XMLHttpRequest=function(){this.readyState=0;this.status=0;this.open=function(){};this.send=function(){};this.abort=function(){};this.setRequestHeader=function(){};this.getAllResponseHeaders=function(){return "";};this.addEventListener=function(){};this.removeEventListener=function(){};};'
+      + 'window.WebSocket=function(){this.readyState=3;this.close=function(){};this.send=function(){};this.addEventListener=function(){};this.removeEventListener=function(){};};'
+      + 'window.EventSource=function(){this.readyState=2;this.close=function(){};this.addEventListener=function(){};this.removeEventListener=function(){};};'
+      + 'if(navigator&&navigator.sendBeacon)navigator.sendBeacon=function(){return false;};}catch(e){}'
+      // 4) 禁 setInterval 等常驻轮询：运行期泄漏的定时器会一直占着主线程（setTimeout 保留，异步报错还要靠它）
+      + 'try{window.setInterval=function(){return 0;};if(window.requestIdleCallback)window.requestIdleCallback=function(){return 0;};}catch(e){}'
+      // 5) 跳过整棵子树的布局与绘制：JS 照常执行，但排版开销几乎归零（这是「展开卡片就卡」的直接来源）
+      + 'try{document.documentElement.style.contentVisibility="hidden";}catch(e){}'
       + ETAG;
 
     let finalHtml = html;
+    // 外链样式表一律掐掉：srcdoc 里等境外 CDN 会把 iframe.onload 拖进 3 秒超时，和代码对错毫无关系
+    // 只删标签、不增删换行，原始行号保持不变
+    finalHtml = finalHtml.replace(/<link\b[^>]*\bhref=["']?(?:https?:)?\/\/[^>]*>/gi, '');
+    // 外链脚本 / 图片 / 音视频 / 内嵌 iframe 同样会拖住 load，一起掐（只删标签，不增删换行）
+    finalHtml = finalHtml.replace(/<script\b[^>]*\bsrc=["']?(?:https?:)?\/\/[^>]*>\s*<[^>]*script\s*>/gi, '');
+    finalHtml = finalHtml.replace(/<script\b[^>]*\bsrc=[^>]*>/gi, '');
+    finalHtml = finalHtml.replace(/<img\b[^>]*\bsrc=["']?(?:https?:)?\/\/[^>]*>/gi, '');
+    finalHtml = finalHtml.replace(/<(?:video|audio|source|embed)\b[^>]*\bsrc=["']?(?:https?:)?\/\/[^>]*>/gi, '');
     if (/<\/head>/i.test(finalHtml)) finalHtml = finalHtml.replace(/<\/head>/i, injector + '</head>');
     else finalHtml = injector + finalHtml;
 
     let done = false;
+    const __timeoutMs = htmlCheckTimeoutMs();   // 用户可配置，默认 6000
+    checkHtmlWithIframe.timedOut = false;
     const cleanup = () => { try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); } catch (e) {} };
-    // 3 秒超时保护，防止死循环卡死主线程
+    // 超时保护：只负责释放 iframe，不再判定为校验失败
+    // 理由：超时的成因是外链资源、字体、长循环等，与「代码对不对」无关，把它当失败等于随机给人扣帽子
     const timer = setTimeout(() => {
       if (done) return;
       done = true;
+      checkHtmlWithIframe.timedOut = true;
       cleanup();
-      resolve('⚠ HTML 内联脚本执行超时（超过 3 秒），可能存在死循环或阻塞主线程的代码。');
-    }, 3000);
+      resolve(null);
+    }, __timeoutMs);
 
     iframe.onload = () => {
       clearTimeout(timer);
@@ -4186,6 +4473,106 @@ function checkHtml(code) {
   if (realLeft.length) return 'HTML 标签未闭合：' + realLeft.slice(-6).join(' → ') + '（在第 ' + lineAt(code, code.lastIndexOf('<')) + ' 行附近）';
   return null;
 }
+/* ---------- 规范级 HTML 校验：parse5 的 parse error + html-validate 规则集 ----------
+ * 为什么必须外挂库：浏览器自带的 HTML 解析器是「错误恢复」式的，规范要求它把各种残缺标签
+ * 静默修好，永远不把语法问题告诉调用方。DOMParser / innerHTML 拿到的都是修复后的树，
+ * 没有错误流可读；正则配对检查又会在属性值含 <、注释、script/style 的 raw text、
+ * template 惰性内容这几处翻车。所以规范级校验只能靠独立实现：
+ *   - parse5 的 onParseError 暴露的正是规范定义的那批 parse error（浏览器知道但对你闭嘴）
+ *   - html-validate 补齐一致性 / 可访问性规则（只采信 severity=error，warning 不阻塞）
+ * 两个库在首次校验时动态 import 并缓存（esm.sh 主源 + jsdelivr 兜底）。
+ * 注意：本应用必须联网才能用（模型 API 直接由浏览器发起），所以不存在「离线降级」这种场景——
+ * 库拉不到只可能是 CDN 不通 / 版本号不存在 / 被代理拦，此时必须如实报「校验未完成」，
+ * 静默当成通过等于给假绿灯。
+ */
+const HTML_SPEC_CDN = {
+  parse5: ['https://esm.sh/parse5@7.3.0', 'https://cdn.jsdelivr.net/npm/parse5@7.3.0/+esm'],
+  htmlValidate: ['https://esm.sh/html-validate@9.7.1?bundle', 'https://cdn.jsdelivr.net/npm/html-validate@9.7.1/+esm']
+};
+let _htmlSpecLibs = null;      // 加载结果缓存（全失败时清空，允许下次重试）
+let _htmlSpecLibsErr = '';     // 上次整体加载失败的原因（供「校验未完成」文案使用）
+function loadHtmlSpecLibs() {
+  if (_htmlSpecLibs) return _htmlSpecLibs;
+  // 单个源 8 秒超时，主源失败再试备用源，都失败才算失败
+  const one = async (urls) => {
+    let last = null;
+    for (const url of urls) {
+      try {
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('8 秒超时')), 8000));
+        return await Promise.race([import(url), timeout]);
+      } catch (e) { last = e; }
+    }
+    throw last || new Error('无可用源');
+  };
+  _htmlSpecLibsErr = '';
+  _htmlSpecLibs = (async () => {
+    const libs = { parse5: null, htmlValidate: null };
+    const errs = [];
+    try { libs.parse5 = await one(HTML_SPEC_CDN.parse5); }
+    catch (e) { errs.push('parse5：' + ((e && e.message) || e)); }
+    try { libs.htmlValidate = await one(HTML_SPEC_CDN.htmlValidate); }
+    catch (e) { errs.push('html-validate：' + ((e && e.message) || e)); }
+    return { libs, errs };
+  })().then(({ libs, errs }) => {
+    if (!libs.parse5 && !libs.htmlValidate) { _htmlSpecLibsErr = errs.join('；'); _htmlSpecLibs = null; }
+    return libs;
+  });
+  return _htmlSpecLibs;
+}
+async function checkHtmlSpec(code, lang) {
+  const src = String(code);
+  const libs = await loadHtmlSpecLibs();
+  // 本应用必须联网才能用（模型 API 直连浏览器），所以「离线降级」这个前提不成立：
+  // 库拉不到只可能是 CDN 不可达 / 版本不存在 / CORS 被拦。这种情况必须如实报「校验未完成」，
+  // 绝不能静默当成「通过」——那等于给用户一个假绿灯。
+  if (!libs.parse5 && !libs.htmlValidate) {
+    return { err: null, fail: _htmlSpecLibsErr || '未知原因', note: '' };
+  }
+  const items = [];      // { where, line, col, msg }
+  const missing = [];    // 部分库没加载成功时，说明哪一块没覆盖到
+  // 1) 规范 parse error：这才是浏览器永远不告诉你的那批错误
+  if (libs.parse5 && typeof libs.parse5.Parser === 'function') {
+    try {
+      const errs = [];
+      new libs.parse5.Parser({ onParseError: (e) => { if (e && e.code) errs.push(e); } }).parse(src);
+      const seen = new Set();
+      for (const e of errs) {
+        const line = e.startLine || e.start_line || 0;
+        const col = e.startCol || e.start_col || 0;
+        const key = e.code + '|' + line;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        items.push({ where: 'parse5', line: line, col: col, msg: e.code });
+        if (items.length >= 10) break;
+      }
+    } catch (e) {}
+  } else missing.push('parse5');
+  // 2) html-validate 规则集：SVG 单文件会撞一堆文档级规则（缺 doctype / title），只用 parse5 查
+  let ruleTotal = 0;
+  if (lang !== 'svg' && libs.htmlValidate && typeof libs.htmlValidate.HtmlValidate === 'function') {
+    try {
+      const hv = new libs.htmlValidate.HtmlValidate({ extends: ['html-validate:recommended'] });
+      const report = await hv.validateString(src);
+      const ruleItems = [];
+      for (const r of ((report && report.results) || [])) {
+        for (const m of (r.messages || [])) {
+          if (m.severity !== 2) continue;   // 只报 error
+          ruleItems.push({ where: 'rule:' + (m.ruleId || '?'), line: m.line || 0, col: m.column || 0, msg: m.message || '' });
+        }
+      }
+      ruleTotal = ruleItems.length;
+      for (const m of ruleItems.slice(0, 6)) items.push(m);
+    } catch (e) { missing.push('html-validate'); }
+  } else if (lang !== 'svg') missing.push('html-validate');
+  const tail = missing.length ? '（注：' + missing.join(' / ') + ' 未能加载，该部分检查未覆盖）' : '';
+  if (!items.length) return { err: null, fail: '', note: tail };
+  const lines = items.map((m) => {
+    const pos = m.line ? '行 ' + m.line + (m.col ? ' 列 ' + m.col : '') + '：' : '';
+    return '· ' + pos + m.msg + '（' + m.where + '）';
+  });
+  const more = ruleTotal > 6 ? '\n…另有 ' + (ruleTotal - 6) + ' 条规则错误未展开' : '';
+  return { err: 'HTML 规范级校验发现 ' + items.length + ' 处问题（parse5 开头的是 HTML 规范里的 parse error 名）：\n' + lines.join('\n') + more, fail: '', note: '' };
+}
 function checkPy(code) {
   const issues = [];
   const openers = { '(': ')', '[': ']', '{': '}' };
@@ -4236,20 +4623,43 @@ async function toolCheckCode(args) {
   }
   const note = fromDetect ? '（未指定语言，自动识别为 ' + lang + '）' : '';
   let err = null;
+  let htmlSpecNote = '';   // HTML 规范级校验的补充说明（部分库没覆盖到）
+  let htmlSpecFail = '';   // 非空 = 规范级校验器没跑起来 → 校验「未完成」，不是通过也不是失败
   if (lang === 'json') err = checkJson(raw);
   else if (['js', 'cjs'].includes(lang)) err = checkJs(raw, false);
   else if (lang === 'mjs') err = checkJs(raw, true);
   else if (['html', 'htm', 'svg'].includes(lang)) {
-    // 1) 先做基础标签闭合检查
+    // 1) 先做基础标签闭合检查（本地、无依赖、毫秒级）
     err = checkHtml(raw);
-    // 2) 标签没问题，再用隐藏 iframe 真实跑一遍内联 JS（抓语法错/运行时错）
+    // 2) 规范级校验：parse5 的 parse error + html-validate 规则集（需联网拉库，拉不到自动跳过）
+    if (!err) {
+      try {
+        const spec = await checkHtmlSpec(raw, lang);
+        if (spec.err) err = spec.err;
+        else if (spec.fail) htmlSpecFail = spec.fail;
+        else htmlSpecNote = spec.note || '';
+      } catch (e) {
+        htmlSpecFail = (e && e.message) || String(e);
+      }
+    }
+    // 3) 标签没问题，再用隐藏 iframe 真实跑一遍内联 JS（抓语法错/运行时错）
     if (!err) err = await checkHtmlWithIframe(raw);
   }
   else if (lang === 'py') err = checkPy(raw);
   else if (['md', 'txt', 'log', 'css'].includes(lang)) return '该类型（.' + lang + '）无需语法校验。';
   else return '暂不支持 .' + lang + ' 的语法校验（支持 json / js / mjs / html / py）。';
+  // HTML 实际执行超时属于「没验完」，不是「验失败」：放行并如实说明，避免随机误判
+  const softNote = (lang === 'html' || lang === 'htm' || lang === 'svg') && checkHtmlWithIframe.timedOut
+    ? '（注：HTML 实际执行超过 ' + Math.round(htmlCheckTimeoutMs() / 1000) + ' 秒已跳过，不计入失败——成因通常是外链资源或长循环，与代码对错无关；可在设置里调大「HTML 校验超时」）'
+    : '';
   if (err) return '校验未通过 ❌ ' + err + note;
-  return '校验通过 ✓ ' + (path || '代码') + note + (lang === 'py' ? '（前端无法真正执行 Python，仅基础结构检查）' : '');
+  // 第三态：校验器没跑起来 —— 既不能说「通过」（假绿灯），也不能说「未通过」（代码未必有错）
+  if (htmlSpecFail) {
+    return '校验未完成 ⚠ ' + (path || '代码') + '：HTML 规范级校验器加载失败（' + htmlSpecFail + '）。\n'
+      + '本地标签闭合检查与内联 JS 实执行已通过，但规范级检查（parse5 / html-validate）这一层没跑到，'
+      + '所以这**不等于**校验通过。常见原因：CDN 不可达、被代理拦、版本号不存在。' + softNote;
+  }
+  return '校验通过 ✓ ' + (path || '代码') + note + softNote + htmlSpecNote + (lang === 'py' ? '（前端无法真正执行 Python，仅基础结构检查）' : '');
 }
 
 /* ---------- AI TODO（待办清单，存 /config/todos.json，用户侧栏可见） ---------- */
@@ -5150,7 +5560,7 @@ const DEFAULT_SYSTEM = `你是一个运行在浏览器中的 AI Agent，拥有�
 11. 工具返回错误时，先读错误信息再决定重试或换策略，不要盲目重试相同参数。
 12. **同一文件同轮禁止混用 write_file 和 edit_file**。如必须先整写再修改，请分两轮：第一轮 write_file，下一轮再 edit_file。否则整写会抹掉编辑。
 13. **思考过程不跨轮次**：你的 reasoning 只对当轮有效，下一轮开始时会被整段丢弃，不会留在上下文里。所以只要有东西需要跨轮次（计划、待办、用户的决定、中途结论、文件路径、下一步动作），就必须输出到正文或写进文件；不要把「我记在心里了」当成保存。`;
-let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, toolTimeoutMs: 120000, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', autoPasteLong: true, disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true };
+const cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, toolTimeoutMs: 120000, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', autoPasteLong: true, disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true, htmlCheckTimeoutMs: 6000 };
 /* ---------- 密钥加密（主密码 + PBKDF2 + AES-GCM） ---------- */
 const SECRET_FIELDS = ['apiKey', 'giteeToken', 'wdPass', 'gistToken', 'kbToken', 'searchApiKey', 'csToken', 'csBridgeToken'];
 let masterPassword = '';  // 运行时主密码，不存储
@@ -7544,7 +7954,7 @@ function showWelcomeScreen() {
     }, 140);
   }
   const wi = $('welcomeInput');
-  if (wi) { wi.value = ''; setTimeout(() => wi.focus(), 300); }
+  if (wi) { wi.value = ''; setTimeout(() => wi.focus({ preventScroll: true }), 300); }
 }
 function hideWelcomeScreen() {
   const ws = $('welcomeScreen');
@@ -8022,7 +8432,8 @@ function updateScrollThumbnail() {
         }
       }
       const target = messagesEl.querySelector('.msg[data-idx="' + realIdx + '"]');
-      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // 只滚 .messages，不用 scrollIntoView（它会一路滚到 document，导致整页上移）
+      if (target) messagesEl.scrollTo({ top: target.offsetTop - messagesEl.offsetTop - 8, behavior: 'smooth' });
     });
     inner.addEventListener('mouseover', (e) => {
       const dot = e.target.closest('.scroll-thumb-item');
@@ -9520,7 +9931,7 @@ function setQuote(role, text) {
     bar.style.display = 'flex';
     bar.querySelector('.quote-text').textContent = (role === 'user' ? '我' : 'AI') + '：' + quotedMsg.text;
   }
-  $('input').focus();
+  $('input').focus({ preventScroll: true });
 }
 function clearQuote() {
   quotedMsg = null;
@@ -10430,6 +10841,7 @@ async function openSettings() {
     const sak = $('cfgSearchApiKey'); if (sak) sak.value = cfg.searchApiKey || '';
     $('cfgLoops').value = cfg.maxLoops; $('cfgSystem').value = cfg.systemPrompt || DEFAULT_SYSTEM;
     const ctt = $('cfgToolTimeout'); if (ctt) ctt.value = Math.round((cfg.toolTimeoutMs || 120000) / 1000);
+    const cht = $('cfgHtmlCheckTimeout'); if (cht) cht.value = Math.round(htmlCheckTimeoutMs() / 1000);
     $('cfgMaxToolCalls').value = cfg.maxToolCalls || 0; $('cfgMaxWallTime').value = cfg.maxWallTime || 0;
     $('cfgMaxInputTokens').value = cfg.maxInputTokens || 0; $('cfgMaxOutputTokens').value = cfg.maxOutputTokens || 0;
     $('cfgMaxCost').value = cfg.maxCost || 0;
@@ -10471,7 +10883,14 @@ async function openSettings() {
     $('settingsModal').classList.add('open');
   } catch (e) { console.error('打开设置失败', e); toast('打开设置失败：' + e.message, 'err'); }
 }
-function closeSettings() { const m = $('settingsModal'); if (m) m.classList.remove('open'); }
+function closeSettings() {
+  const m = $('settingsModal'); if (m) m.classList.remove('open');
+  // 设置若是「内联页」形式打开的（data-mode="settings"），关闭时退回对话页，避免停在空白设置模式
+  if (document.body.dataset.mode === 'settings') {
+    document.body.dataset.mode = 'chat';
+    document.querySelectorAll('.nav-rail-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === 'chat'));
+  }
+}
 function renderToolSwitches() {
   const box = $('toolSwitchList'); if (!box) return;
   const disabled = new Set(cfg.disabledTools || []);
@@ -10685,6 +11104,219 @@ async function maybeShowUpdateModal() {
   const m = $('updateModal'); if (m) m.classList.add('open');
 }
 
+/* ========== 页面切换（左侧导航栏） ========== */
+function switchPage(mode) {
+  const prev = document.body.dataset.mode || 'chat';
+  document.body.dataset.mode = mode;
+  document.querySelectorAll('.nav-rail-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  // 离开设置页时必须摘掉 open，否则 .modal.open 的 display:flex !important 会盖住新页面
+  if (prev === 'settings' && mode !== 'settings') {
+    const m = $('settingsModal'); if (m) m.classList.remove('open');
+  }
+  if (mode === 'tools') renderToolsPage();
+  if (mode === 'plugins') renderPluginsPage();
+  if (mode === 'vfs' && typeof renderTree === 'function') renderTree();
+  if (mode === 'settings') {
+    // 内联模式下也要填充表单（openSettings 里的 classList.add('open') 由 CSS 改写成静态铺满）
+    try { openSettings(); } catch (e) { console.warn('[page] openSettings 失败', e); }
+  }
+}
+
+/* ========== 工具流页 ========== */
+function renderToolsPage() {
+  const box = $('toolsPageBody');
+  if (!box) return;
+  const conv = (typeof conversation !== 'undefined' && Array.isArray(conversation)) ? conversation : [];
+  const items = [];
+  conv.forEach((m, i) => {
+    if (m && m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+      m.tool_calls.forEach(tc => {
+        items.push({
+          idx: i,
+          id: tc.id,
+          name: (tc.function && tc.function.name) || '',
+          args: (tc.function && tc.function.arguments) || '{}'
+        });
+      });
+    }
+  });
+  if (!items.length) {
+    box.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted)">当前对话还没有工具调用。</div>';
+    return;
+  }
+  box.innerHTML = items.map(it => {
+    const resultMsg = conv.find(m => m && m.role === 'tool' && m.tool_call_id === it.id);
+    const result = resultMsg ? String(resultMsg.content == null ? '' : resultMsg.content) : '(无结果)';
+    let argsPretty = it.args;
+    try { argsPretty = JSON.stringify(JSON.parse(it.args), null, 2); } catch (e) {}
+    return '<div class="tool-flow-item">' +
+      '<div class="tf-head"><code>' + escapeHtml(it.name) + '</code><span>#第 ' + (it.idx + 1) + ' 条消息</span></div>' +
+      '<details><summary>参数</summary><pre>' + escapeHtml(argsPretty) + '</pre></details>' +
+      '<details><summary>结果（' + result.length + ' 字符）</summary><pre>' + escapeHtml(result.slice(0, 3000)) + '</pre></details>' +
+      '</div>';
+  }).join('');
+}
+
+/* ========== 插件系统 ========== */
+// 安全边界：插件在页面主作用域执行，拥有页面全部权限（可读 cfg.apiKey、发请求、改 DOM）。
+// 因此默认全部禁用，首次启用必须经用户确认。
+const PLUGIN_DIR = '/plugins';
+const _loadedPlugins = new Map();   // id -> { unloadFns: [] }
+let _editingPluginId = null;
+const _AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+
+// 插件可用的 API（只给必要入口；VFS / cfg 是活引用，插件可改动，这是设计取舍）
+window.AgentAPI = {
+  get VFS() { return VFS; },
+  get cfg() { return cfg; },
+  toast: (msg, type) => toast(msg, type),
+  getConversation: () => (typeof conversation !== 'undefined' ? conversation : []),
+  executeTool: (name, args, onChunk, refCtx) => executeTool(name, args, onChunk, refCtx),
+  get version() { return APP_VERSION; }
+};
+
+async function listPlugins() {
+  let files = [];
+  try {
+    const dir = VFS.listDir(PLUGIN_DIR);
+    if (!dir || !Array.isArray(dir.files)) return [];
+    files = dir.files.filter(f => /\.json$/i.test(f));
+  } catch (e) { return []; }
+  const out = [];
+  for (const f of files) {
+    const id = f.replace(/\.json$/i, '');
+    try {
+      const raw = await VFS.getContent(PLUGIN_DIR + '/' + f);
+      const j = JSON.parse(raw || '{}');
+      out.push({ id, name: j.name || id, version: j.version || '0.0.0', enabled: !!j.enabled });
+    } catch (e) { out.push({ id, name: id, version: '?', enabled: false }); }
+  }
+  return out.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+async function loadPlugin(id) {
+  if (_loadedPlugins.has(id)) return;
+  const code = await VFS.getContent(PLUGIN_DIR + '/' + id + '.js');
+  if (code == null || String(code).trim() === '') { toast('插件代码为空：' + id, 'err'); return; }
+  const unloadFns = [];
+  const onUnload = (fn) => { if (typeof fn === 'function') unloadFns.push(fn); };
+  try {
+    // 用 AsyncFunction 包裹：插件代码不污染全局命名空间，且内部可用 await
+    const fn = new _AsyncFunction('AgentAPI', 'onUnload', String(code) + '\n//# sourceURL=plugin://' + id + '.js');
+    await fn(window.AgentAPI, onUnload);
+  } catch (e) {
+    toast('插件加载失败 ' + id + '：' + (e && e.message ? e.message : e), 'err');
+    return;
+  }
+  _loadedPlugins.set(id, { unloadFns });
+  console.log('[plugin] loaded:', id);
+}
+
+function unloadPlugin(id) {
+  const p = _loadedPlugins.get(id);
+  if (!p) return;
+  p.unloadFns.forEach(fn => { try { fn(); } catch (e) { console.warn('[plugin unload]', id, e); } });
+  _loadedPlugins.delete(id);
+  console.log('[plugin] unloaded:', id);
+}
+
+async function savePlugin(id, code, meta) {
+  if (!id || !/^[a-zA-Z0-9_\-.]+$/.test(id)) throw new Error('插件名只能包含字母、数字、下划线、横线、点');
+  await VFS.writeFile(PLUGIN_DIR + '/' + id + '.js', code);
+  await VFS.writeFile(PLUGIN_DIR + '/' + id + '.json', JSON.stringify({
+    name: (meta && meta.name) || id,
+    version: (meta && meta.version) || '0.0.1',
+    enabled: !!(meta && meta.enabled)
+  }, null, 2));
+}
+
+async function togglePlugin(id, enabled) {
+  const metaPath = PLUGIN_DIR + '/' + id + '.json';
+  const raw = await VFS.getContent(metaPath);
+  const j = JSON.parse(raw || '{}');
+  if (enabled) {
+    const ok = await customConfirm(
+      '插件能完全控制这个页面：读取 API Key、发送网络请求、修改对话和文件。\n\n只启用你信任的插件。确定启用「' +
+      (j.name || id) + '」？', 'plugin_enable');
+    if (!ok) { renderPluginsPage(); return; }
+  }
+  j.enabled = !!enabled;
+  await VFS.writeFile(metaPath, JSON.stringify(j, null, 2));
+  if (enabled) await loadPlugin(id);
+  else unloadPlugin(id);
+  renderPluginsPage();
+}
+
+async function renderPluginsPage() {
+  const box = $('pluginList');
+  if (!box) return;
+  const list = await listPlugins();
+  if (!list.length) {
+    box.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted)">还没有插件。点右上角「+ 新建插件」。</div>';
+    return;
+  }
+  box.innerHTML = list.map(p =>
+    '<div class="plugin-row">' +
+      '<span class="pr-name">' + escapeHtml(p.name) + '</span>' +
+      '<span class="pr-ver">v' + escapeHtml(p.version) + '</span>' +
+      '<span class="pr-status ' + (p.enabled ? 'on' : 'off') + '">' + (p.enabled ? '已启用' : '已禁用') + '</span>' +
+      '<button class="ghost-btn" data-act="toggle" data-id="' + escapeHtml(p.id) + '" type="button">' + (p.enabled ? '禁用' : '启用') + '</button>' +
+      '<button class="ghost-btn" data-act="edit" data-id="' + escapeHtml(p.id) + '" type="button">编辑</button>' +
+      '<button class="ghost-btn danger" data-act="del" data-id="' + escapeHtml(p.id) + '" type="button">删除</button>' +
+    '</div>'
+  ).join('');
+  box.querySelectorAll('button[data-act]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const act = btn.dataset.act;
+      try {
+        await requireVfs();
+        if (act === 'toggle') {
+          const cur = list.find(x => x.id === id);
+          await togglePlugin(id, !(cur && cur.enabled));
+        } else if (act === 'edit') {
+          await openPluginEditor(id);
+        } else if (act === 'del') {
+          if (!(await customConfirm('删除插件「' + id + '」？', 'plugin_delete'))) return;
+          unloadPlugin(id);
+          await VFS.deletePath(PLUGIN_DIR + '/' + id + '.js');
+          await VFS.deletePath(PLUGIN_DIR + '/' + id + '.json');
+          await renderPluginsPage();
+        }
+      } catch (e) { toast('操作失败：' + (e && e.message ? e.message : e), 'err'); }
+    });
+  });
+}
+
+async function openPluginEditor(id) {
+  _editingPluginId = id || null;
+  const ed = $('pluginEditor');
+  if (!ed) return;
+  ed.style.display = '';
+  if (id) {
+    const metaRaw = await VFS.getContent(PLUGIN_DIR + '/' + id + '.json');
+    let meta = {};
+    try { meta = JSON.parse(metaRaw || '{}'); } catch (e) {}
+    const code = (await VFS.getContent(PLUGIN_DIR + '/' + id + '.js')) || '';
+    $('pluginName').value = id;
+    $('pluginName').disabled = true;   // 编辑时不允许改 id，避免重命名残留旧文件
+    $('pluginVersion').value = meta.version || '0.0.1';
+    $('pluginEnabled').checked = !!meta.enabled;
+    $('pluginCode').value = code;
+  } else {
+    $('pluginName').value = '';
+    $('pluginName').disabled = false;
+    $('pluginVersion').value = '0.0.1';
+    $('pluginEnabled').checked = false;   // 新建默认不启用：策略上「默认全部禁用」
+    $('pluginCode').value = "// 示例：页面右下角弹一条提示\nAgentAPI.toast('插件已加载');\n\n// 可选：注册清理函数（禁用/重载时调用）\nonUnload(() => console.log('插件已卸载'));";
+  }
+  // 不用 scrollIntoView：它会一路滚到最外层 document，把整页顶上去（插件页本身 overflow:hidden，无需滚动）
+  const nameEl = $('pluginName');
+  if (nameEl) nameEl.focus({ preventScroll: true });
+}
+
 function bindEvents() {
   // 待办区：清空已完成（只删 done=true 的项）
   on('todoClearDone', 'click', () => {
@@ -10731,7 +11363,7 @@ function bindEvents() {
   }
   document.querySelectorAll('.welcome-suggestion').forEach(btn => {
     btn.addEventListener('click', () => {
-      if (wi) { wi.value = btn.textContent; wi.focus(); wi.style.height = 'auto'; wi.style.height = Math.min(wi.scrollHeight, 200) + 'px'; }
+      if (wi) { wi.value = btn.textContent; wi.focus({ preventScroll: true }); wi.style.height = 'auto'; wi.style.height = Math.min(wi.scrollHeight, 200) + 'px'; }
     });
   });
   on('btnSettings', 'click', (e) => { e.preventDefault(); e.stopPropagation(); openSettings(); });
@@ -10879,7 +11511,7 @@ function bindEvents() {
   on('btnCfgSave', 'click', async () => {
     cfg.baseUrl = $('cfgBaseUrl').value.trim() || 'https://api.openai.com/v1';
     cfg.apiKey = $('cfgApiKey').value.trim(); cfg.model = $('cfgModel').value.trim() || 'gpt-4o-mini';
-    cfg.temperature = parseFloat($('cfgTemp').value) || 0; cfg.reasoningEffort = $('cfgReasonEffort').value || ''; cfg.maxLoops = Math.max(1, parseInt($('cfgLoops').value) || 20); cfg.toolTimeoutMs = Math.max(5, Math.min(600, parseInt(($('cfgToolTimeout') || {}).value) || 120)) * 1000; cfg.maxToolCalls = Math.max(0, parseInt($('cfgMaxToolCalls').value) || 0); cfg.maxWallTime = Math.max(0, parseInt($('cfgMaxWallTime').value) || 0); cfg.maxInputTokens = Math.max(0, parseInt($('cfgMaxInputTokens').value) || 0); cfg.maxOutputTokens = Math.max(0, parseInt($('cfgMaxOutputTokens').value) || 0); cfg.maxCost = Math.max(0, parseFloat($('cfgMaxCost').value) || 0); cfg.corsProxy = ($('cfgCorsProxy').value || '').trim(); cfg.kbPlatform = $('cfgKbPlatform').value || 'github'; cfg.kbRepo = ($('cfgKbRepo').value || '').trim(); cfg.kbToken = ($('cfgKbToken').value || '').trim(); cfg.kbBranch = ($('cfgKbBranch').value || '').trim() || 'master'; cfg.searchApiKey = ($('cfgSearchApiKey').value || '').trim();
+    cfg.temperature = parseFloat($('cfgTemp').value) || 0; cfg.reasoningEffort = $('cfgReasonEffort').value || ''; cfg.maxLoops = Math.max(1, parseInt($('cfgLoops').value) || 20); cfg.toolTimeoutMs = Math.max(5, Math.min(600, parseInt(($('cfgToolTimeout') || {}).value) || 120)) * 1000; cfg.htmlCheckTimeoutMs = Math.max(1, Math.min(120, parseInt(($('cfgHtmlCheckTimeout') || {}).value) || 6)) * 1000; cfg.maxToolCalls = Math.max(0, parseInt($('cfgMaxToolCalls').value) || 0); cfg.maxWallTime = Math.max(0, parseInt($('cfgMaxWallTime').value) || 0); cfg.maxInputTokens = Math.max(0, parseInt($('cfgMaxInputTokens').value) || 0); cfg.maxOutputTokens = Math.max(0, parseInt($('cfgMaxOutputTokens').value) || 0); cfg.maxCost = Math.max(0, parseFloat($('cfgMaxCost').value) || 0); cfg.corsProxy = ($('cfgCorsProxy').value || '').trim(); cfg.kbPlatform = $('cfgKbPlatform').value || 'github'; cfg.kbRepo = ($('cfgKbRepo').value || '').trim(); cfg.kbToken = ($('cfgKbToken').value || '').trim(); cfg.kbBranch = ($('cfgKbBranch').value || '').trim() || 'master'; cfg.searchApiKey = ($('cfgSearchApiKey').value || '').trim();
     const am = $('cfgAgentMode'); if (am) cfg.agentMode = am.value;
     cfg.systemPrompt = $('cfgSystem').value || DEFAULT_SYSTEM;
     cfg.cloudBackend = $('cfgCloudBackend').value || 'gitee';
@@ -11134,6 +11766,42 @@ function bindEvents() {
   const beSel = $('cfgCloudBackend');
   if (beSel) beSel.addEventListener('change', updateCloudFields);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSettings(); });
+
+  // ==== 左侧导航栏 ====
+  document.querySelectorAll('.nav-rail-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchPage(btn.dataset.mode));
+  });
+  // ==== 插件页 ====
+  on('btnNewPlugin', 'click', () => {
+    if (document.body.dataset.mode !== 'plugins') switchPage('plugins');
+    openPluginEditor(null).catch(e => toast('打开编辑器失败：' + e.message, 'err'));
+  });
+  on('btnCancelPlugin', 'click', () => { const ed = $('pluginEditor'); if (ed) ed.style.display = 'none'; });
+  on('btnSavePlugin', 'click', async () => {
+    const id = _editingPluginId || ($('pluginName').value || '').trim();
+    const code = $('pluginCode').value;
+    const meta = {
+      name: ($('pluginName').value || '').trim() || id,
+      version: ($('pluginVersion').value || '').trim() || '0.0.1',
+      enabled: !!$('pluginEnabled').checked
+    };
+    if (!id) { toast('请填写插件名', 'err'); return; }
+    try {
+      await requireVfs();
+      // 启用前先过确认：插件拥有页面全部权限
+      if (meta.enabled) {
+        const ok = await customConfirm(
+          '插件能完全控制这个页面：读取 API Key、发送网络请求、修改对话和文件。\n\n只启用你信任的插件。确定启用「' + meta.name + '」？', 'plugin_enable');
+        if (!ok) meta.enabled = false;
+      }
+      await savePlugin(id, code, meta);
+      unloadPlugin(id);                   // 编辑后重载：先卸载旧实例，再按新代码加载
+      if (meta.enabled) await loadPlugin(id);
+      const ed = $('pluginEditor'); if (ed) ed.style.display = 'none';
+      toast('插件已保存：' + id);
+      await renderPluginsPage();
+    } catch (e) { toast('保存失败：' + (e && e.message ? e.message : e), 'err'); }
+  });
 }
 
 /* =========================================================
@@ -11190,6 +11858,26 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
   safe('mergeSessionsFromVfs', () => mergeSessionsFromVfs().catch(e => console.warn('[init] mergeSessions', e)));
   safe('loadTodos', () => loadTodos().catch(e => console.error('[init] loadTodos', e)));
   safe('renderTree', renderTree);
+  // 视口钉顶兜底：document 一旦被任何来源（滚动锚定/键盘/focus/scrollIntoView）推走，立即复位
+  // CSS 侧的 overflow:clip 已禁止程序滚动，这里再兜一层，防将来新代码回归
+  try {
+    const pinTop = () => {
+      const se = document.scrollingElement || document.documentElement;
+      if (se && se.scrollTop) se.scrollTop = 0;
+      if (document.body && document.body.scrollTop) document.body.scrollTop = 0;
+    };
+    window.addEventListener('scroll', pinTop, { passive: true });
+    if (window.visualViewport) window.visualViewport.addEventListener('scroll', pinTop, { passive: true });
+  } catch (e) { console.warn('[init] pinTop 绑定失败', e); }
+  // 启动时加载已启用插件（VFS 就绪之后；默认全部禁用，只有用户显式启用的才会执行）
+  // 关键：不 await —— 串行 await 会让首屏卡住，且个别插件/云同步读取失败会拖住整个初始化流程
+  setTimeout(() => {
+    listPlugins().then(plugins => {
+      for (const p of plugins) {
+        if (p.enabled) loadPlugin(p.id).catch(e => console.warn('[plugin boot]', p.id, e));
+      }
+    }).catch(e => console.warn('[init] 插件启动失败', e));
+  }, 0);
   if (memoryOnly) toast('IndexedDB 不可用，已降级为内存模式（关闭页面后数据会丢失）', 'err');
   if (!cfg.apiKey) setTimeout(() => toast('点击右上角「设置」填写 API Key 后即可开始'), 600);
 })();
