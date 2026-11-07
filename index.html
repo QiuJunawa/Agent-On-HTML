@@ -2157,8 +2157,51 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.07.14';
+const APP_VERSION = '2026.11.07.17';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.07.17',
+    date: '2026-11-07',
+    title: '插件可以给 AI 加工具了：新增 5 个插件管理工具 + AgentAPI.defineTool',
+    items: [
+      '新增工具 plugin_list：列出 /plugins/ 下所有插件的 id、名称、版本、启用状态，以及每个插件注册了哪些工具',
+      '新增工具 plugin_create：AI 直接写 /plugins/<id>.js 与 <id>.json 新建插件，执行前弹窗展示代码摘录让用户确认',
+      '新增工具 plugin_update：改代码或元信息，保存后先卸载旧实例再按新代码重载（已启用的立刻生效）',
+      '新增工具 plugin_delete / plugin_toggle：删插件、启停插件；启用会弹出「插件拥有页面全部权限」警告，禁用时连带注销它注册的工具',
+      '核心能力 AgentAPI.defineTool(name, spec, handler)：插件可注册新工具，注册后并入发给模型的 tools 列表，从下一轮起以正式工具身份可被 AI 直接调用',
+      '工具名约束：必须小写字母开头、2-41 字符，且不得与内置工具重名、不得跨插件重名；校验不通过直接报错，不会静默覆盖',
+      '归属与清理：靠 _loadingPluginId 记录插件归属，卸载插件自动注销其全部工具；插件加载失败会撤销已注册的工具，不留无主工具',
+      '安全兜底：plugin_create/update 的确认弹窗里附新代码前 12 行摘要，避免用户盲签；plugin_* 全部加入不转后台白名单，防止确认框与执行时序错位；plugin_list 加入只读去重白名单',
+      '系统提示词新增第 14 条：说明插件机制与 defineTool 用法，并明确要求未经用户同意不得创建或启用插件'
+    ]
+  },
+  {
+    v: '2026.11.07.16',
+    date: '2026-11-07',
+    title: '对话存档改为「一对话一文件」，与 .md 副本同名并排',
+    items: [
+      '存储结构：每个对话单独存 /conversations/<同名>.json，和同名 .md 并排（chat-20261107-204053.json 与 .md），文件树里一眼能对上',
+      '解决单文件过大的问题：原先所有对话挤在一个 /config/sessions.json 里，改一句就把整包重写；现在只写被改动的那一个文件，云同步增量也随之变小',
+      '重建方式更简单：重启时扫 /conversations/ 目录逐个 JSON.parse 即得，不再有任何 md 解析损耗，图片与 tool_call 配对完整保留',
+      '写入去重：内存记录每个分片上次写出的内容，内容没变就不写，避免无意义的云端改动；分片里不存 savedAt，只存 updatedAt',
+      '删除墓碑独立成 /conversations/_deleted.json（很小的数组），跨设备删除仍能互相生效，不会把删掉的对话同步回来',
+      '删除对话时一并清理该对话的 .json 分片与 .md 副本，不留幽灵存档',
+      '兼容旧数据：/config/sessions.json 仍会读取，只用于补充「分片里还没有」的会话，首次保存后自动转为分片存储',
+      'md 兜底仍然保留，但只在「连分片 JSON 都没有」时才解析，且会沿用 md 头部记录的 session id 与同名 json 路径，避免新建设重复对话'
+    ]
+  },
+  {
+    v: '2026.11.07.15',
+    date: '2026-11-07',
+    title: '会话存档改为「JSON 权威 + md 只读副本」，重建不再依赖解析 md',
+    items: [
+      '定位调整：/config/sessions.json（v3 原子块 JSON）是唯一权威源，无损保存 tool_calls 配对、图片、思考过程；/conversations/*.md 降级为人类可读副本，只写不读回',
+      '重建链路明确为三级：localStorage → sessions.json → 仅当 JSON 里缺这条会话时才用 md 兜底。正常情况下重建走 JSON，不再有任何 md 解析损耗',
+      '修会话身份重复：md 头部现在写入 <!-- session: id --> 与 <!-- schema: 3 -->，由 JSON 缺失、只剩 md 的设备重建时沿用同一个会话 id；此前重建 id 是 sess_md_<路径>，与同步来的 JSON 会话对不上，同一段对话会在列表里出现两份',
+      '删除对话时同步删除对应的 md 副本，避免墓碑之外的残留文件在文件树里变成幽灵存档',
+      '兼容：老 md 没有 session 注释块时仍按原规则（路径生成 id）重建，不会因此读不出来'
+    ]
+  },
   {
     v: '2026.11.07.14',
     date: '2026-11-07',
@@ -3192,7 +3235,52 @@ const TOOLS = [
   { type: 'function', function: { name: 'git_write', description: '写单个文件到 Git 仓库（自动判断新建/更新并提交）', parameters: { type: 'object', properties: { platform: { type: 'string', description: '平台：github / gitee / gitlab' }, repo: { type: 'string', description: 'owner/name' }, path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '完整内容，支持 [ref:/path] 占位符' }, message: { type: 'string', description: '可选，提交说明' }, ref: { type: 'string', description: '可选，分支/ref' } }, required: ['path', 'content'] } } },
   { type: 'function', function: { name: 'git_delete', description: '删除 Git 仓库里的单个文件并提交', parameters: { type: 'object', properties: { platform: { type: 'string', description: '平台：github / gitee / gitlab' }, repo: { type: 'string', description: 'owner/name' }, path: { type: 'string', description: '文件路径' }, message: { type: 'string', description: '可选，提交说明' }, ref: { type: 'string', description: '可选，分支/ref' } }, required: ['path'] } } },
   { type: 'function', function: { name: 'git_commit_batch', description: '批量提交多个文件变更到 Git 仓库（一次提交）', parameters: { type: 'object', properties: { platform: { type: 'string', description: '平台：github / gitee / gitlab' }, repo: { type: 'string', description: 'owner/name' }, actions: { type: 'array', items: { type: 'object', properties: { action: { type: 'string', description: 'create / update / delete' }, path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '内容（delete 时省略）' } }, required: ['path'] }, description: '变更列表' }, message: { type: 'string', description: '可选，提交说明' }, ref: { type: 'string', description: '可选，分支/ref' } }, required: ['actions'] } } },
+  { type: 'function', function: { name: 'plugin_list', description: '列出 VFS /plugins/ 下的插件：id、名称、版本、是否启用，以及各插件通过 AgentAPI.defineTool 注册的工具名', parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'plugin_create', description: '新建插件（写 /plugins/<id>.js 与 <id>.json）。插件代码在 AsyncFunction 内执行，可用 await、AgentAPI、onUnload；用 AgentAPI.defineTool(name, spec, handler) 可注册新工具，让它在后续轮次被当作正式工具调用。执行前会弹窗让用户确认（含代码摘要）', parameters: { type: 'object', properties: { id: { type: 'string', description: '插件 id（文件名），只能用字母数字下划线横线点' }, code: { type: 'string', description: '插件 JS 代码' }, name: { type: 'string', description: '可选，显示名' }, version: { type: 'string', description: '可选，默认 0.0.1' }, enabled: { type: 'boolean', description: '可选，是否立即启用（默认 false，启用要用户确认）' } }, required: ['id', 'code'] } } },
+  { type: 'function', function: { name: 'plugin_update', description: '修改已有插件的代码或元信息，保存后自动卸载旧实例并按新代码重载（已启用的插件会立刻生效）', parameters: { type: 'object', properties: { id: { type: 'string', description: '插件 id' }, code: { type: 'string', description: '可选，新代码；不传则保留原代码' }, name: { type: 'string', description: '可选，显示名' }, version: { type: 'string', description: '可选，版本号' }, enabled: { type: 'boolean', description: '可选，启用状态' } }, required: ['id'] } } },
+  { type: 'function', function: { name: 'plugin_delete', description: '删除插件（含它注册的全部工具），执行前会弹窗确认', parameters: { type: 'object', properties: { id: { type: 'string', description: '插件 id' } }, required: ['id'] } } },
+  { type: 'function', function: { name: 'plugin_toggle', description: '启用或禁用插件。启用会弹窗警告，因为插件拥有页面全部权限并能注册工具', parameters: { type: 'object', properties: { id: { type: 'string', description: '插件 id' }, enabled: { type: 'boolean', description: 'true=启用，false=禁用' } }, required: ['id', 'enabled'] } } },
 ];
+
+/* ---------- 插件工具注册表 ----------
+ * 插件可通过 AgentAPI.registerTool 注册工具，注册后并入发给模型的 tools 列表，
+ * 调用时由 executeTool 的 default 分支转发到插件 handler。
+ * 约束：不得与内置工具重名、不得跨插件重名；插件卸载时自动注销它注册的全部工具。 */
+const _pluginTools = new Map();      // 工具名 -> { spec, handler, pluginId }
+let _loadingPluginId = null;         // 正在加载的插件 id，供 registerTool 归属
+
+function registerPluginTool(name, spec, handler) {
+  const n = String(name || '').trim();
+  if (!/^[a-z][a-z0-9_]{1,40}$/.test(n)) throw new Error('工具名只能用小写字母开头、字母数字下划线、2-41 字符：' + n);
+  if (typeof handler !== 'function') throw new Error('registerTool 第三个参数必须是函数');
+  if (TOOLS.some(t => t.function && t.function.name === n)) throw new Error('与内置工具重名：' + n);
+  if (_pluginTools.has(n)) throw new Error('已被其他插件注册：' + n);
+  const s = (spec && typeof spec === 'object') ? spec : {};
+  _pluginTools.set(n, {
+    pluginId: _loadingPluginId || '',
+    handler,
+    spec: {
+      type: 'function',
+      function: {
+        name: n,
+        description: String(s.description || '（插件 ' + (_loadingPluginId || '未知') + ' 提供的工具）'),
+        parameters: (s.parameters && typeof s.parameters === 'object') ? s.parameters : { type: 'object', properties: {} }
+      }
+    }
+  });
+  return n;
+}
+function unregisterPluginTools(pluginId) {
+  let n = 0;
+  for (const [name, t] of [..._pluginTools]) {
+    if (t.pluginId === pluginId) { _pluginTools.delete(name); n++; }
+  }
+  return n;
+}
+function getPluginToolSpecs() { return [..._pluginTools.values()].map(t => t.spec); }
+function getPluginToolNames(pluginId) {
+  return [..._pluginTools.values()].filter(t => t.pluginId === pluginId).map(t => t.spec.function.name);
+}
 
 const MAX_READ = 30000;
 
@@ -4048,8 +4136,34 @@ async function executeTool(name, args, onChunk, refCtx) {
         t.notified = true;   // 取消结果不需要注入
         return '已标记任务 ' + id + ' 为取消。注意：已发出的网络请求可能仍在后台完成，但结果不会再注入。';
       }
-      default:
+      case 'plugin_list':
+        return await toolPluginList();
+      case 'plugin_create':
+        return await toolPluginCreate(args);
+      case 'plugin_update':
+        return await toolPluginUpdate(args);
+      case 'plugin_delete':
+        return await toolPluginDelete(args);
+      case 'plugin_toggle':
+        return await toolPluginToggle(args);
+      default: {
+        // 插件注册的工具：转发给插件自己的 handler
+        const pt = _pluginTools.get(name);
+        if (pt) {
+          try {
+            const r = await pt.handler(args, {
+              VFS, cfg, toast,
+              getConversation: () => conversation,
+              executeTool: (n, a, c, r2) => executeTool(n, a, c, r2)
+            });
+            if (r === undefined || r === null) return `工具 ${name} 执行完成（无返回值）`;
+            return typeof r === 'string' ? r : JSON.stringify(r, null, 2);
+          } catch (e) {
+            return `插件工具 ${name} 执行失败：${e && e.message ? e.message : e}`;
+          }
+        }
         return `错误：未知工具 ${name}`;
+      }
     }
   } catch (e) {
     return `工具执行异常：${e.message}`;
@@ -5648,7 +5762,8 @@ const DEFAULT_SYSTEM = `你是一个运行在浏览器中的 AI Agent，拥有�
 10. 用户在设置里配置了 GitHub Codespaces 时，你还拥有一个真实 Linux 环境：cs_exec 跑命令/装依赖/跑测试，cs_ls / cs_read / cs_write 操作远程文件，cs_download 把远程文本带回 VFS，cs_serve 起静态服务并返回 app.github.dev 公网预览地址。VFS 在浏览器里、Codespace 在远端，两者不是同一个文件系统，别混着说。
 11. 工具返回错误时，先读错误信息再决定重试或换策略，不要盲目重试相同参数。
 12. **同一文件同轮禁止混用 write_file 和 edit_file**。如必须先整写再修改，请分两轮：第一轮 write_file，下一轮再 edit_file。否则整写会抹掉编辑。
-13. **思考过程不跨轮次**：你的 reasoning 只对当轮有效，下一轮开始时会被整段丢弃，不会留在上下文里。所以只要有东西需要跨轮次（计划、待办、用户的决定、中途结论、文件路径、下一步动作），就必须输出到正文或写进文件；不要把「我记在心里了」当成保存。`;
+13. **思考过程不跨轮次**：你的 reasoning 只对当轮有效，下一轮开始时会被整段丢弃，不会留在上下文里。所以只要有东西需要跨轮次（计划、待办、用户的决定、中途结论、文件路径、下一步动作），就必须输出到正文或写进文件；不要把「我记在心里了」当成保存。
+14. **插件能给你加新工具**：plugin_list 看现有插件与它们注册的工具；plugin_create 写新插件（会弹窗让用户确认代码），插件里用 AgentAPI.defineTool(name, spec, handler) 注册工具，注册后从下一轮起就以正式工具身份出现在你的工具列表里。plugin_toggle 启用后才加载。插件拥有页面全部权限，**不要未经用户同意就创建或启用插件**；每次创建后都要在正文里说明插件做了什么、注册了什么工具。`;
 const cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, toolTimeoutMs: 120000, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', autoPasteLong: true, disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true, htmlCheckTimeoutMs: 6000 };
 /* ---------- 密钥加密（主密码 + PBKDF2 + AES-GCM） ---------- */
 const SECRET_FIELDS = ['apiKey', 'giteeToken', 'wdPass', 'gistToken', 'kbToken', 'searchApiKey', 'csToken', 'csBridgeToken'];
@@ -7858,7 +7973,7 @@ function normalizeStoredSession(s) {
   return {
     id: s.id, title: s.title || '新对话', conversation: conv,
     createdAt: s.createdAt || Date.now(), updatedAt: s.updatedAt || Date.now(),
-    mdFile: s.mdFile || ''
+    mdFile: s.mdFile || '', jsonFile: s.jsonFile || ''
   };
 }
 // 兼容读取：裸数组(v1) / {sessions:[]}(v2,v3) → 会话数组
@@ -7870,11 +7985,16 @@ function extractStoredSessions(j) {
 // 序列化会话（脱敏后同时用于 localStorage 与 VFS 双写）
 function serializeSessions() {
   try {
-    return sessions.filter(Boolean).map(s => ({
-      id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt,
-      mdFile: s.mdFile || '',   // 对应 /conversations/*.md 存档路径，跨设备去重用
-      items: conversationToItems(s.conversation || [])
-    }));
+    return sessions.filter(Boolean).map(s => {
+      // 固化分片路径：算一次就记到会话上，避免无基名时每次都算出新时间戳
+      if (!s.jsonFile) s.jsonFile = sessionJsonPath(s);
+      return {
+        id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt,
+        mdFile: s.mdFile || '',       // 对应 /conversations/*.md 可读副本路径
+        jsonFile: s.jsonFile,         // 对应 /conversations/*.json 权威存档路径（与 md 同名）
+        items: conversationToItems(s.conversation || [])
+      };
+    });
   } catch (e) { console.warn('序列化会话失败', e); return []; }
 }
 // 逐级瘦身，供 localStorage 配额不足时降级
@@ -7916,8 +8036,34 @@ function writeSessionsLocal(data) {
 // 说明：发送前的结构硬校验统一用 sanitizeApiMessages（定义在请求体安全化一节），
 // 这里不再重复实现，避免两个相似函数各自演化导致行为不一致。
 
-const SESSIONS_VFS_PATH = '/config/sessions.json';
+/* ---------- 会话分片存档（一个对话一个文件）----------
+ * 权威：/conversations/<同名>.json —— 与 <同名>.md 并排，一眼能对上
+ * 好处：单文件小、只写改动的那条、云同步增量小、重建＝读目录逐个 JSON.parse
+ * 兼容：旧版单文件 /config/sessions.json 仍可读，只在分片缺失时补充
+ * 墓碑：/conversations/_deleted.json（很小的数组），保证跨设备删掉的对话不被别人加回来
+ */
+const CONV_DIR = '/conversations/';
+const SESSIONS_VFS_PATH = '/config/sessions.json';        // 旧版单文件：只读兼容
+const SESSIONS_TOMB_VFS_PATH = '/conversations/_deleted.json';
 let _sessionsVfsTimer = null;
+let _writtenSessionFiles = new Map();   // path → 上次写入的 JSON 串，内容没变就不写，避免制造云端改动
+
+// 会话对应的 JSON 分片路径：有 md 存档就同名换后缀；否则生成 chat-时间戳 基名（与 md 天然同名）
+// 注意：调用方应把结果固化到 s.jsonFile，否则「无基名」分支每次都会算出不同的时间戳
+function newChatBase() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return CONV_DIR + 'chat-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate())
+    + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+}
+function sessionJsonPath(s) {
+  if (!s) return '';
+  if (s.jsonFile) return s.jsonFile;
+  if (s.mdFile && String(s.mdFile).startsWith(CONV_DIR)) return mdToJsonPath(s.mdFile);
+  return newChatBase() + '.json';
+}
+// md 路径 ↔ json 路径互换，md 兜底时用来判断「这条对话已经有结构化存档了」
+function mdToJsonPath(p) { return String(p || '').replace(/\.md$/i, '.json'); }
 // 删除墓碑：记录被删掉的会话 id / 存档路径，防止它们随云端同步或 md 兜底被"复活"
 const SESSIONS_DELETED_KEY = 'vfs_sessions_deleted';
 let deletedSessionIds = [];
@@ -7954,25 +8100,67 @@ function flushSaveSessions() {
   if (_saveSessionsTimer) { clearTimeout(_saveSessionsTimer); _saveSessionsTimer = null; }
   try { saveSessions(); } catch (e) {}
 }
+/* 逐会话落盘：一个对话一个 /conversations/*.json
+ * - 只写内容真的变了的文件（内存里記住上次写过的串），避免每轮都全量重写、白白制造云端改动
+ * - 分片里不写 savedAt，只写 updatedAt，这样字符串比较才有意义
+ * - 顺带维护墓碑文件，保证跨设备删除不被别人加回来
+ */
+let _writtenTomb = '';
+async function flushSessionsToVfs(data) {
+  if (!vfsReady || memoryOnly) return;   // VFS 未就绪或内存模式时跳过
+  // 1) 墓碑
+  try {
+    const tombBody = JSON.stringify({ schema: SESSIONS_SCHEMA, deleted: deletedSessionIds }, null, 1);
+    if (_writtenTomb !== tombBody) {
+      let curTomb = null;
+      try { curTomb = await VFS.getContent(SESSIONS_TOMB_VFS_PATH); } catch (e) {}
+      if (curTomb !== tombBody) await VFS.writeFile(SESSIONS_TOMB_VFS_PATH, tombBody);
+      _writtenTomb = tombBody;
+    }
+  } catch (e) { console.warn('墓碑写入失败', e); }
+
+  // 2) 每个对话一个文件
+  for (const s of data) {
+    if (!s || !s.id) continue;
+    const path = s.jsonFile || sessionJsonPath(s);
+    let body;
+    try {
+      body = JSON.stringify({
+        schema: SESSIONS_SCHEMA,
+        id: s.id, title: s.title || '新对话',
+        createdAt: s.createdAt, updatedAt: s.updatedAt,
+        mdFile: s.mdFile || '',
+        items: Array.isArray(s.items) ? s.items : []
+      }, null, 1);
+    } catch (e) { console.warn('会话分片序列化失败', s.id, e); continue; }
+    if (_writtenSessionFiles.get(path) === body) continue;
+    try {
+      let cur = null;
+      try { cur = await VFS.getContent(path); } catch (e) {}
+      if (cur === body) { _writtenSessionFiles.set(path, body); continue; }
+      await VFS.writeFile(path, body);
+      _writtenSessionFiles.set(path, body);
+    } catch (e) { console.warn('会话分片写入失败', path, e); }
+  }
+
+  // 3) 清掉已删会话残留的分片（只删墓碑里记过的，绝不动别的设备刚建的）
+  try {
+    const paths = Object.keys(VFS.meta).filter(k =>
+      k.startsWith(CONV_DIR) && k.endsWith('.json') && k !== SESSIONS_TOMB_VFS_PATH);
+    const alive = new Set(data.map(s => sessionJsonPath(s)));
+    for (const p of paths) {
+      if (alive.has(p)) continue;
+      if (!deletedSessionIds.includes(p)) continue;
+      try { await VFS.deletePath(p); } catch (e) {}
+      _writtenSessionFiles.delete(p);
+    }
+  } catch (e) {}
+}
 function scheduleSessionsSaveToVfs(data) {
   if (_sessionsVfsTimer) clearTimeout(_sessionsVfsTimer);
   _sessionsVfsTimer = setTimeout(async () => {
     _sessionsVfsTimer = null;
-    try {
-      if (!vfsReady || memoryOnly) return;   // VFS 未就绪或内存模式时跳过
-      const body = JSON.stringify({ schema: SESSIONS_SCHEMA, version: SESSIONS_SCHEMA, sessions: data, deleted: deletedSessionIds }, null, 1);
-      const cur = await VFS.getContent(SESSIONS_VFS_PATH, { bypassCache: true });
-      // 比较时忽略 savedAt：否则每次生成的时间戳都不同，永远判定为「内容变了」，白白制造云端改动
-      if (cur) {
-        try {
-          const curJ = JSON.parse(cur);
-          if (JSON.stringify(curJ.sessions || []) === JSON.stringify(data) &&
-              JSON.stringify(curJ.deleted || []) === JSON.stringify(deletedSessionIds)) return;
-        } catch (e) { /* 旧内容不是合法信封 → 直接覆盖写 */ }
-      }
-      const json = JSON.stringify({ schema: SESSIONS_SCHEMA, version: SESSIONS_SCHEMA, savedAt: Date.now(), sessions: data, deleted: deletedSessionIds }, null, 1);
-      await VFS.writeFile(SESSIONS_VFS_PATH, json);
-    } catch (e) { console.warn('会话写入 VFS 失败', e); }
+    await flushSessionsToVfs(data);
   }, 1000);
 }
 function loadSessions() {
@@ -8000,8 +8188,20 @@ function loadSessions() {
   currentSessionId = s.id;
   conversation = s.conversation;
 }
-/* ---------- 跨设备会话合并：VFS /config/sessions.json + /conversations/*.md 兜底 ---------- */
-// 把 /conversations/*.md 存档解析成对话消息（旧设备只留下 md 文件时的恢复路径）
+/* ---------- 跨设备会话重建：JSON 分片权威、md 兜底 ----------
+ * 权威：/conversations/<同名>.json —— 一个对话一个文件，与 <同名>.md 并排
+ * 兼容：旧版单文件 /config/sessions.json 仍会读，只补分片里没有的会话
+ * 副本：/conversations/*.md（人类可读归档，只读不写回）
+ * 顺序：localStorage → 分片 JSON → 旧单文件 → （仅当都没有）md 兜底
+ */
+// 读 md 头部元信息（会话 id / schema），老 md 没有注释块时返回空，由调用方退回按路径生成 id
+function parseConversationMeta(md) {
+  const src = String(md || '');
+  const sid = /<!--\s*session:\s*([^\s>]+)\s*-->/.exec(src);
+  const sch = /<!--\s*schema:\s*(\d+)\s*-->/.exec(src);
+  return { sessionId: sid ? sid[1].trim() : '', schema: sch ? Number(sch[1]) : 0 };
+}
+// 把 /conversations/*.md 存档解析成对话消息（只用于「JSON 里没有这条会话」的兜底重建）
 // 解析结果先整理成原子块再转消息，保证 tool_calls 与工具结果严格配对
 function parseConversationMarkdown(md) {
   const src = String(md || '');
@@ -8073,31 +8273,62 @@ function parseConversationMarkdown(md) {
   }
   return itemsToConversation(items);
 }
-// 从 VFS 合并会话：先读 /config/sessions.json，再用 /conversations/*.md 兜底补齐缺失会话
+// 从 VFS 重建会话：/conversations/*.json 分片权威 → 旧单文件兼容 → md 兜底
 async function mergeSessionsFromVfs() {
   try {
     let changed = false;
     const byId = new Map(sessions.map(s => [s.id, s]));
+    const byJson = new Map(sessions.filter(s => s.jsonFile).map(s => [s.jsonFile, s]));
     const byMd = new Map(sessions.filter(s => s.mdFile).map(s => [s.mdFile, s]));
-    // 1. /config/sessions.json（结构化，优先）
-    let remote = null;
+    const absorbTomb = (arr) => {
+      let touched = false;
+      for (const d of (Array.isArray(arr) ? arr : [])) {
+        if (typeof d === 'string' && !deletedSessionIds.includes(d)) { deletedSessionIds.push(d); touched = true; }
+      }
+      if (touched) { try { localStorage.setItem(SESSIONS_DELETED_KEY, JSON.stringify(deletedSessionIds)); } catch (e) {} }
+    };
+    // 0. 墓碑：/conversations/_deleted.json（别的设备删掉的对话），别在本机被 md 兜底复活
+    try {
+      const rawTomb = await VFS.getContent(SESSIONS_TOMB_VFS_PATH, { bypassCache: true });
+      if (rawTomb && String(rawTomb).trim()) {
+        const tj = JSON.parse(rawTomb);
+        absorbTomb(Array.isArray(tj) ? tj : (tj && tj.deleted));
+      }
+    } catch (e) {}
+
+    // 1. 分片 JSON（权威）：/conversations/*.json，一个文件一条对话
+    const remoteList = [];
+    const remoteJsonPaths = new Set();
+    const convJsonPaths = Object.keys(VFS.meta).filter(k =>
+      k.startsWith(CONV_DIR) && k.endsWith('.json') &&
+      k !== SESSIONS_TOMB_VFS_PATH && VFS.meta[k].type === 'file');
+    for (const p of convJsonPaths) {
+      let txt = '';
+      try { txt = (await VFS.getContent(p, { bypassCache: true })) || ''; } catch (e) { continue; }
+      if (!String(txt).trim()) continue;
+      let j = null;
+      try { j = JSON.parse(txt); } catch (e) { console.warn('会话分片解析失败', p, e); continue; }
+      if (!j || !j.id) continue;
+      j.jsonFile = p;
+      remoteList.push(j);
+      remoteJsonPaths.add(p);
+    }
+    // 1b. 旧版单文件 /config/sessions.json：只补分片里没有的会话，保证老数据不丢
     try {
       const raw = await VFS.getContent(SESSIONS_VFS_PATH, { bypassCache: true });
       if (raw && String(raw).trim()) {
-        // 兼容三种历史格式：v1 裸数组 / v2 {version:2,sessions} / v3 {schema:3,sessions}
         const j = JSON.parse(raw);
-        remote = extractStoredSessions(j);
-        // 云端墓碑（别的设备删掉的会话）并进本地，避免它在本机被 md 兜底复活
-        if (j && Array.isArray(j.deleted)) {
-          for (const d of j.deleted) {
-            if (typeof d === 'string' && !deletedSessionIds.includes(d)) deletedSessionIds.push(d);
-          }
-          try { localStorage.setItem(SESSIONS_DELETED_KEY, JSON.stringify(deletedSessionIds)); } catch (e) {}
+        if (j && Array.isArray(j.deleted)) absorbTomb(j.deleted);
+        for (const r of extractStoredSessions(j)) {
+          if (!r || !r.id) continue;
+          if (remoteList.some(x => x.id === r.id)) continue;   // 分片已有，分片优先
+          remoteList.push(r);
         }
       }
-    } catch (e) { console.warn('读取云端会话失败', e); }
-    if (remote) {
-      for (const r of remote) {
+    } catch (e) { console.warn('读取旧版会话文件失败', e); }
+
+    if (remoteList.length) {
+      for (const r of remoteList) {
         if (!r || !r.id) continue;
         if (deletedSessionIds.includes(r.id)) continue;            // 已删除，不再恢复
         if (r.mdFile && deletedSessionIds.includes(r.mdFile)) continue;
@@ -8108,10 +8339,11 @@ async function mergeSessionsFromVfs() {
           const s = {
             id: norm.id, title: norm.title, conversation: norm.conversation,
             createdAt: norm.createdAt, updatedAt: norm.updatedAt,
-            mdFile: norm.mdFile || '', fromCloud: true
+            mdFile: norm.mdFile || '', jsonFile: norm.jsonFile || '', fromCloud: true
           };
           sessions.push(s); byId.set(s.id, s);
           if (s.mdFile) byMd.set(s.mdFile, s);
+          if (s.jsonFile) byJson.set(s.jsonFile, s);
           changed = true;
         } else if ((r.updatedAt || 0) > (local.updatedAt || 0)) {
           // 云端更新且内容不同 → 以云端为准（跨设备编辑后回到旧设备的情况）
@@ -8123,16 +8355,21 @@ async function mergeSessionsFromVfs() {
           local.title = norm.title || local.title;
           local.updatedAt = norm.updatedAt || local.updatedAt;
           if (norm.mdFile) local.mdFile = norm.mdFile;
+          if (norm.jsonFile) local.jsonFile = norm.jsonFile;
           if (local.id === currentSessionId) conversation = local.conversation;
           changed = true;
         }
       }
     }
-    // 2. /conversations/*.md 兜底：本地完全没有对应存档的会话，按文件重建
-    const convPaths = Object.keys(VFS.meta).filter(k => k.startsWith('/conversations/') && k.endsWith('.md') && VFS.meta[k].type === 'file');
+    // 2. /conversations/*.md 兜底：只有「连分片 JSON 都没有」的存档才走 md 解析（会丢图片，尽量不用）
+    const convPaths = Object.keys(VFS.meta).filter(k => k.startsWith(CONV_DIR) && k.endsWith('.md') && VFS.meta[k].type === 'file');
     for (const p of convPaths) {
       if (byMd.has(p)) continue;
+      const jsonP = mdToJsonPath(p);
+      if (remoteJsonPaths.has(jsonP)) continue;   // 已有权威分片，不需要解析 md
+      if (byJson.has(jsonP)) continue;
       if (deletedSessionIds.includes(p)) continue;   // 这条存档已被删过，不再复活
+      if (deletedSessionIds.includes(jsonP)) continue;
       let md = '';
       try { md = (await VFS.getContent(p, { bypassCache: true })) || ''; } catch (e) { continue; }
       const conv = parseConversationMarkdown(md);
@@ -8140,9 +8377,17 @@ async function mergeSessionsFromVfs() {
       const mt = VFS.meta[p].mtime || Date.now();
       const firstUser = conv.find(x => x.role === 'user');
       const title = (contentToText(firstUser && firstUser.content) || '').replace(/\s+/g, ' ').trim().slice(0, 24) || '历史对话';
-      const s = { id: 'sess_md_' + p.replace(/[^a-zA-Z0-9]/g, '_'), title, conversation: conv, createdAt: mt, updatedAt: mt, mdFile: p, fromCloud: true };
-      if (byId.has(s.id)) continue;
-      sessions.push(s); byId.set(s.id, s); byMd.set(p, s);
+      const meta = parseConversationMeta(md);
+      const sid = (meta.sessionId && !deletedSessionIds.includes(meta.sessionId))
+        ? meta.sessionId
+        : 'sess_md_' + p.replace(/[^a-zA-Z0-9]/g, '_');
+      const s = {
+        id: sid, title, conversation: conv, createdAt: mt, updatedAt: mt,
+        mdFile: p, jsonFile: jsonP,   // 固化分片路径：下次保存直接补齐同名的 *.json，不再另建
+        fromCloud: true, fromMd: true
+      };
+      if (byId.has(sid)) continue;
+      sessions.push(s); byId.set(s.id, s); byMd.set(p, s); byJson.set(jsonP, s);
       changed = true;
     }
     if (changed) {
@@ -8193,7 +8438,10 @@ function deleteSession(id) {
   const idx = sessions.findIndex(x => x.id === id);
   if (idx < 0) return;
   const gone = sessions[idx];
-  markSessionDeleted(id, gone && gone.mdFile);   // 留墓碑，防止云端/md 兜底把它复活
+  const jsonToKill = gone ? sessionJsonPath(gone) : '';
+  const mdToKill = gone && gone.mdFile;
+  markSessionDeleted(id, mdToKill);        // 留墓碑：会话 id + md 路径
+  if (jsonToKill) markSessionDeleted(jsonToKill, jsonToKill);   // 墓碑同时记下 json 分片路径
   sessions.splice(idx, 1);
   if (currentSessionId === id) {
     const next = sessions[Math.min(idx, sessions.length - 1)];
@@ -8201,6 +8449,16 @@ function deleteSession(id) {
   }
   saveSessions();
   renderSessionList();
+  // 权威分片与可读副本一起清掉，避免残留文件在文件树里变成幽灵存档
+  Promise.resolve().then(async () => {
+    if (jsonToKill) {
+      try { await VFS.deletePath(jsonToKill); } catch (e) { console.warn('删除对话分片失败', e); }
+      _writtenSessionFiles.delete(jsonToKill);
+    }
+    if (mdToKill) {
+      try { await VFS.deletePath(mdToKill); } catch (e) { console.warn('删除对话副本失败', e); }
+    }
+  }).catch(() => {});
 }
 function cloneSession(id) {
   const src = sessions.find(x => x.id === id);
@@ -9064,12 +9322,14 @@ const NO_BACKGROUND_TOOLS = new Set([
   'write_file', 'edit_file', 'append_file', 'delete_path', 'move_path', 'create_dir',
   'todo_add', 'todo_done', 'todo_remove', 'todo_list',
   'ask_user', 'undo_last', 'undo_list', 'deliver', 'render_chart',
-  'task_status', 'task_cancel', 'remember', 'kb_write', 'kb_delete', 'kb_commit'
+  'task_status', 'task_cancel', 'remember', 'kb_write', 'kb_delete', 'kb_commit',
+  // 插件管理会写文件并触发用户确认弹窗，转后台会让确认框与执行时序错位
+  'plugin_create', 'plugin_update', 'plugin_delete', 'plugin_toggle'
 ]);
 
 // 只读工具白名单：同一轮内参数完全相同时直接复用上次结果，避免重复调用刷出重复卡片
 const EXEC_READ_ONLY_TOOLS = new Set([
-  'read_file', 'list_files', 'search_files', 'kb_list', 'kb_search', 'kb_read'
+  'read_file', 'list_files', 'search_files', 'kb_list', 'kb_search', 'kb_read', 'plugin_list'
 ]);
 
 function makeTaskId() {
@@ -10076,6 +10336,10 @@ async function streamChat() {
     let availTools = (cfg.disabledTools && cfg.disabledTools.length) ? TOOLS.filter(t => !cfg.disabledTools.includes((t.function && t.function.name) || t.name)) : TOOLS;
     // Codespaces 没配好就不把 cs_* 工具发给模型，省 token 也免得它乱试
     if (!csToolsReady()) availTools = availTools.filter(t => !CS_TOOL_NAMES.includes((t.function && t.function.name) || t.name));
+    // 并入插件注册的工具（同样受「设置 → 工具」禁用开关约束）
+    const disabled = (cfg.disabledTools && cfg.disabledTools.length) ? cfg.disabledTools : null;
+    const plugSpecs = getPluginToolSpecs().filter(t => !disabled || !disabled.includes(t.function && t.function.name));
+    if (plugSpecs.length) availTools = availTools.concat(plugSpecs);
     payload.tools = availTools; payload.tool_choice = 'auto';
   }   // 任务模式才带工具定义（纯聊天省 Token），过滤用户禁用的工具
   if (cfg.reasoningEffort === 'disabled') {
@@ -10950,17 +11214,30 @@ function redactText(text, secrets) {
 
 async function saveConversation() {
   if (!conversation.length) return;
+  // 让 md 副本与 json 权威分片同名并排：优先沿用已固化的 jsonFile 基名
+  const _cur0 = sessions.find(x => x.id === currentSessionId);
+  if (_cur0) {
+    if (!_cur0.jsonFile) _cur0.jsonFile = sessionJsonPath(_cur0);
+    if (!sessionFile && _cur0.jsonFile) sessionFile = String(_cur0.jsonFile).replace(/\.json$/i, '.md');
+  }
   if (!sessionFile) {
-    const d = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    sessionFile = '/conversations/chat-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.md';
+    sessionFile = newChatBase() + '.md';
   }
   // 把存档路径记到会话上，供跨设备去重（下次 saveSessions 一并持久化）
   try {
     const _cur = sessions.find(x => x.id === currentSessionId);
-    if (_cur && _cur.mdFile !== sessionFile) { _cur.mdFile = sessionFile; saveSessions(); }
+    if (_cur) {
+      let dirty = false;
+      if (_cur.mdFile !== sessionFile) { _cur.mdFile = sessionFile; dirty = true; }
+      if (!_cur.jsonFile) { _cur.jsonFile = mdToJsonPath(sessionFile); dirty = true; }
+      if (dirty) saveSessions();
+    }
   } catch (e) {}
-  const head = '# 对话记录 ' + new Date().toLocaleString('zh-CN') + '\n\n';
+  // md 只是人类可读的旁路副本，权威数据是 /config/sessions.json（v3 原子块）。
+  // 头部记下会话 id：让「JSON 缺失、只剩 md」的设备能重建出同一个会话 id，不与同步来的 JSON 会话重复。
+  const head = '# 对话记录 ' + new Date().toLocaleString('zh-CN') + '\n\n'
+    + '<!-- session: ' + (currentSessionId || '') + ' -->\n'
+    + '<!-- schema: ' + SESSIONS_SCHEMA + ' -->\n\n';
   const secrets = await collectSensitiveSecrets();
   await VFS.writeFile(sessionFile, head + redactText(convToMarkdown(), secrets));
 }
@@ -11299,14 +11576,23 @@ function closeSettings() {
 function renderToolSwitches() {
   const box = $('toolSwitchList'); if (!box) return;
   const disabled = new Set(cfg.disabledTools || []);
-  box.innerHTML = TOOLS.map(t => {
-    const name = t.function && t.function.name || t.name || 'unknown';
-    const desc = t.function && t.function.description || t.description || '';
+  // 内置工具 + 插件注册的工具（后者带上插件归属，方便用户判断来源）
+  const rows = TOOLS.map(t => ({
+    name: t.function && t.function.name || t.name || 'unknown',
+    desc: t.function && t.function.description || t.description || '',
+    by: ''
+  }));
+  for (const [nm, t] of _pluginTools) {
+    rows.push({ name: nm, desc: t.spec.function.description || '', by: t.pluginId });
+  }
+  box.innerHTML = rows.map(r => {
+    const name = r.name, desc = r.desc;
+    const tag = r.by ? ' <span style="color:var(--text-muted);font-size:11px">（插件 ' + escapeHtml(r.by) + '）</span>' : '';
     return `
     <label class="tool-switch-item" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;padding:6px 8px;border-radius:6px;background:var(--bg-panel)">
-      <input type="checkbox" data-tool="${name}" ${disabled.has(name) ? '' : 'checked'} style="width:auto;accent-color:var(--accent)">
-      <code style="color:#9ec3ff">${name}</code>
-      <span style="color:var(--text-secondary);font-size:11.5px">${desc.slice(0, 50)}</span>
+      <input type="checkbox" data-tool="${escapeHtml(name)}" ${disabled.has(name) ? '' : 'checked'} style="width:auto;accent-color:var(--accent)">
+      <code style="color:#9ec3ff">${escapeHtml(name)}</code>${tag}
+      <span style="color:var(--text-secondary);font-size:11.5px">${escapeHtml(String(desc).slice(0, 50))}</span>
     </label>`;
   }).join('');
 }
@@ -11579,7 +11865,12 @@ window.AgentAPI = {
   toast: (msg, type) => toast(msg, type),
   getConversation: () => (typeof conversation !== 'undefined' ? conversation : []),
   executeTool: (name, args, onChunk, refCtx) => executeTool(name, args, onChunk, refCtx),
-  get version() { return APP_VERSION; }
+  get version() { return APP_VERSION; },
+  // 注册新工具：注册后该工具会并入发给模型的 tools 列表，可被 AI 直接调用
+  defineTool: (name, spec, handler) => registerPluginTool(name, spec, handler),
+  // 别名：老文档/示例里可能写成 registerTool，两者等价
+  registerTool: (name, spec, handler) => registerPluginTool(name, spec, handler),
+  get pluginId() { return _loadingPluginId; }
 };
 
 async function listPlugins() {
@@ -11607,24 +11898,30 @@ async function loadPlugin(id) {
   if (code == null || String(code).trim() === '') { toast('插件代码为空：' + id, 'err'); return; }
   const unloadFns = [];
   const onUnload = (fn) => { if (typeof fn === 'function') unloadFns.push(fn); };
+  _loadingPluginId = id;   // 让 registerTool 知道这批工具属于哪个插件
   try {
     // 用 AsyncFunction 包裹：插件代码不污染全局命名空间，且内部可用 await
     const fn = new _AsyncFunction('AgentAPI', 'onUnload', String(code) + '\n//# sourceURL=plugin://' + id + '.js');
     await fn(window.AgentAPI, onUnload);
   } catch (e) {
+    _loadingPluginId = null;
+    unregisterPluginTools(id);   // 加载失败要撤掉刚才注册的工具，避免留下无主工具
     toast('插件加载失败 ' + id + '：' + (e && e.message ? e.message : e), 'err');
     return;
   }
+  _loadingPluginId = null;
   _loadedPlugins.set(id, { unloadFns });
-  console.log('[plugin] loaded:', id);
+  const tn = getPluginToolNames(id);
+  console.log('[plugin] loaded:', id, tn.length ? ('工具: ' + tn.join(', ')) : '');
 }
 
 function unloadPlugin(id) {
   const p = _loadedPlugins.get(id);
-  if (!p) return;
+  if (!p) { unregisterPluginTools(id); return; }
   p.unloadFns.forEach(fn => { try { fn(); } catch (e) { console.warn('[plugin unload]', id, e); } });
   _loadedPlugins.delete(id);
-  console.log('[plugin] unloaded:', id);
+  const n = unregisterPluginTools(id);   // 插件卸载时注销它注册的全部工具
+  console.log('[plugin] unloaded:', id, n ? ('注销工具 ' + n + ' 个') : '');
 }
 
 async function savePlugin(id, code, meta) {
@@ -11635,6 +11932,137 @@ async function savePlugin(id, code, meta) {
     version: (meta && meta.version) || '0.0.1',
     enabled: !!(meta && meta.enabled)
   }, null, 2));
+}
+
+/* ---------- 供 AI 调用的插件管理工具 ---------- */
+function validPluginId(id) { return !!id && /^[a-zA-Z0-9_\-.]+$/.test(id); }
+
+// 代码摘录：给确认弹窗看，避免用户盲签
+function pluginCodeDigest(code) {
+  const lines = String(code || '').split('\n');
+  const head = lines.slice(0, 12).join('\n');
+  return head + (lines.length > 12 ? '\n...（共 ' + lines.length + ' 行）' : '');
+}
+
+async function toolPluginList() {
+  await requireVfs();
+  const list = await listPlugins();
+  if (!list.length) return '当前没有插件。/plugins/ 目录为空。';
+  const lines = list.map(p => {
+    const tools = getPluginToolNames(p.id);
+    return '- ' + p.id + ' | ' + p.name + ' | v' + p.version + ' | ' + (p.enabled ? '已启用' : '已禁用') +
+      (tools.length ? ' | 注册工具: ' + tools.join(', ') : '');
+  });
+  const orphan = [..._pluginTools.values()].filter(t => !list.some(p => p.id === t.pluginId));
+  if (orphan.length) lines.push('- 未归属已加载插件的工具: ' + orphan.map(t => t.spec.function.name).join(', '));
+  return '插件共 ' + list.length + ' 个：\n' + lines.join('\n');
+}
+
+async function toolPluginCreate(args) {
+  await requireVfs();
+  const id = String(args.id || '').trim();
+  const code = String(args.code || '');
+  if (!validPluginId(id)) return '错误：插件 id 只能用字母、数字、下划线、横线、点';
+  if (!code.trim()) return '错误：code 不能为空';
+  const exists = await VFS.getContent(PLUGIN_DIR + '/' + id + '.json');
+  if (exists) return '错误：插件 ' + id + ' 已存在，请改用 plugin_update';
+  const meta = {
+    name: String(args.name || id).trim() || id,
+    version: String(args.version || '0.0.1').trim() || '0.0.1',
+    enabled: !!args.enabled
+  };
+  // 创建即执行代码，必须让用户看清再放行
+  const ok = await customConfirm(
+    'AI 要新建插件「' + meta.name + '」（' + id + '）' + (meta.enabled ? '并立即启用' : '') + '。\n\n' +
+    '插件能完全控制这个页面：读取 API Key、发送网络请求、修改对话和文件。\n\n' +
+    '代码摘录：\n' + pluginCodeDigest(code), 'plugin_create');
+  if (!ok) return '用户拒绝创建插件 ' + id + '。';
+  await savePlugin(id, code, meta);
+  if (meta.enabled) await loadPlugin(id);
+  try { if (typeof renderPluginsPage === 'function') await renderPluginsPage(); } catch (e) {}
+  const tn = getPluginToolNames(id);
+  return '已创建插件 ' + id + '（' + (meta.enabled ? '已启用' : '未启用') + '）' +
+    (tn.length ? '，注册工具：' + tn.join(', ') : '') +
+    (meta.enabled ? '' : '。要用它的工具请调用 plugin_toggle 启用，或让用户在插件页启用');
+}
+
+async function toolPluginUpdate(args) {
+  await requireVfs();
+  const id = String(args.id || '').trim();
+  if (!validPluginId(id)) return '错误：插件 id 只能用字母、数字、下划线、横线、点';
+  const metaRaw = await VFS.getContent(PLUGIN_DIR + '/' + id + '.json');
+  if (metaRaw == null) return '错误：插件 ' + id + ' 不存在，请先用 plugin_create';
+  let meta = {};
+  try { meta = JSON.parse(metaRaw || '{}'); } catch (e) {}
+  const oldCode = (await VFS.getContent(PLUGIN_DIR + '/' + id + '.js')) || '';
+  const newCode = (args.code === undefined || args.code === null) ? oldCode : String(args.code);
+  if (!newCode.trim()) return '错误：更新后代码为空';
+  if (args.name !== undefined) meta.name = String(args.name).trim() || id;
+  if (args.version !== undefined) meta.version = String(args.version).trim() || meta.version || '0.0.1';
+  const codeChanged = newCode !== oldCode;
+  if (codeChanged) {
+    const ok = await customConfirm(
+      'AI 要修改插件「' + (meta.name || id) + '」的代码。\n\n' +
+      '插件能完全控制这个页面：读取 API Key、发送网络请求、修改对话和文件。\n\n' +
+      '新代码摘录：\n' + pluginCodeDigest(newCode), 'plugin_update');
+    if (!ok) return '用户拒绝修改插件 ' + id + '。';
+  }
+  // 启用状态变化走 togglePlugin 的警告流程，这里不直接改 enabled
+  if (args.enabled !== undefined && !!args.enabled !== !!meta.enabled) {
+    const t = await toolPluginToggle({ id, enabled: !!args.enabled });
+    if (/^用户拒绝/.test(t)) return t;
+  }
+  await savePlugin(id, newCode, meta);
+  unloadPlugin(id);                      // 先卸载旧实例（连带注销旧工具）
+  if (meta.enabled) await loadPlugin(id);
+  try { if (typeof renderPluginsPage === 'function') await renderPluginsPage(); } catch (e) {}
+  const tn = getPluginToolNames(id);
+  return '已更新插件 ' + id + (codeChanged ? '（代码已替换并重载）' : '（元信息已更新）') +
+    (meta.enabled ? (tn.length ? '，当前注册工具：' + tn.join(', ') : '') : '，当前未启用');
+}
+
+async function toolPluginDelete(args) {
+  await requireVfs();
+  const id = String(args.id || '').trim();
+  if (!validPluginId(id)) return '错误：插件 id 只能用字母、数字、下划线、横线、点';
+  const metaRaw = await VFS.getContent(PLUGIN_DIR + '/' + id + '.json');
+  if (metaRaw == null) return '错误：插件 ' + id + ' 不存在';
+  let name = id;
+  try { name = JSON.parse(metaRaw || '{}').name || id; } catch (e) {}
+  const tn = getPluginToolNames(id);
+  const ok = await customConfirm(
+    '删除插件「' + name + '」（' + id + '）？' +
+    (tn.length ? '\n\n它注册的工具也会一并消失：' + tn.join(', ') : '') + '\n\n不可撤销。', 'plugin_delete');
+  if (!ok) return '用户拒绝删除插件 ' + id + '。';
+  unloadPlugin(id);
+  try { await VFS.deletePath(PLUGIN_DIR + '/' + id + '.js'); } catch (e) {}
+  try { await VFS.deletePath(PLUGIN_DIR + '/' + id + '.json'); } catch (e) {}
+  try { if (typeof renderPluginsPage === 'function') await renderPluginsPage(); } catch (e) {}
+  return '已删除插件 ' + id + (tn.length ? '，注销工具：' + tn.join(', ') : '');
+}
+
+async function toolPluginToggle(args) {
+  await requireVfs();
+  const id = String(args.id || '').trim();
+  if (!validPluginId(id)) return '错误：插件 id 只能用字母、数字、下划线、横线、点';
+  const metaRaw = await VFS.getContent(PLUGIN_DIR + '/' + id + '.json');
+  if (metaRaw == null) return '错误：插件 ' + id + ' 不存在';
+  const want = !!args.enabled;
+  const cur = await listPlugins();
+  const p = cur.find(x => x.id === id);
+  if (p && p.enabled === want) return '插件 ' + id + ' 已经是' + (want ? '启用' : '禁用') + '状态，无需操作。';
+  if (want) {
+    const ok = await customConfirm(
+      'AI 请求启用插件「' + id + '」。\n\n' +
+      '插件能完全控制这个页面：读取 API Key、发送网络请求、修改对话和文件，还能注册新工具给 AI 调用。\n\n' +
+      '只启用你信任的插件。确定启用？', 'plugin_enable');
+    if (!ok) return '用户拒绝启用插件 ' + id + '。';
+  }
+  await togglePlugin(id, want);
+  const tn = getPluginToolNames(id);
+  return '插件 ' + id + ' 已' + (want ? '启用' : '禁用') +
+    (want && tn.length ? '，注册工具：' + tn.join(', ') + '（下一轮对话起可调用）' : '') +
+    (!want ? '，其注册的工具已注销' : '');
 }
 
 async function togglePlugin(id, enabled) {
