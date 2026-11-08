@@ -847,6 +847,8 @@
   .plugin-row .pr-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
   .plugin-row .pr-status.on { background: rgba(112,192,112,.15); color: var(--text-success); }
   .plugin-row .pr-status.off { background: var(--bg-hover); color: var(--text-muted); }
+  .plugin-row .pr-status.stale { background: rgba(240,180,80,.16); color: var(--text-warning); }
+  .ghost-btn.stale-btn { border-color: var(--text-warning); color: var(--text-warning); }
   .plugin-editor { padding: 14px 18px; border-top: 1px solid var(--border); overflow-y: auto; flex: 0 0 auto; max-height: 65%; }
   .pe-head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
   .pe-head input[type=text] { background: var(--bg-panel); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
@@ -2189,8 +2191,22 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.07.20';
+const APP_VERSION = '2026.11.08.2';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.08.2',
+    date: '2026-11-08',
+    title: '插件页检测代码变动：状态变「代码已改动」并出现「重新加载」按钮',
+    items: [
+      '新增 pluginCodeHash()：djb2 + 长度后缀的轻量指纹，只用来判断「磁盘上的代码」和「内存里正跑着的代码」是不是同一份',
+      'loadPlugin 成功时把 codeHash 记进 _loadedPlugins；renderPluginsPage 对每个已启用插件重算指纹比对，不一致则打上 stale 标记',
+      '状态徽标新增琥珀色「代码已改动」，并在该行多出一个「重新加载」按钮（悬停高亮）。重新加载只做 unloadPlugin + loadPlugin，不动 enabled 字段，所以不会再弹一次权限确认',
+      '检测的三个跳过条件：未启用的插件不比（没加载谈不上旧代码）、_loadedPlugins 里查不到的跳过（加载失败或未加载）、读文件抛异常时 continue（不因 IO 问题误报）',
+      '配套改动：插件页「编辑」改为跳到 VFS 页并 openFile(/plugins/<id>.js)，改完点导航栏回插件页即可看到「代码已改动」提示，形成闭环',
+      '修复 AgentAPI.pluginId 恒为 null：原实现是读全局 _loadingPluginId 的 getter，而该变量在 loadPlugin 末尾被置回 null，插件在工具 handler 里（而非加载期）读它拿到的永远是 null。现在 loadPlugin 用 Object.create(window.AgentAPI) 造一份专属 api，把 pluginId 钉死成闭包里的 id，其余成员走原型链读全局',
+      '注意：编辑按钮改的是磁盘文件，已加载的插件实例仍在跑旧代码，必须禁用→启用（或点「重新加载」）才生效',
+    ]
+  },
   {
     v: '2026.11.07.20',
     date: '2026-11-07',
@@ -11974,6 +11990,15 @@ async function listPlugins() {
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }
 
+// 代码指纹：只用来判断「磁盘上的代码和内存里跑的是不是同一份」。
+// djb2 + 长度后缀，32 位碰撞概率极低且够轻；不存整份代码，避免 _loadedPlugins 挂大字符串。
+function pluginCodeHash(code) {
+  const s = String(code == null ? '' : code);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(16) + ':' + s.length;
+}
+
 async function loadPlugin(id) {
   if (_loadedPlugins.has(id)) return;
   const code = await VFS.getContent(PLUGIN_DIR + '/' + id + '.js');
@@ -11981,10 +12006,17 @@ async function loadPlugin(id) {
   const unloadFns = [];
   const onUnload = (fn) => { if (typeof fn === 'function') unloadFns.push(fn); };
   _loadingPluginId = id;   // 让 registerTool 知道这批工具属于哪个插件
+  // 注意：AgentAPI.pluginId 是读全局 _loadingPluginId 的 getter，而它在本函数末尾会被置回 null。
+  // 插件如果在工具 handler（而非加载期）里读 pluginId，拿到的永远是 null。
+  // 所以这里给每个插件一份继承自全局的专属 api，把 pluginId 钉死成闭包里的 id。
+  const apiForPlugin = Object.create(window.AgentAPI);
+  Object.defineProperty(apiForPlugin, 'pluginId', {
+    get: () => id, enumerable: true, configurable: true
+  });
   try {
     // 用 AsyncFunction 包裹：插件代码不污染全局命名空间，且内部可用 await
     const fn = new _AsyncFunction('AgentAPI', 'onUnload', String(code) + '\n//# sourceURL=plugin://' + id + '.js');
-    await fn(window.AgentAPI, onUnload);
+    await fn(apiForPlugin, onUnload);
   } catch (e) {
     _loadingPluginId = null;
     unregisterPluginTools(id);   // 加载失败要撤掉刚才注册的工具，避免留下无主工具
@@ -11992,7 +12024,7 @@ async function loadPlugin(id) {
     return;
   }
   _loadingPluginId = null;
-  _loadedPlugins.set(id, { unloadFns });
+  _loadedPlugins.set(id, { unloadFns, codeHash: pluginCodeHash(code) });
   const tn = getPluginToolNames(id);
   console.log('[plugin] loaded:', id, tn.length ? ('工具: ' + tn.join(', ')) : '');
 }
@@ -12441,16 +12473,32 @@ async function renderPluginsPage() {
     box.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted)">还没有插件。点右上角「+ 新建插件」。</div>';
     return;
   }
-  box.innerHTML = list.map(p =>
-    '<div class="plugin-row">' +
+  // 检测「磁盘上的代码」和「内存里正跑着的代码」是否一致。
+  // 只比对已启用、且确实被 loadPlugin 记录过指纹的插件；读文件抛异常时跳过，避免 IO 问题误报。
+  const staleSet = new Set();
+  for (const p of list) {
+    if (!p.enabled) continue;
+    const rec = _loadedPlugins.get(p.id);
+    if (!rec || !rec.codeHash) continue;
+    try {
+      const code = await VFS.getContent(PLUGIN_DIR + '/' + p.id + '.js');
+      if (code == null) continue;
+      if (pluginCodeHash(code) !== rec.codeHash) staleSet.add(p.id);
+    } catch (e) { continue; }
+  }
+  box.innerHTML = list.map(p => {
+    const stale = staleSet.has(p.id);
+    return '<div class="plugin-row">' +
       '<span class="pr-name">' + escapeHtml(p.name) + '</span>' +
       '<span class="pr-ver">v' + escapeHtml(p.version) + '</span>' +
-      '<span class="pr-status ' + (p.enabled ? 'on' : 'off') + '">' + (p.enabled ? '已启用' : '已禁用') + '</span>' +
+      '<span class="pr-status ' + (stale ? 'stale' : (p.enabled ? 'on' : 'off')) + '">' +
+        (stale ? '代码已改动' : (p.enabled ? '已启用' : '已禁用')) + '</span>' +
+      (stale ? '<button class="ghost-btn stale-btn" data-act="reload" data-id="' + escapeHtml(p.id) + '" type="button">重新加载</button>' : '') +
       '<button class="ghost-btn" data-act="toggle" data-id="' + escapeHtml(p.id) + '" type="button">' + (p.enabled ? '禁用' : '启用') + '</button>' +
       '<button class="ghost-btn" data-act="edit" data-id="' + escapeHtml(p.id) + '" type="button">编辑</button>' +
       '<button class="ghost-btn danger" data-act="del" data-id="' + escapeHtml(p.id) + '" type="button">删除</button>' +
-    '</div>'
-  ).join('');
+    '</div>';
+  }).join('');
   box.querySelectorAll('button[data-act]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
@@ -12460,8 +12508,21 @@ async function renderPluginsPage() {
         if (act === 'toggle') {
           const cur = list.find(x => x.id === id);
           await togglePlugin(id, !(cur && cur.enabled));
+        } else if (act === 'reload') {
+          // 不动 enabled 字段：用户本来就授权过这个插件，不该再弹一次权限确认
+          unloadPlugin(id);
+          await loadPlugin(id);
+          await renderPluginsPage();
+          toast('已重新加载 ' + id, 'ok');
         } else if (act === 'edit') {
-          await openPluginEditor(id);
+          // 直接跳到 VFS 页编辑磁盘上的 <id>.js，避免维护一套独立的内嵌代码编辑器
+          const jsPath = PLUGIN_DIR + '/' + id + '.js';
+          const node = VFS.stat(jsPath);
+          if (!node || node.type !== 'file') { toast('找不到 ' + jsPath, 'err'); return; }
+          const ed = $('pluginEditor'); if (ed) ed.style.display = 'none';   // 内嵌编辑器若开着，别让它残留在底下
+          switchPage('vfs');
+          await openFile(jsPath);
+          toast('改完记得回插件页点「重新加载」，否则跑的还是旧代码', 'ok');
         } else if (act === 'del') {
           if (!(await customConfirm('删除插件「' + id + '」？', 'plugin_delete'))) return;
           unloadPlugin(id);
