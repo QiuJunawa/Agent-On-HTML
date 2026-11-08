@@ -21,7 +21,8 @@ Put an API Base URL + API Key in `⚙ 设置 → AI 模型` and start chatting.
 
 ## GitHub Codespaces 支持
 
-![设置 → Codespace](docs/codespace-settings.png)
+<img width="1901" height="965" alt="image" src="https://github.com/user-attachments/assets/c56969aa-8c18-4227-abc0-edbda1758f97" />
+
 
 页面本身跑在浏览器里，碰不到真实文件系统、也执行不了命令。接上 Codespace 之后，
 Agent 就有了一个**真实 Linux 环境**：
