@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content, viewport-fit=cover">
 <title>AI Agent · IndexedDB 虚拟文件系统</title>
 <!-- 默认字体方案：UI 层书写感（Comic Neue + 霞鹜文楷），正文无衬线（Inter + 思源黑体）；用户可在设置 → 界面里自定义并持久化到 VFS /config/fonts.json -->
 <link rel="preconnect" href="https://miaoda.feishu.cn">
@@ -160,7 +160,10 @@
   ::-webkit-scrollbar-track { background: transparent; }
 
   /* height:100% 跟随 body content box：写 100vh 会在移动端比可视区高，多出的部分变成 document 滚动余量 */
-  .app { display: flex; height: 100%; overflow: hidden; }
+  /* 移动端键盘：--kb-inset 由 JS 按 visualViewport 实时写入。
+     安卓 Chrome 因 interactive-widget=resizes-content 会自行重排，此时 inset 算出来是 0，不会重复扣减；
+     iOS Safari 不支持该 viewport 关键字，靠这个变量把 app 高度缩到键盘上方，输入框才不会被盖住。 */
+  .app { display: flex; height: calc(100% - var(--kb-inset, 0px)); overflow: hidden; }
 
   /* ---------- 侧边栏 ---------- */
   .sidebar {
@@ -505,7 +508,7 @@
   .msg.tool .bubble { padding: 0; background: transparent; border: none; }
 
   .composer {
-    display: flex; flex-direction: column; gap: 10px; padding: 12px 18px 16px;
+    display: flex; flex-direction: column; gap: 10px; padding: 12px 18px calc(16px + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--border); background: var(--bg-main);
   }
   .composer .input-row { display: flex; gap: 10px; align-items: flex-end; }
@@ -2325,8 +2328,46 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.08.10';
+const APP_VERSION = '2026.11.08.13';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.08.13',
+    date: '2026-11-08',
+    title: '修 Git 工具全部失效：executeTool 漏了 5 个 case',
+    items: [
+      '症状：git_list / git_read / git_write / git_delete / git_commit_batch 一调用就返回「错误：未知工具 git_xxx」，设置页里的 Git 仓库配置因此形同废纸',
+      '根因：工具定义（TOOLS 数组）、实现函数（toolGitList / toolGitRead / toolGitWrite / toolGitDelete / toolGitCommitBatch）、平台抽象（gitApi / gitFetch / gitTree / gitFetchFileContent / gitCommit）、设置页配置、EARLY_EXEC_TOOLS 白名单都在，唯独 executeTool 的 switch 里没有这 5 个 case，调用一路落到 switch 末尾的「未知工具」兜底分支',
+      '修复：在 executeTool 里 cs_serve 之后、web_search 之前补上 5 个 case，分别转给对应的 toolGit* 函数',
+      '此前 2026-11-01 与 2026-11-07 两次发版都记录了「新增 Git 工具」，但只是把工具写进定义和知识库，从未真正接进执行分派——定义里有、执行时没有，所以模型看得见工具、调用必失败'
+    ]
+  },
+  {
+    v: '2026.11.08.12',
+    date: '2026-11-08',
+    title: '标题生成器关掉思考模式，temperature 调到 0.3',
+    items: [
+      '原来传 reasoning_effort: "low"：只降强度、没关思考，部分网关仍默认开思考，模型先"想"再输出，首屏标题明显变慢',
+      '更要命的是思考会吃掉 token 预算，content 常常就是空的——代码里那段「从 thinking 里捞标题」的兜底清洗逻辑，正是为这个坑打的补丁',
+      '现在改用主对话同一套写法 thinking: { type: "disabled" } 显式关闭，比只传 effort 更明确；标题是纯抽取任务，不需要推理',
+      'temperature 0 → 0.3：标题要稳定但不能死板，0 在部分模型上会退化成重复/复读，留一点抖动反而更稳',
+      '保留 thinking 兜底清洗逻辑未删：模型/网关行为不完全可控，真出现空 content 时仍能从思考里捞，属于免费保险'
+    ]
+  },
+  {
+    v: '2026.11.08.11',
+    date: '2026-11-08',
+    title: '修手机端点输入框时被软键盘盖住（页面不会上抬）',
+    items: [
+      '根因一：html, body 上写了 overflow: clip（此前为修"页面莫名上滚"而加），它连程序滚动一起禁掉，键盘弹出后想滚都滚不了，输入框只能被压在键盘底下',
+      '根因二：viewport 只写了 width=device-width, initial-scale=1，没有 interactive-widget。安卓 Chrome 默认不重排布局视口，键盘只是盖在上面，CSS 里 100%/100vh 的高度一点没变',
+      '修法一：viewport 增加 interactive-widget=resizes-content（让安卓 Chrome 自己把布局视口缩到键盘上方）与 viewport-fit=cover（刘海屏安全区）',
+      '修法二：.app 高度由 100% 改为 calc(100% - var(--kb-inset, 0px))；安卓上 Chrome 重排后算出的 inset 是 0，不会重复扣减，iOS Safari 不支持该关键字则全靠这条兜住',
+      '新增 visualViewport 的 resize/scroll 监听实时写入 --kb-inset：差值取 innerHeight - (vv.height + vv.offsetTop)，小于 80px 当地址栏抖动忽略，避免界面轻微跳',
+      '键盘弹起后若正在聊天，用 requestAnimationFrame 重新 scrollBottom，把原本在底部的消息拉回视野',
+      '.composer 底部 padding 加 env(safe-area-inset-bottom)，避免全面屏手势条压住输入框',
+      'orientationchange 后延迟 120ms 重新同步一次：横竖屏切换时 visualViewport 的数值会晚一拍才稳定'
+    ]
+  },
   {
     v: '2026.11.08.10',
     date: '2026-11-08',
@@ -4353,6 +4394,11 @@ async function executeTool(name, args, onChunk, refCtx) {
       case 'cs_write': return await csToolWrite(args);
       case 'cs_download': return await csToolDownload(args);
       case 'cs_serve': return await csToolServe(args);
+      case 'git_list': return await toolGitList(args);
+      case 'git_read': return await toolGitRead(args);
+      case 'git_write': return await toolGitWrite(args);
+      case 'git_delete': return await toolGitDelete(args);
+      case 'git_commit_batch': return await toolGitCommitBatch(args);
       case 'web_search': return await toolWebSearch(args);
       case 'web_fetch': return await toolWebFetch(args);
       case 'kb_write': return await kbWrite(args.path, args.content, args.message, args.start_line, args.end_line, args.start_col, args.end_col);
@@ -11248,8 +11294,15 @@ async function generateTitle(firstUserMsg) {
         { role: 'system', content: '你是对话标题生成器。根据用户消息，生成一个不超过15字的简短标题，直接输出标题，不要加引号、不要解释、不要换行。' },
         { role: 'user', content: String(firstUserMsg).slice(0, 500) }
       ],
-      temperature: 0,
-      reasoning_effort: 'low',
+      // 标题生成是纯抽取任务，不需要思考：开思考会让模型先"想"再输出，
+      // 既拖慢首屏标题出现的速度，又可能把 token 预算花在思考上导致 content 为空
+      // （下面那段"从 thinking 里捞标题"的兜底就是为这个坑写的）。
+      // 统一用主对话那套写法显式关掉，而不是只传 reasoning_effort:'low'：
+      // 只传 effort 时部分网关仍会默认开思考，thinking:disabled 才是明确的开关。
+      thinking: { type: 'disabled' },
+      // temperature 0.3：标题要稳定（同一句话不该每次生成截然不同的结果），
+      // 但 0 在部分模型上会退化成重复/复读，留一点抖动更稳。
+      temperature: 0.3,
       stream: true
     };
     console.log('[generateTitle] 请求 →', buildEndpoint(), JSON.parse(JSON.stringify(reqBody)));
@@ -13667,6 +13720,30 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
     window.addEventListener('scroll', pinTop, { passive: true });
     if (window.visualViewport) window.visualViewport.addEventListener('scroll', pinTop, { passive: true });
   } catch (e) { console.warn('[init] pinTop 绑定失败', e); }
+  // 移动端软键盘：visualViewport 比 window.innerHeight 少的那部分就是被键盘(和地址栏)盖住的高度，
+  // 写进 --kb-inset 让 .app 收缩到键盘上方，输入框才不会被压住。
+  // 安卓 Chrome 在 interactive-widget=resizes-content 下会自己重排、innerHeight 同步变小，
+  // 算出来的差值是 0，不会重复扣减；iOS Safari 不支持该关键字，全靠这条兜住。
+  try {
+    const vv = window.visualViewport;
+    if (vv) {
+      const root = document.documentElement;
+      const syncKb = () => {
+        const raw = Math.round((window.innerHeight || 0) - (vv.height + vv.offsetTop));
+        // 小于 80px 一律当作地址栏收起/展开的抖动，不当键盘处理，否则界面会跟着轻微跳
+        const kb = raw > 80 ? raw : 0;
+        root.style.setProperty('--kb-inset', kb + 'px');
+        // 键盘把可视区压小后，原来在底部的消息会跑出视野，重新贴底
+        if (kb && typeof scrollBottom === 'function') {
+          requestAnimationFrame(() => { try { scrollBottom(); } catch (e) {} });
+        }
+      };
+      vv.addEventListener('resize', syncKb, { passive: true });
+      vv.addEventListener('scroll', syncKb, { passive: true });
+      window.addEventListener('orientationchange', () => setTimeout(syncKb, 120), { passive: true });
+      syncKb();
+    }
+  } catch (e) { console.warn('[init] 键盘高度绑定失败', e); }
   // 启动时加载已启用插件（VFS 就绪之后；默认全部禁用，只有用户显式启用的才会执行）
   // 关键：不 await —— 串行 await 会让首屏卡住，且个别插件/云同步读取失败会拖住整个初始化流程
   setTimeout(() => {
