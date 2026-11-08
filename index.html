@@ -647,10 +647,12 @@
   .toast {
     background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary);
     padding: 9px 18px; border-radius: 10px; font-size: 13px; opacity: 0;
-    transform: translateY(8px); transition: .25s;
+    /* --flip 由 FLIP 补位逻辑写入：兄弟增删导致的位移靠它做反向补偿，再动画归零。
+       入场位移（8px）叠在同一个 transform 里，两者互不覆盖。 */
+    transform: translateY(calc(var(--flip, 0px) + 8px)); transition: .25s;
     max-width: 80vw; text-align: center; box-shadow: 0 4px 16px var(--shadow);
   }
-  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.show { opacity: 1; transform: translateY(var(--flip, 0px)); }
   .toast.err { border-color: var(--bg-error); color: var(--text-error); }
   .toast.with-progress { position: relative; overflow: hidden; }
   .toast .progress-text { position: relative; z-index: 1; display: block; }
@@ -674,6 +676,21 @@
   .welcome-title .cursor { display: inline-block; width: 2px; height: 28px; background: var(--accent); margin-left: 2px; vertical-align: middle; animation: blink 0.8s infinite; }
   @keyframes blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0; } }
   .welcome-subtitle { font-size: 14px; color: var(--text-secondary); }
+  /* 欢迎语下方的哲理短句：主句逐字打出（比标题快），出处随后淡入 */
+  .welcome-quote {
+    max-width: 620px; min-height: 48px; padding: 0 12px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 5px; text-align: center; font-family: var(--font-ui);
+  }
+  .welcome-quote .wq-text {
+    font-size: 14px; line-height: 1.75; color: var(--text-secondary);
+    letter-spacing: .4px;
+  }
+  .welcome-quote .wq-src {
+    font-size: 11.5px; letter-spacing: .6px; color: var(--text-muted);
+    opacity: 0; transition: opacity .35s ease;   /* 正文打完再淡入，先占位防跳动 */
+  }
+  .welcome-quote .wq-src.in { opacity: 1; }
   .welcome-profile-bar { width: 100%; max-width: 620px; display: flex; justify-content: center; }
   .welcome-profile-bar select {
     padding: 6px 12px; border-radius: 8px; background: var(--bg-card);
@@ -908,7 +925,7 @@
     <div class="messages" id="messages"></div>
     <div class="welcome-screen" id="welcomeScreen" style="display:none">
       <div class="welcome-title" id="welcomeTitle"></div>
-      <div class="welcome-subtitle">管理文件 · 写代码 · 查资料 · 做计算</div>
+      <div class="welcome-quote" id="welcomeQuote"></div>
       <div class="welcome-profile-bar">
         <select id="welcomeProfileSelect" title="切换 AI 预设"></select>
       </div>
@@ -1085,7 +1102,7 @@
       </div>
       <div class="field">
         <label>工具超时（秒，超时转后台；写操作与交互类工具不转）</label>
-        <input id="cfgToolTimeout" type="number" min="5" max="600" value="120">
+        <input id="cfgToolTimeout" type="number" min="1" max="600" value="120">
       </div>
       <div class="field">
         <label>HTML 校验超时（秒，check_code 实执行 HTML 的等待上限）</label>
@@ -1507,6 +1524,21 @@
   </div>
 </div>
 
+<!-- 自定义输入弹窗（重命名 / 移动 / 编辑消息用） -->
+<div class="modal" id="inputModal" style="z-index:3100">
+  <div class="modal-box" style="width:440px">
+    <h3 id="inputModalTitle" style="margin:0 0 12px;font-size:15px">输入</h3>
+    <div id="inputModalMsg" style="font-size:13px;line-height:1.7;color:#aab3c2;margin-bottom:10px;white-space:pre-wrap;word-break:break-all"></div>
+    <input type="text" id="inputModalField" spellcheck="false" style="width:100%;background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:9px 11px;color:var(--text-primary);font-size:13px;font-family:ui-monospace,monospace">
+    <textarea id="inputModalText" spellcheck="false" style="display:none;width:100%;min-height:180px;max-height:52vh;background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:9px 11px;color:var(--text-primary);font-size:13px;line-height:1.65;font-family:ui-monospace,monospace;resize:vertical;box-sizing:border-box"></textarea>
+    <div class="modal-actions" style="margin-top:16px">
+      <span id="inputModalHint" style="flex:1;font-size:11.5px;color:var(--text-muted);align-self:center"></span>
+      <button class="ghost-btn" id="inputModalCancel" type="button">取消</button>
+      <button class="btn-primary" id="inputModalOk" type="button">确定</button>
+    </div>
+  </div>
+</div>
+
 <input type="file" id="importFile" accept=".json,.zip" style="display:none">
 <input type="file" id="uploadFile" accept=".zip,.txt,.md,.json,.csv,.log,.js,.mjs,.py,.html,.css,.xml,.yaml,.yml,.ini,.conf,.sh,.toml,.sql,.ts,.tsx,.jsx,.c,.cpp,.h,.java,.rs,.go" style="display:none" multiple>
 
@@ -1618,6 +1650,8 @@ const ICON_PATHS = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  paste: '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>',
+  move: '<polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/>',
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
@@ -1668,18 +1702,49 @@ function icon(name, cls) {
   return '<svg class="ico-svg' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" aria-hidden="true">' + p + '</svg>';
 }
 
+/* ---------- Toast 堆叠补位（FLIP） ----------
+ * .toast-wrap 是 fixed + bottom 的 flex 列，新增/移除一条会撑高或压矮容器，
+ * 导致已有 toast 的真实位置整体平移。layout 变化不触发 transition，看上去就是"跳"一下。
+ * 做法：DOM 变动前记下每条 toast 的 top → 变动后用 --flip 反向补偿到旧视觉位置 → 下一帧归零，
+ * 由 .toast 的 transform transition 平滑滑过去。 */
+function _toastTops(wrap) {
+  const map = new Map();
+  wrap.querySelectorAll('.toast').forEach(t => map.set(t, t.getBoundingClientRect().top));
+  return map;
+}
+function _toastFlip(wrap, prev) {
+  wrap.querySelectorAll('.toast').forEach(t => {
+    const before = prev.get(t);
+    if (before == null) return;              // 新增的那条走自己的入场动画，不参与补位
+    const delta = before - t.getBoundingClientRect().top;
+    if (!delta) return;
+    t.style.transition = 'none';             // 先瞬移到旧视觉位置（不产生动画）
+    t.style.setProperty('--flip', delta + 'px');
+    requestAnimationFrame(() => {
+      t.style.transition = '';               // 恢复 CSS 里的 .25s
+      t.style.setProperty('--flip', '0px');  // 再滑回真实位置
+    });
+  });
+}
+
 function toast(msg, type) {
   let wrap = document.querySelector('.toast-wrap');
   if (!wrap) { wrap = document.createElement('div'); wrap.className = 'toast-wrap'; document.body.appendChild(wrap); }
   const t = document.createElement('div');
   t.className = 'toast' + (type === 'err' ? ' err' : '');
   t.textContent = msg;
+  const prev = _toastTops(wrap);   // 插入前记录，插入后补位
   wrap.appendChild(t);
+  _toastFlip(wrap, prev);
   requestAnimationFrame(() => t.classList.add('show'));
   const duration = type === 'err' ? 5000 : 2400;
   setTimeout(() => {
     t.classList.remove('show');
-    setTimeout(() => t.remove(), 300);
+    setTimeout(() => {
+      const prevTops = _toastTops(wrap);   // 移除前记录，移除后让剩下的往下滑
+      t.remove();
+      _toastFlip(wrap, prevTops);
+    }, 300);
   }, duration);
 }
 
@@ -1703,7 +1768,9 @@ function toastProgress(msg, opts) {
     bar.style.bottom = pos === 'bottom' ? '0' : 'auto';
     bar.style.background = 'linear-gradient(90deg, #4a9eff, #6cb4ff)';
   }
+  const prev = _toastTops(wrap);   // 进度条 toast 也要参与堆叠补位
   wrap.appendChild(t);
+  _toastFlip(wrap, prev);
   requestAnimationFrame(() => t.classList.add('show'));
   let closed = false;
   return {
@@ -1719,7 +1786,11 @@ function toastProgress(msg, opts) {
       if (closed) return;
       closed = true;
       t.classList.remove('show');
-      setTimeout(() => t.remove(), 300);
+      setTimeout(() => {
+        const prevTops = _toastTops(wrap);
+        t.remove();
+        _toastFlip(wrap, prevTops);   // 它消失后，其余 toast 平滑下滑
+      }, 300);
     }
   };
 }
@@ -1911,6 +1982,69 @@ function initConfirmModal() {
   const cm = $('confirmModal');
   if (cm) cm.addEventListener('click', e => { if (e.target.id === 'confirmModal') cancel(); });
 }
+
+/* ---------- 自定义输入弹窗（替代原生 prompt：iframe / 移动端都能用） ---------- */
+let _promptResolver = null;
+let _promptBound = false;
+let _promptActive = null;   // 当前生效的输入元素（单行 input 或多行 textarea）
+function _promptValue() { return _promptActive ? _promptActive.value : ''; }
+function _closePrompt(val) {
+  const modal = $('inputModal');
+  if (modal) modal.style.display = 'none';
+  _promptActive = null;
+  const r = _promptResolver; _promptResolver = null;
+  if (r) r(val);
+}
+/* opts.multiline=true → 用多行 textarea（编辑消息这类长文本）
+   opts.title → 弹窗标题；opts.hint → 底部操作提示 */
+function customPrompt(message, defaultValue, opts) {
+  const o = opts || {};
+  const modal = $('inputModal');
+  const field = $('inputModalField');
+  const area = $('inputModalText');
+  if (!modal || !field) { return Promise.resolve(null); }
+  const useArea = !!o.multiline && !!area;
+  if (!_promptBound) {
+    _promptBound = true;
+    const ok = $('inputModalOk'), cancel = $('inputModalCancel');
+    if (ok) ok.addEventListener('click', () => _closePrompt(_promptValue()));
+    if (cancel) cancel.addEventListener('click', () => _closePrompt(null));
+    modal.addEventListener('click', e => { if (e.target.id === 'inputModal') _closePrompt(null); });
+    // 单行：回车提交；多行：回车换行，Ctrl/Cmd+回车提交；两者 Esc 都取消
+    field.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); _closePrompt(_promptValue()); }
+      else if (e.key === 'Escape') { e.preventDefault(); _closePrompt(null); }
+    });
+    if (area) area.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); _closePrompt(_promptValue()); }
+      else if (e.key === 'Escape') { e.preventDefault(); _closePrompt(null); }
+    });
+  }
+  return new Promise(resolve => {
+    _promptResolver = resolve;
+    const titleEl = $('inputModalTitle');
+    const hintEl = $('inputModalHint');
+    if (titleEl) titleEl.textContent = o.title || '输入';
+    if (hintEl) hintEl.textContent = o.hint || '';
+    $('inputModalMsg').textContent = message;
+    field.style.display = useArea ? 'none' : 'block';
+    if (area) area.style.display = useArea ? 'block' : 'none';
+    _promptActive = useArea ? area : field;
+    _promptActive.value = defaultValue == null ? '' : String(defaultValue);
+    modal.style.display = 'flex';
+    setTimeout(() => {
+      try {
+        _promptActive.focus();
+        // 单行全选便于直接重打；多行定位到末尾，方便续写
+        if (useArea) _promptActive.setSelectionRange(_promptActive.value.length, _promptActive.value.length);
+        else _promptActive.select();
+      } catch (e) {}
+    }, 30);
+  });
+}
+
+/* ---------- 文件树剪贴板（内存态，刷新即失效） ---------- */
+let fsClipboard = null;   // { path, name, isDir, cut }
 
 function fmtSize(n) {
   n = Number(n) || 0;
@@ -2191,8 +2325,100 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.08.2';
+const APP_VERSION = '2026.11.08.10';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.08.10',
+    date: '2026-11-08',
+    title: '修后台任务完成后工具卡片永远停在「后台运行中」',
+    items: [
+      '真 bug：工具超时转后台后，卡片状态被写成「后台运行中」；任务真正结束时 finishTaskRecord / failTaskRecord 只更新了内存里的 rec，从未回写卡片 DOM，于是卡片永远显示「后台运行中」，用户以为工具卡死',
+      '直观表现：即使 wait 这种「等确定秒数」的工具，秒数早过完了，卡片仍然不显示「完成」',
+      '修法：startTaskRecord 增加 cardEl 字段保存发起卡片的引用，超时分支里 rec.cardEl = card；finishTaskRecord / failTaskRecord 调用新增的 refreshTaskCard 回写状态与结果',
+      'refreshTaskCard 里判断 el.isConnected：切会话或重渲染后旧卡片已被摘掉时直接跳过，避免向游离节点写内容',
+      '完成后状态文案追加「（后台）」后缀，与同步执行的「完成」区分开，让人一眼看出这个结果是后台跑出来的'
+    ]
+  },
+  {
+    v: '2026.11.08.9',
+    date: '2026-11-08',
+    title: '修工具超时下限卡在 5 秒 + wait 被误转后台',
+    items: [
+      '真 bug：工具超时设置填 1 秒不生效，被两道 Math.max 连续夹回 5 秒（保存时 Math.max(5, ...)，使用时 Math.max(5000, ...)），输入框也写着 min="5"。用户在设置里怎么调都改不动，且界面不报错',
+      '两处下限同时改为 1 秒（1000ms），输入框 min 改为 1。只改一处没用，会被另一处重新夹回',
+      'wait 加入 NO_BACKGROUND_TOOLS：它的唯一用途就是阻塞等待，被 5 秒超时打断转后台等于功能直接失效，还会留下一条永远无结果的后台任务记录',
+      '实测确认：web_fetch 抓 MDN 页面 9 秒超时 → 转后台 task_99qsqsfu → task_status 可查 → 完成结果正确回流到下一轮 <background_tasks>，主链路本身是通的'
+    ]
+  },
+  {
+    v: '2026.11.08.8',
+    date: '2026-11-08',
+    title: '欢迎屏副标题改为「标题打完后快速打字机」出字',
+    items: [
+      '上一版副标题是整体一次性出现，和标题的打字机节奏脱节：标题一个字一个字慢慢起，副标题却瞬间整句砸出来',
+      '现在改成严格接续：标题最后一个字打完、光标亮起的那一刻，才开始渲染副标题；顺序上有明显的前后关系',
+      '副标题本身也是一字一字打出，但速度是 45ms/字，远快于标题的 140ms/字，形成"标题从容起势、副标题快速跟上"的对比',
+      '出处（—— 《道德经》这类）先以 opacity:0 挂进 DOM 占位，正文打完后再淡入（.35s），避免最后一行突然出现把上方内容顶一下（CLS）',
+      'renderWelcomeQuote 去掉 animate 参数与 .swap 类：改为内部驱动逐字打字，不再需要先淡出再淡入的切换流程',
+      '变量 welcomeQuoteTimer 更名为 welcomeQuoteTyping（现在装的是 setInterval 而非 setTimeout，名字要跟实际类型对上）；hideWelcomeScreen 一并 clearInterval',
+      '边界处理：welcomeTitle 元素不存在时也直接调用 renderWelcomeQuote()，不会因为没有标题就永远不出副标题；重复进入首屏时先清掉上一个计时器，防止两条打字机并行'
+    ]
+  },
+  {
+    v: '2026.11.08.7',
+    date: '2026-11-08',
+    title: '欢迎屏改版：文案换成协作向短句 + 哲理名句轮播，名字收敛到单个常量',
+    items: [
+      '欢迎语从 7 条泛泛的问候（"有什么可以帮你？""让我们开始吧"）换成协作向的 7 条（"今天想一起完成什么？""把目标交给我，把时间留给你。"等），定调从"客服"改成"协作伙伴"',
+      '标题下方原有的静态副标题（管理文件 · 写代码 · 查资料 · 做计算）换成哲理短句轮播：主句一行、出处一行（如"—— 《道德经》"），每次进首屏换一条',
+      '名句库共 60 条，五类各 12 条：古文哲思 / 名言警句 / 诗词名句 / 定制短句 / 补充类。分类顺序在数组里保持，不打乱',
+      '收起三句"更适合首页"的精选（君子生非异也善假于物也 / 凡事预则立不预则废 / 把复杂交给我把专注留给你），用独立常量 WELCOME_QUOTES_FIRST 承载：本次会话第一次进首屏必从这三句里挑，之后转为全库随机',
+      '避免连续重复：随机时若抽到与上次相同的那句就重抽（_lastQuoteText 记录）',
+      '新增 AI_NAME 常量统一管理名字：欢迎语和定制短句里出现名字的地方全部改为 AI_NAME 拼接，以后改名只改这一处（此前名字散落在多条文案里，改一次要翻好几处）',
+      '注意：hideWelcomeScreen 里一并清掉副标题计时器，避免切走后定时器还在跑、下次进首屏前把内容换掉',
+      '.welcome-subtitle 样式保留未删（已无 DOM 引用），以防其他分支/插件还在用'
+    ]
+  },
+  {
+    v: '2026.11.08.6',
+    date: '2026-11-08',
+    title: 'Toast 堆叠补位加动画：新增/移除时其余 toast 平滑滑动，不再瞬移',
+    items: [
+      '现象：连续弹多条 toast 时，新的一条插进来，已有的那几条会被整体顶上去/挤下来，但只有被插入的那条有淡入动画，其余是"跳"一下。根因是 .toast-wrap 为 fixed + bottom 的 flex 列，子元素增删改变容器高度，剩余元素的位置由 layout 重排决定——layout 变化不触发 CSS transition，所以无动画',
+      '修法用 FLIP：DOM 变动前记下每条 toast 的 getBoundingClientRect().top，变动后用 CSS 变量 --flip 写反向偏移把它们"瞬移"回旧视觉位置，下一帧再把 --flip 归零，由 .toast 已有的 transform transition（.25s）平滑滑过去',
+      '.toast 的 transform 改为 translateY(calc(var(--flip, 0px) + 8px))，入场位移叠在同一个 transform 里，补位与入场两套动画互不覆盖；.toast.show 对应 translateY(var(--flip, 0px))',
+      '_toastFlip 里补偿那一帧临时设 transition:none，避免"瞬移"本身被动画出来，下一帧恢复 CSS 里的 .25s',
+      '新增的那条 toast 不参与补位（before 取不到就 return），继续走它自己的入场淡入',
+      'toastProgress（带进度条的长时间 toast）也接入同一套：它插入和 done() 移除时同样会挤动其他 toast，此前完全没处理',
+      '注意：--flip 只在 transform 里参与计算，不影响布局；元素自身的 opacity 动画不受影响',
+      '同版本另含（.5 的改动，因那次发版未落地而并入本条）：编辑消息从原生 prompt 改为应用内多行弹窗；customPrompt 新增 opts.multiline / title / hint，单行 Enter 提交、多行 Ctrl+Enter 提交、Esc 取消'
+    ]
+  },
+  {
+    v: '2026.11.08.4',
+    date: '2026-11-08',
+    title: '补右键菜单新项的 SVG 图标（重命名 / 移动 / 复制 / 粘贴）',
+    items: [
+      '上一版新增的重命名、移动、复制、粘贴四项只有纯文字，没带图标，和既有菜单项（复制路径、下载文件、删除）风格不一致',
+      'ICON_PATHS 新增两个图标：move（四向箭头）、paste（剪贴板）；重命名复用已有的 edit，复制复用已有的 copy',
+      '现在菜单里所有项都有 SVG 图标，无纯文字项残留'
+    ]
+  },
+  {
+    v: '2026.11.08.3',
+    date: '2026-11-08',
+    title: '文件树右键菜单：加重命名 / 移动 / 复制粘贴，并修文件夹菜单文案错为「复制文件路径」',
+    items: [
+      '修错：右键文件夹时菜单里仍是「复制路径 / 复制文件名 / 下载文件」这套文件专属文案，文件夹被当成文件处理。现在按 type 分流：文件夹显示「复制文件夹名」，且不再出现「下载文件」；菜单项文案统一用「文件夹」/「文件」区分（重命名文件夹、移动文件夹…）',
+      '新增重命名：文件和文件夹都支持，弹自定义输入框预填原名，拒绝空名与含 / 的名字，目标已存在则中止；底层复用已有的 VFS.movePath，不新增移动逻辑',
+      '新增移动：输入目标目录绝对路径，校验目标必须是已存在的目录；拒绝移动到自己内部、拒绝目标同名冲突',
+      '新增复制 / 粘贴：内存剪贴板（fsClipboard，刷新即失效）。文件夹走新增的 VFS.copyPath 递归复制全部子节点；粘贴目标对文件是所在目录、对文件夹是文件夹内部，菜单项文案直接写出落到哪个目录，不用猜',
+      'VFS.copyPath 防呆：源等于目标、目标已存在、复制进自己子树，三种情况一律返回 false 不执行，避免静默覆盖或无限套娃',
+      '新增 customPrompt：自建输入弹窗（#inputModal），替代原生 prompt——原生 prompt 在 iframe/移动端表现不可控，也挡不住浏览器"禁止弹出对话框"',
+      '移动或重命名后若当前打开的文件在被移动的子树里，自动跟随到新路径重新打开；文件没了则关闭编辑器，避免停在已失效路径上',
+      '删除时顺带清空指向被删路径的剪贴板，防止粘贴出一个已不存在的副本'
+    ]
+  },
   {
     v: '2026.11.08.2',
     date: '2026-11-08',
@@ -3215,6 +3441,42 @@ const VFS = {
       ops.push({ store: 'meta', action: 'put', record: newMeta });
       ops.push({ store: 'meta', action: 'delete', key: oldPath });
       delete this.meta[oldPath];
+      this.meta[newPath] = newMeta;
+    }
+    await idbBatch(ops);
+    return true;
+  },
+
+  /* 递归复制：目录会连带全部子节点。目标已存在时返回 false（不覆盖），
+     避免「粘贴到同名位置」静默套娃。复制到自己内部也直接拒绝。 */
+  async copyPath(from, to) {
+    const f = this.norm(from), t = this.norm(to);
+    if (!this.meta[f] || f === '/' || f === t) return false;
+    if (t.startsWith(f + '/')) return false;      // 不能复制进自己的子树
+    if (this.meta[t]) return false;               // 目标已存在，交给上层提示
+    const items = [];
+    if (this.meta[f].type === 'dir') {
+      const prefix = f + '/';
+      for (const k of Object.keys(this.meta)) {
+        if (k === f || k.startsWith(prefix)) items.push(k);
+      }
+    } else {
+      items.push(f);
+    }
+    await this.ensureDirs(t);
+    const ops = [];
+    for (const oldPath of items) {
+      const newPath = t + oldPath.slice(f.length);
+      const oldMeta = this.meta[oldPath];
+      const newMeta = { ...oldMeta, path: newPath, mtime: Date.now() };
+      if (oldMeta.type === 'file') {
+        let content = this.cache.has(oldPath)
+          ? this.cache.get(oldPath)
+          : ((await idbGet('content', oldPath)) || {}).content || '';
+        ops.push({ store: 'content', action: 'put', record: { path: newPath, content } });
+        this._cacheSet(newPath, content);
+      }
+      ops.push({ store: 'meta', action: 'put', record: newMeta });
       this.meta[newPath] = newMeta;
     }
     await idbBatch(ops);
@@ -6199,17 +6461,136 @@ async function downloadSingleFile(path) {
   toast('已下载：' + name + '（' + fmtSize(blob.size) + '）');
 }
 
+/* ---------- 文件树操作：重命名 / 移动 / 复制粘贴 ---------- */
+// 父目录：'/a/b.txt' → '/a'；'/a' → '/'。
+function parentDirOf(p) {
+  const i = String(p).lastIndexOf('/');
+  return i <= 0 ? '/' : String(p).slice(0, i);
+}
+// 拼接并规整（避免出现 // 或结尾斜杠）
+function joinPath(dir, name) {
+  const d = (dir === '/' ? '' : String(dir).replace(/\/+$/, ''));
+  return d + '/' + String(name).replace(/^\/+/, '');
+}
+// 移动/重命名后，若当前打开的文件落在被移动的子树里，跟着切到新路径
+function followOpenFile(oldPath, newPath) {
+  if (!currentFile) return;
+  if (currentFile !== oldPath && !currentFile.startsWith(oldPath + '/')) return;
+  const next = newPath + currentFile.slice(oldPath.length);
+  const st = VFS.stat(next);
+  if (st && st.type === 'file') { openFile(next); return; }
+  closeEditor();
+}
+
+async function renameNode(child) {
+  const oldPath = child.path;
+  if (oldPath === '/') { toast('根目录不能重命名', 'err'); return; }
+  const input = await customPrompt(
+    '重命名' + (child.type === 'dir' ? '文件夹' : '文件') + '「' + child.name + '」\n输入新名称（不能包含 /）：',
+    child.name
+  );
+  if (input == null) return;
+  const newName = String(input).trim();
+  if (!newName || newName === child.name) return;
+  if (newName.indexOf('/') >= 0) { toast('名称不能包含 /', 'err'); return; }
+  const to = joinPath(parentDirOf(oldPath), newName);
+  if (VFS.exists(to)) { toast('已存在同名项目：' + to, 'err'); return; }
+  try {
+    await requireVfs();
+    const ok = await VFS.movePath(oldPath, to);
+    if (!ok) { toast('重命名失败', 'err'); return; }
+    followOpenFile(oldPath, to);
+    await refreshFS();
+    toast('已重命名为 ' + newName);
+  } catch (e) { toast('重命名失败：' + (e && e.message ? e.message : e), 'err'); }
+}
+
+async function moveNode(child) {
+  const oldPath = child.path;
+  if (oldPath === '/') { toast('根目录不能移动', 'err'); return; }
+  const destInput = await customPrompt(
+    '移动' + (child.type === 'dir' ? '文件夹' : '文件') + '「' + child.name + '」\n输入目标目录的绝对路径（例如 /tmp 或 /knowledge）：',
+    parentDirOf(oldPath)
+  );
+  if (destInput == null) return;
+  const destDir = VFS.norm(String(destInput).trim() || '/');
+  const destStat = VFS.stat(destDir);
+  if (!destStat || destStat.type !== 'dir') { toast('目标目录不存在：' + destDir, 'err'); return; }
+  if (oldPath === destDir) { toast('已经在那个目录里了', 'err'); return; }
+  if (child.type === 'dir' && destDir.startsWith(oldPath + '/')) {
+    toast('不能把文件夹移动到它自己内部', 'err');
+    return;
+  }
+  const to = joinPath(destDir, child.name);
+  if (to === oldPath) { toast('位置没有变化', 'err'); return; }
+  if (VFS.exists(to)) { toast('目标位置已存在同名项目：' + to, 'err'); return; }
+  try {
+    await requireVfs();
+    const ok = await VFS.movePath(oldPath, to);
+    if (!ok) { toast('移动失败', 'err'); return; }
+    followOpenFile(oldPath, to);
+    await refreshFS();
+    toast('已移动到 ' + destDir);
+  } catch (e) { toast('移动失败：' + (e && e.message ? e.message : e), 'err'); }
+}
+
+// 目标目录：对文件夹是本身，对文件是其父目录
+function pasteTargetDir(child) {
+  return child.type === 'dir' ? child.path : parentDirOf(child.path);
+}
+
+async function pasteInto(child) {
+  if (!fsClipboard) { toast('剪贴板是空的', 'err'); return; }
+  const destDir = pasteTargetDir(child);
+  const to = joinPath(destDir, fsClipboard.name);
+  if (to === fsClipboard.path) { toast('源和目标是同一个位置', 'err'); return; }
+  if (VFS.exists(to)) { toast('目标已存在：' + to + '\n可先重命名或删除再粘贴', 'err'); return; }
+  if (fsClipboard.isDir && to.startsWith(fsClipboard.path + '/')) {
+    toast('不能把文件夹粘贴到它自己内部', 'err');
+    return;
+  }
+  try {
+    await requireVfs();
+    const ok = await VFS.copyPath(fsClipboard.path, to);
+    if (!ok) { toast('粘贴失败（目标不可用）', 'err'); return; }
+    await refreshFS();
+    toast('已粘贴到 ' + destDir);
+  } catch (e) { toast('粘贴失败：' + (e && e.message ? e.message : e), 'err'); }
+}
+
 function showCtxMenu(x, y, child) {
   const m = $('ctxMenu'); if (!m) return;
   const isDir = child.type === 'dir';
+  const kind = isDir ? '文件夹' : '文件';
   m.innerHTML = '';
   const items = [
     { label: icon('copy') + ' 复制路径', action: () => copyTextToClipboard(child.path) },
-    { label: icon('file') + ' 复制文件名', action: () => copyTextToClipboard(child.name) },
   ];
+  // 文件夹给「复制文件夹名」，文件给「复制文件名」——此前两者共用一份文案
+  if (!isDir) {
+    items.push({ label: icon('file') + ' 复制文件名', action: () => copyTextToClipboard(child.name) });
+  } else {
+    items.push({ label: icon('folder', 'folder') + ' 复制文件夹名', action: () => copyTextToClipboard(child.name) });
+  }
   // 只有文件才给"下载"；目录暂不提供（要打包下载另做）
   if (!isDir) {
     items.push({ label: icon('download') + ' 下载文件', action: () => downloadSingleFile(child.path) });
+  }
+  items.push({ sep: true });
+  // 重命名 / 移动：文件和文件夹都支持
+  if (child.path !== '/') {
+    items.push({ label: icon('edit') + ' 重命名' + kind, action: () => renameNode(child) });
+    items.push({ label: icon('move') + ' 移动' + kind + '…', action: () => moveNode(child) });
+  }
+  // 复制到剪贴板：文件夹走递归复制
+  items.push({ label: icon('copy') + ' 复制' + kind, action: () => {
+        fsClipboard = { path: child.path, name: child.name, isDir: isDir, cut: false };
+        toast('已复制' + kind + '：' + child.name + '（粘贴目标：' + (isDir ? '文件夹内部' : '所在目录') + '）');
+      } });
+  // 粘贴：仅在剪贴板非空时出现，文案标明落到哪
+  if (fsClipboard) {
+    const destDir = pasteTargetDir(child);
+    items.push({ label: icon('paste') + ' 粘贴到 ' + destDir + '（' + fsClipboard.name + '）', action: () => pasteInto(child) });
   }
   items.push({ sep: true });
   items.push({ label: icon('trash') + ' 删除' + (isDir ? '（递归）' : ''), danger: true, action: async () => {
@@ -6217,6 +6598,7 @@ function showCtxMenu(x, y, child) {
         try {
           await VFS.deletePath(child.path);
           if (currentFile === child.path || (currentFile && currentFile.startsWith(child.path + '/'))) closeEditor();
+          if (fsClipboard && (fsClipboard.path === child.path || fsClipboard.path.startsWith(child.path + '/'))) fsClipboard = null;
           await refreshFS();
           toast('已删除 ' + child.path);
         } catch (err) { toast('删除失败：' + (err && err.message ? err.message : err), 'err'); }
@@ -8571,15 +8953,150 @@ function cloneSession(id) {
   toast('已克隆对话');
 }
 let typewriterTimer = null;
+let welcomeQuoteTyping = null;   // 副标题打字机计时器
+
+/* ---------- 欢迎屏文案 ----------
+ * 名字统一从 AI_NAME 取，改名字只改一处。
+ * 每项 { t: 主句, s: 出处/副句 }；s 可为空（此时只显示一行）。 */
+const AI_NAME = '小匣';
+
 const WELCOME_TITLES = [
-  '你好，我是小匣',
-  '有什么可以帮你？',
-  '今天想做点什么？',
-  '让我们开始吧',
-  '需要我写点什么吗？',
-  '文件、代码、资料，交给我',
-  '嗨，准备好工作了吗？',
+  '你好，我是' + AI_NAME,
+  '今天想一起完成什么？',
+  '把目标交给我，把时间留给你。',
+  '我是' + AI_NAME + '，随时准备开工。',
+  '有问题，找' + AI_NAME + '；有任务，也找' + AI_NAME + '。',
+  '从一句话开始，把事情推进下去。',
+  '欢迎回来，' + AI_NAME + '已就位。',
 ];
+
+const WELCOME_QUOTES = [
+  // 一、古文哲思
+  { t: '他山之石，可以攻玉。', s: '《诗经》' },
+  { t: '千里之行，始于足下。', s: '《道德经》' },
+  { t: '图难于其易，为大于其细。', s: '《道德经》' },
+  { t: '慎终如始，则无败事。', s: '《道德经》' },
+  { t: '锲而不舍，金石可镂。', s: '《荀子》' },
+  { t: '独学而无友，则孤陋而寡闻。', s: '《礼记》' },
+  { t: '博学之，审问之，慎思之，明辨之，笃行之。', s: '《礼记》' },
+  { t: '苟日新，日日新，又日新。', s: '《礼记》' },
+  { t: '物有本末，事有终始，知所先后，则近道矣。', s: '《礼记》' },
+  { t: '穷则变，变则通，通则久。', s: '《周易》' },
+  { t: '二人同心，其利断金。', s: '《周易》' },
+  { t: '流水不腐，户枢不蠹。', s: '《吕氏春秋》' },
+  // 二、名言警句
+  { t: '临渊羡鱼，不如退而结网。', s: '《汉书》' },
+  { t: '失之东隅，收之桑榆。', s: '《后汉书》' },
+  { t: '有志者事竟成。', s: '《后汉书》' },
+  { t: '疾风知劲草，岁寒见后凋。', s: '《后汉书》' },
+  { t: '读书百遍，其义自见。', s: '《三国志》' },
+  { t: '兼听则明，偏信则暗。', s: '《资治通鉴》' },
+  { t: '玉不琢，不成器；人不学，不知道。', s: '《礼记》' },
+  { t: '学然后知不足，教然后知困。', s: '《礼记》' },
+  { t: '尺有所短，寸有所长。', s: '《楚辞》' },
+  { t: '前事不忘，后事之师。', s: '《战国策》' },
+  { t: '运筹帷幄之中，决胜千里之外。', s: '《史记》' },
+  { t: '精诚所至，金石为开。', s: '《后汉书》' },
+  // 三、诗词名句
+  { t: '随风潜入夜，润物细无声。', s: '杜甫' },
+  { t: '欲穷千里目，更上一层楼。', s: '王之涣' },
+  { t: '海内存知己，天涯若比邻。', s: '王勃' },
+  { t: '山重水复疑无路，柳暗花明又一村。', s: '陆游' },
+  { t: '纸上得来终觉浅，绝知此事要躬行。', s: '陆游' },
+  { t: '问渠那得清如许？为有源头活水来。', s: '朱熹' },
+  { t: '不畏浮云遮望眼，自缘身在最高层。', s: '王安石' },
+  { t: '千淘万漉虽辛苦，吹尽狂沙始到金。', s: '刘禹锡' },
+  { t: '不识庐山真面目，只缘身在此山中。', s: '苏轼' },
+  { t: '大鹏一日同风起，扶摇直上九万里。', s: '李白' },
+  { t: '好风凭借力，送我上青云。', s: '曹雪芹' },
+  { t: '删繁就简三秋树，领异标新二月花。', s: '郑板桥' },
+  // 四、定制哲理短句
+  { t: '借器之力，成人之事。', s: '' },
+  { t: '善用工具，是另一种专注。', s: '' },
+  { t: '让机器做重复，让人做判断。', s: '' },
+  { t: '把琐碎交给我，把创造留给你。', s: '' },
+  { t: '你给方向，' + AI_NAME + '给路径。', s: '' },
+  { t: '一呼即应，一事一清。', s: '' },
+  { t: '让每一步都有回响。', s: '' },
+  { t: '从一句话，到一件事。', s: '' },
+  { t: '协作不必喧哗，回应自有分寸。', s: '' },
+  { t: '提纲挈领，执简驭繁。', s: '' },
+  { t: '见微知著，集思广益。', s: '' },
+  { t: '好记性不如烂笔头，好工具不如好协作。', s: '' },
+  // 五、补充类（工欲善其事、君子善假于物等；三句精选由 WELCOME_QUOTES_FIRST 单独控制，不在数组顺序上做文章）
+  { t: '君子生非异也，善假于物也。', s: '《荀子·劝学》' },
+  { t: '工欲善其事，必先利其器。', s: '《论语》' },
+  { t: '凡事预则立，不预则废。', s: '《礼记·中庸》' },
+  { t: '天下难事，必作于易；天下大事，必作于细。', s: '《道德经》' },
+  { t: '不积跬步，无以至千里。', s: '《荀子·劝学》' },
+  { t: '乘众人之智，则无不任也。', s: '《淮南子》' },
+  { t: '知者行之始，行者知之成。', s: '王阳明' },
+  { t: '博观而约取，厚积而薄发。', s: '苏轼' },
+  { t: '路虽远，行则将至；事虽难，做则必成。', s: '' },
+  { t: '把复杂交给工具，把专注留给自己。', s: '' },
+  { t: '让信息有序，让行动有据。', s: '' },
+  { t: '把复杂交给' + AI_NAME + '，把专注留给你。', s: '' },
+];
+
+/* 首屏优先展示的三句（放这里而不是数组头部，是为了不打乱分类顺序） */
+const WELCOME_QUOTES_FIRST = [
+  '君子生非异也，善假于物也。',
+  '凡事预则立，不预则废。',
+  '把复杂交给' + AI_NAME + '，把专注留给你。',
+];
+
+let _lastQuoteText = '';
+let _quotePickedCount = 0;
+function pickWelcomeQuote() {
+  // 本次会话第一次进首屏：从「三句精选」里随机挑一句，先立住调性
+  if (_quotePickedCount === 0) {
+    _quotePickedCount++;
+    const first = WELCOME_QUOTES.find(q => q.t === WELCOME_QUOTES_FIRST[Math.floor(Math.random() * WELCOME_QUOTES_FIRST.length)]);
+    if (first) return first;
+  }
+  _quotePickedCount++;
+  // 之后每次进首屏：随机取，但不与上一次重复
+  const pool = WELCOME_QUOTES;
+  if (pool.length <= 1) return pool[0];
+  let q;
+  do { q = pool[Math.floor(Math.random() * pool.length)]; }
+  while (q && q.t === _lastQuoteText);
+  return q;
+}
+
+function renderWelcomeQuote() {
+  const el = $('welcomeQuote');
+  if (!el) return;
+  if (welcomeQuoteTyping) { clearInterval(welcomeQuoteTyping); welcomeQuoteTyping = null; }
+  const q = pickWelcomeQuote();
+  if (!q) return;
+  _lastQuoteText = q.t;
+  el.innerHTML = '';
+  const t = document.createElement('div');
+  t.className = 'wq-text';
+  el.appendChild(t);
+  // 出处先挂进 DOM（opacity:0 占位），正文打完再淡入，避免最后一行突然跳出来把布局顶一下
+  let s = null;
+  if (q.s) {
+    s = document.createElement('div');
+    s.className = 'wq-src';
+    s.textContent = '—— ' + q.s;
+    el.appendChild(s);
+  }
+  // 副标题打字速度：45ms/字，比标题的 140ms 快得多，形成"标题慢慢起、副标题快速跟上"的节奏
+  let i = 0;
+  welcomeQuoteTyping = setInterval(() => {
+    if (i < q.t.length) {
+      t.textContent = q.t.slice(0, i + 1);
+      i++;
+    } else {
+      clearInterval(welcomeQuoteTyping);
+      welcomeQuoteTyping = null;
+      if (s) requestAnimationFrame(() => s.classList.add('in'));
+    }
+  }, 45);
+}
+
 function showWelcomeScreen() {
   const ws = $('welcomeScreen');
   if (!ws) return;
@@ -8587,10 +9104,11 @@ function showWelcomeScreen() {
   const composer = document.querySelector('.composer');
   if (composer) composer.style.display = 'none';
   if (messagesEl) messagesEl.style.display = 'none';
-  // 打字机效果（随机欢迎语，放慢速度）
+  // 标题打字机（随机欢迎语，放慢速度）；打完再触发副标题，形成先后节奏
   const titleEl = $('welcomeTitle');
   if (titleEl) {
     titleEl.innerHTML = '';
+    if (welcomeQuoteTyping) { clearInterval(welcomeQuoteTyping); welcomeQuoteTyping = null; }
     const text = WELCOME_TITLES[Math.floor(Math.random() * WELCOME_TITLES.length)];
     let i = 0;
     if (typewriterTimer) clearInterval(typewriterTimer);
@@ -8602,8 +9120,11 @@ function showWelcomeScreen() {
         titleEl.innerHTML = text + '<span class="cursor"></span>';
         clearInterval(typewriterTimer);
         typewriterTimer = null;
+        renderWelcomeQuote();   // 标题打完，副标题快速接上
       }
     }, 140);
+  } else {
+    renderWelcomeQuote();       // 没有标题元素时也要能出副标题
   }
   const wi = $('welcomeInput');
   if (wi) { wi.value = ''; setTimeout(() => wi.focus({ preventScroll: true }), 300); }
@@ -8615,6 +9136,7 @@ function hideWelcomeScreen() {
   if (composer) composer.style.display = '';
   if (messagesEl) messagesEl.style.display = '';
   if (typewriterTimer) { clearInterval(typewriterTimer); typewriterTimer = null; }
+  if (welcomeQuoteTyping) { clearInterval(welcomeQuoteTyping); welcomeQuoteTyping = null; }
 }
 // 对话渲染：全量渲染（无滑窗、无占位、无加载按钮），超长对话交给 content-visibility
 function renderConversation() {
@@ -9195,12 +9717,17 @@ function appendMsg(role, html, idx) {
     toast('消息已删除');
   });
   const editBtn = el.querySelector('[data-action="edit"]');
-  if (editBtn) editBtn.addEventListener('click', () => {
+  if (editBtn) editBtn.addEventListener('click', async () => {
     if (isRunning) { toast('请等待当前回复完成后再编辑', 'err'); return; }
     const idx = parseInt(el.dataset.idx, 10);
     if (isNaN(idx) || idx < 0 || idx >= conversation.length) return;
     const oldText = contentToText(conversation[idx]?.content || '');
-    const newText = prompt('编辑消息（修改后将从该条重新生成回复）：', oldText);
+    // 用应用内多行弹窗替代原生 prompt：原生 prompt 是单行且会被浏览器拦截成「禁止弹出对话框」
+    const newText = await customPrompt(
+      '修改后将删除本条及之后的对话，并从这条重新生成回复。',
+      oldText,
+      { multiline: true, title: '编辑消息', hint: 'Ctrl / ⌘ + Enter 提交，Esc 取消' }
+    );
     if (newText === null || newText.trim() === oldText.trim()) return;
     // 截断 conversation 到该条之前，重新渲染，再发送
     conversation.splice(idx);
@@ -9416,6 +9943,7 @@ const NO_BACKGROUND_TOOLS = new Set([
   'write_file', 'edit_file', 'append_file', 'delete_path', 'move_path', 'create_dir',
   'todo_add', 'todo_done', 'todo_remove', 'todo_list',
   'ask_user', 'undo_last', 'undo_list', 'deliver', 'render_chart',
+  'wait',   // 唯一用途就是阻塞等待；被超时打断转后台 = 功能失效
   'task_status', 'task_cancel', 'remember', 'kb_write', 'kb_delete', 'kb_commit',
   // 插件管理会写文件并触发用户确认弹窗，转后台会让确认框与执行时序错位
   'plugin_create', 'plugin_update', 'plugin_delete', 'plugin_toggle'
@@ -9443,15 +9971,32 @@ function startTaskRecord(tool, args) {
     finishedAt: null,
     result: null,
     error: null,
-    notified: false
+    notified: false,
+    cardEl: null   // 发起该任务的工具卡片，完成后要回写状态
   };
   bgTasks.set(rec.id, rec);
   return rec;
+}
+// 后台任务结束后回写发起它的那张工具卡片。
+// 此前只更新了 rec（内存记录），卡片就永远停在「后台运行中」——用户看到的是
+// 一个永远不结束的工具调用，即使任务早就完成了。
+// 卡片可能已经被切会话/重渲染摘掉，所以要判断 isConnected。
+function refreshTaskCard(rec, ok) {
+  const el = rec.cardEl;
+  if (!el || !el.isConnected) return;
+  if (ok) {
+    finishToolCard(el, true, rec.result);
+  } else {
+    finishToolCard(el, false, '错误：' + rec.error);
+  }
+  const stEl = el.querySelector('.tool-status');
+  if (stEl) stEl.textContent += '（后台）';
 }
 function finishTaskRecord(rec, result) {
   rec.status = 'done';
   rec.result = String(result == null ? '' : result);
   rec.finishedAt = Date.now();
+  refreshTaskCard(rec, true);
   // 本轮已结束（AI 不在跑）→ 直接 toast；在跑的话留给 runtime_context 注入
   if (!isRunning) {
     toast('后台任务完成：' + rec.tool + '（' + rec.id + '）');
@@ -9462,6 +10007,7 @@ function failTaskRecord(rec, err) {
   rec.status = 'error';
   rec.error = String((err && err.message) || err || '未知错误');
   rec.finishedAt = Date.now();
+  refreshTaskCard(rec, false);
   if (!isRunning) {
     toast('后台任务失败：' + rec.tool + '（' + rec.id + '）', 'err');
     scheduleThumbUpdate();
@@ -11160,7 +11706,7 @@ async function agentLoop() {
           if (card._setArgs) card._setArgs(args);
         }
         const toolName = tc.function.name;
-        const timeoutMs = Math.max(5000, Number(cfg.toolTimeoutMs) || 120000);
+        const timeoutMs = Math.max(1000, Number(cfg.toolTimeoutMs) || 120000);
         let liveOpened = false;   // 流式首帧自动展开一次详情，之后尊重用户手动收起
         const onChunk = (chunk) => {
           const wrap = card.querySelector('.tool-result-wrap');
@@ -11215,6 +11761,7 @@ async function agentLoop() {
         }
         if (timedOut) {
           const rec = startTaskRecord(toolName, args);
+          rec.cardEl = card;   // 任务结束后由 refreshTaskCard 回写这张卡的状态
           execPromise
             .then(r => { finishTaskRecord(rec, r); })
             .catch(e => { failTaskRecord(rec, e); });
@@ -12756,7 +13303,7 @@ function bindEvents() {
   on('btnCfgSave', 'click', async () => {
     cfg.baseUrl = $('cfgBaseUrl').value.trim() || 'https://api.openai.com/v1';
     cfg.apiKey = $('cfgApiKey').value.trim(); cfg.model = $('cfgModel').value.trim() || 'gpt-4o-mini';
-    cfg.temperature = parseFloat($('cfgTemp').value) || 0; cfg.reasoningEffort = $('cfgReasonEffort').value || ''; cfg.maxLoops = Math.max(1, parseInt($('cfgLoops').value) || 20); cfg.toolTimeoutMs = Math.max(5, Math.min(600, parseInt(($('cfgToolTimeout') || {}).value) || 120)) * 1000; cfg.htmlCheckTimeoutMs = Math.max(1, Math.min(120, parseInt(($('cfgHtmlCheckTimeout') || {}).value) || 6)) * 1000; cfg.maxToolCalls = Math.max(0, parseInt($('cfgMaxToolCalls').value) || 0); cfg.maxWallTime = Math.max(0, parseInt($('cfgMaxWallTime').value) || 0); cfg.maxInputTokens = Math.max(0, parseInt($('cfgMaxInputTokens').value) || 0); cfg.maxOutputTokens = Math.max(0, parseInt($('cfgMaxOutputTokens').value) || 0); cfg.maxCost = Math.max(0, parseFloat($('cfgMaxCost').value) || 0); cfg.corsProxy = ($('cfgCorsProxy').value || '').trim(); cfg.kbPlatform = $('cfgKbPlatform').value || 'github'; cfg.kbRepo = ($('cfgKbRepo').value || '').trim(); cfg.kbToken = ($('cfgKbToken').value || '').trim(); cfg.kbBranch = ($('cfgKbBranch').value || '').trim() || 'master'; cfg.searchApiKey = ($('cfgSearchApiKey').value || '').trim();
+    cfg.temperature = parseFloat($('cfgTemp').value) || 0; cfg.reasoningEffort = $('cfgReasonEffort').value || ''; cfg.maxLoops = Math.max(1, parseInt($('cfgLoops').value) || 20); cfg.toolTimeoutMs = Math.max(1, Math.min(600, parseInt(($('cfgToolTimeout') || {}).value) || 120)) * 1000; cfg.htmlCheckTimeoutMs = Math.max(1, Math.min(120, parseInt(($('cfgHtmlCheckTimeout') || {}).value) || 6)) * 1000; cfg.maxToolCalls = Math.max(0, parseInt($('cfgMaxToolCalls').value) || 0); cfg.maxWallTime = Math.max(0, parseInt($('cfgMaxWallTime').value) || 0); cfg.maxInputTokens = Math.max(0, parseInt($('cfgMaxInputTokens').value) || 0); cfg.maxOutputTokens = Math.max(0, parseInt($('cfgMaxOutputTokens').value) || 0); cfg.maxCost = Math.max(0, parseFloat($('cfgMaxCost').value) || 0); cfg.corsProxy = ($('cfgCorsProxy').value || '').trim(); cfg.kbPlatform = $('cfgKbPlatform').value || 'github'; cfg.kbRepo = ($('cfgKbRepo').value || '').trim(); cfg.kbToken = ($('cfgKbToken').value || '').trim(); cfg.kbBranch = ($('cfgKbBranch').value || '').trim() || 'master'; cfg.searchApiKey = ($('cfgSearchApiKey').value || '').trim();
     const am = $('cfgAgentMode'); if (am) cfg.agentMode = am.value;
     cfg.systemPrompt = $('cfgSystem').value || DEFAULT_SYSTEM;
     cfg.cloudBackend = $('cfgCloudBackend').value || 'gitee';
