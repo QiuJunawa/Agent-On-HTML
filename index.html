@@ -1134,8 +1134,12 @@
         </div>
       </div>
       <div class="field">
-        <label>系统提示词</label>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+          <label for="cfgSystem" style="margin:0">系统提示词</label>
+          <button class="ghost-btn" id="btnResetSystem" type="button" title="用内置的最新默认系统提示词覆盖当前内容（会二次确认）">恢复默认</button>
+        </div>
         <textarea id="cfgSystem"></textarea>
+        <span style="font-size:11px;color:var(--text-muted)">内置默认提示词会随版本更新增加条款；本地保存的旧版不会自动跟随，发现行为不符时可点「恢复默认」再保存。</span>
       </div>
       <div class="row2">
         <div class="field" style="flex:2">
@@ -13657,6 +13661,24 @@ function bindEvents() {
   });
   on('btnToolsAll', 'click', () => { document.querySelectorAll('.tool-switch-item input').forEach(el => el.checked = true); });
   on('btnToolsNone', 'click', () => { document.querySelectorAll('.tool-switch-item input').forEach(el => el.checked = false); });
+  on('btnResetSystem', 'click', async () => {
+    const ta = $('cfgSystem');
+    if (!ta) return;
+    const cur = String(ta.value || '').trim();
+    // 内容本来就是默认值时直接覆盖，不必拿弹窗烦用户
+    if (cur && cur !== String(DEFAULT_SYSTEM).trim()) {
+      const ok = await customConfirm(
+        '确定用内置默认系统提示词覆盖当前内容吗？\n\n' +
+        '你自定义的部分会丢失，且无法撤销。\n\n' +
+        '覆盖后需要点「保存」才会真正生效。', 'reset_system');
+      if (!ok) return;
+    }
+    ta.value = DEFAULT_SYSTEM;
+    ta.scrollTop = 0;
+    // 让用户一眼看到「还没保存」，避免以为已经生效
+    ta.focus();
+    toast('已覆盖为内置默认提示词，记得点「保存」生效');
+  });
   on('btnRestoreKnowledge', 'click', async () => {
     if (!(await customConfirm('恢复默认知识库会覆盖 /knowledge/ 下所有文件，确定继续？', 'restore_knowledge'))) return;
     try {
