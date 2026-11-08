@@ -161,12 +161,10 @@
   ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
   ::-webkit-scrollbar-track { background: transparent; }
 
-  /* height:100% 跟随 body content box：写 100vh 会在移动端比可视区高，多出的部分变成 document 滚动余量 */
-  /* 移动端键盘：--kb-inset 由 JS 按 visualViewport 实时写入，只收缩 .app 高度。
-     不用 interactive-widget=resizes-content：它在安卓 Chrome 上会让浏览器自己重排布局视口，
-     与本页 html/body 的 overflow:clip 叠加后表现为「页面自己往上顶一截、松手又弹回」的抖动，
-     实测比不处理还差，已移除。现在全靠这个变量，行为在各平台一致、可控。 */
-  .app { display: flex; height: calc(100% - var(--kb-inset, 0px)); overflow: hidden; }
+  /* 高度跟随 body content box：写 100vh 会在移动端比可视区高，多出的部分变成 document 滚动余量。
+     不再用 --kb-inset 做键盘自适应：那套逻辑已整体移除（详见 init 里对应的注释）。
+     键盘弹出由浏览器自己处理，.app 保持 100% 满高。 */
+  .app { display: flex; height: 100%; overflow: hidden; }
 
   /* ---------- 侧边栏 ---------- */
   .sidebar {
@@ -2349,8 +2347,20 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.08.16';
+const APP_VERSION = '2026.11.08.17';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.08.17',
+    date: '2026-11-08',
+    title: '删掉移动端键盘自动高度调整（--kb-inset 整套）',
+    items: [
+      '结论修正：之前判断「点输入框不抬升」是布局问题，方向是错的。真实原因是页面太卡把浏览器卡死，键盘根本没弹出来。既然卡顿已在 .16 修掉，键盘自适应这套就是多余的保护',
+      '移除 JS：visualViewport 的 resize/scroll/orientationchange 监听、syncKb 差值计算、vv.scale 缩放排除、80px 抖动过滤、键盘弹起后 scrollBottom 调用，全部删除',
+      '.app 高度从 calc(100% - var(--kb-inset, 0px)) 恢复为 100%，不再有变量参与',
+      '这套自适应本身还在制造新问题：双指缩放被误判成键盘导致整页压缩、键盘弹起时页面自己顶上又弹回。删掉后这些抖动一并消失',
+      '现在键盘弹出完全交给浏览器默认行为处理，不再干预'
+    ]
+  },
   {
     v: '2026.11.08.16',
     date: '2026-11-08',
@@ -13953,34 +13963,12 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
   // 它是配合 html/body 的 overflow:clip 一起锁死视口的，现在 overflow 已移除，这段也必须一并去掉：
   // 否则页面依旧被强行钉在顶部，键盘弹起时浏览器没法滚动补偿，去掉 overflow 等于白去。
   // 渲染历史消息导致的「整页上移」已由根上的 overflow-anchor:none 解决，不需要这里再兜。
-  // 移动端软键盘：visualViewport 比 window.innerHeight 少的那部分就是被键盘(和地址栏)盖住的高度，
-  // 写进 --kb-inset 让 .app 收缩到键盘上方，输入框才不会被压住。
-  // 这是唯一一套键盘处理逻辑：已移除 viewport 的 interactive-widget=resizes-content，
-  // 避免浏览器重排布局视口与这里的算法重复扣减、互相打架。
-  try {
-    const vv = window.visualViewport;
-    if (vv) {
-      const root = document.documentElement;
-      const syncKb = () => {
-        // 双指缩放时 vv.height 同样会变小，但那不是键盘。
-        // 不排除的话缩放会被当成键盘：.app 高度被砍掉，整页内容被压缩错位——
-        // 表现就是「一放大页面就自己乱动」。缩放状态下直接归零，保持满高。
-        if (vv.scale > 1.01) { root.style.setProperty('--kb-inset', '0px'); return; }
-        const raw = Math.round((window.innerHeight || 0) - (vv.height + vv.offsetTop));
-        // 小于 80px 一律当作地址栏收起/展开的抖动，不当键盘处理，否则界面会跟着轻微跳
-        const kb = raw > 80 ? raw : 0;
-        root.style.setProperty('--kb-inset', kb + 'px');
-        // 键盘把可视区压小后，原来在底部的消息会跑出视野，重新贴底
-        if (kb && typeof scrollBottom === 'function') {
-          requestAnimationFrame(() => { try { scrollBottom(); } catch (e) {} });
-        }
-      };
-      vv.addEventListener('resize', syncKb, { passive: true });
-      vv.addEventListener('scroll', syncKb, { passive: true });
-      window.addEventListener('orientationchange', () => setTimeout(syncKb, 120), { passive: true });
-      syncKb();
-    }
-  } catch (e) { console.warn('[init] 键盘高度绑定失败', e); }
+  // 移动端软键盘：不再做任何自动高度调整。
+  // 之前那套 --kb-inset（visualViewport 差值 + 缩 .app）已整体移除：
+  // 真正的问题是页面太卡把浏览器卡死导致键盘弹不出来，不是布局算错；
+  // 这套自适应反而引入了缩放误判、页面抖动等新问题，留着纯属添乱。
+  // 现在完全交给浏览器默认的键盘行为处理。
+
   // 启动时加载已启用插件（VFS 就绪之后；默认全部禁用，只有用户显式启用的才会执行）
   // 关键：不 await —— 串行 await 会让首屏卡住，且个别插件/云同步读取失败会拖住整个初始化流程
   setTimeout(() => {
