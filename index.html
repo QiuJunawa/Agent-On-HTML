@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AI Agent · IndexedDB 虚拟文件系统</title>
 <!-- 默认字体方案：UI 层书写感（Comic Neue + 霞鹜文楷），正文无衬线（Inter + 思源黑体）；用户可在设置 → 界面里自定义并持久化到 VFS /config/fonts.json -->
 <link rel="preconnect" href="https://miaoda.feishu.cn">
@@ -113,11 +113,13 @@
   body.theme-light .profile-row { background: var(--bg-card); }
   body.theme-light .tool-card:hover { background: var(--bg-elevated-2); }
   * { box-sizing: border-box; }
-  /* 视口锁定：document 不可滚动（clip 连程序滚动一起禁，hidden 挡不住 focus/scrollIntoView/滚动锚定）
-     overflow-anchor:none 提到根：渲染历史消息时浏览器不再"修正滚动位置"导致整页上移 */
+  /* 视口铺满：只保留高度约束，不再锁死 overflow。
+     原先写 overflow: hidden/clip 是为了修「页面莫名上滚」，但顺带把 document 滚动一起禁掉，
+     移动端键盘弹起时浏览器无法滚动补偿，输入框只能被压在键盘底下；双指缩放也会被挤压错位。
+     现在交给浏览器默认滚动行为处理，配合 JS 写入的 --kb-inset 收缩 .app 高度。
+     overflow-anchor:none 仍保留：渲染历史消息时浏览器不修正滚动位置，避免整页上移。 */
   html, body {
     height: 100%; margin: 0;
-    overflow: hidden; overflow: clip;
     overflow-anchor: none;
   }
   body {
@@ -160,9 +162,10 @@
   ::-webkit-scrollbar-track { background: transparent; }
 
   /* height:100% 跟随 body content box：写 100vh 会在移动端比可视区高，多出的部分变成 document 滚动余量 */
-  /* 移动端键盘：--kb-inset 由 JS 按 visualViewport 实时写入。
-     安卓 Chrome 因 interactive-widget=resizes-content 会自行重排，此时 inset 算出来是 0，不会重复扣减；
-     iOS Safari 不支持该 viewport 关键字，靠这个变量把 app 高度缩到键盘上方，输入框才不会被盖住。 */
+  /* 移动端键盘：--kb-inset 由 JS 按 visualViewport 实时写入，只收缩 .app 高度。
+     不用 interactive-widget=resizes-content：它在安卓 Chrome 上会让浏览器自己重排布局视口，
+     与本页 html/body 的 overflow:clip 叠加后表现为「页面自己往上顶一截、松手又弹回」的抖动，
+     实测比不处理还差，已移除。现在全靠这个变量，行为在各平台一致、可控。 */
   .app { display: flex; height: calc(100% - var(--kb-inset, 0px)); overflow: hidden; }
 
   /* ---------- 侧边栏 ---------- */
@@ -321,6 +324,13 @@
     content-visibility: auto;
     contain-intrinsic-size: auto 120px;
   }
+  /* 首屏只渲染尾部，顶部这块提示还有更早的消息可补齐（点一下或滚到顶自动补） */
+  .conv-more {
+    margin: 4px 0 18px; padding: 10px 12px; text-align: center; cursor: pointer;
+    font-size: 12px; color: var(--text-muted); border: 1px dashed var(--border); border-radius: 8px;
+    content-visibility: visible;
+  }
+  .conv-more:hover { color: var(--text-primary); border-color: var(--accent); }
   .msg { display: block; margin-bottom: 16px; max-width: 100%; }
   .msg .avatar { display: none; }
   .msg .bubble {
@@ -1555,6 +1565,17 @@ const messagesEl = $('messages');
 const SESSIONS_KEY = 'vfs_sessions';
 let conversation = [];
 
+/* ---------- 对话批量渲染状态 ----------
+ * 提前声明：renderChart / renderDeliverCard / appendMsg 等定义位置远早于渲染主流程，
+ * 靠「运行时才访问」躲 TDZ 太脆弱，统一放这里。
+ * _renderBatch：非空表示正在批量渲染，节点写进 frag、异步重活（KaTeX/取图/画图）延后
+ * _suppressScrollBottom：>0 时抑制 scrollBottom，避免逐条赋值 scrollTop 造成平方级重排
+ * _convBackfill：{ from, placeholder, running } 首屏之外尚未渲染的消息区间起点
+ */
+let _renderBatch = null;
+let _suppressScrollBottom = 0;
+let _convBackfill = null;
+
 /* ---------- 自定义下拉（替代原生 select，避免移动端弹出系统大滚轮） ---------- */
 class CustomSelect {
   constructor(selectEl) {
@@ -2328,8 +2349,53 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.08.13';
+const APP_VERSION = '2026.11.08.16';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.08.16',
+    date: '2026-11-08',
+    title: '点进超长对话不再卡：首屏只画尾部 + 批量渲染 + 空闲补齐',
+    items: [
+      '主因是平方级的强制同步布局：renderMsgRange 逐条调用 appendMsg，而 appendMsg 结尾的 scrollBottom() 每调一次都要读 scrollHeight，浏览器被迫为每条消息重排一次。1000 条消息 = 1000 次全量重排，消息越多越慢，这就是「点进对话卡死几秒」的来源',
+      '现在渲染期间用 _suppressScrollBottom 计数抑制 scrollBottom，所有消息先堆进 DocumentFragment 一次插入，最后只贴底一次',
+      '首屏只同步渲染尾部 80 条（CONV_FIRST_PAINT），上方留一块「还有 N 条更早的消息」提示；更早的消息在 requestIdleCallback 空闲时每批 200 条向前补齐，插入后按新增 scrollHeight 补偿 scrollTop，视口位置不跳',
+      '滚到顶部 200px 内自动补一批；点提示块也补一批；缩略条点击跳转前先 ensureRendered(目标下标) 同步补齐，避免跳不到还没渲染的消息（卡片类消息没有 .msg 容器时按比例估算位置兜底）',
+      'KaTeX 排版与 [ref:] 图片取 dataURL 原本每条消息各发一组异步任务，首屏几百条一起排进微任务队列。现在攒到 _flushBubbleTasks 里，挂载后按空闲时间每次 12 条分批跑',
+      '图表 canvas 的尺寸赋值与逐像素绘制同样延后到节点进 DOM 之后（paint 队列），历史里有多张图时首屏不再等它们画完',
+      '历史渲染不再触发回写存档：renderDeliverCard / renderAskCard / renderChart 挂在批量渲染上下文里时跳过 scheduleSaveSessions，切一次对话不再白跑一次全量序列化',
+      'content-visibility 阈值从 800 降到 150：首屏只有 80 条，跳过的布局收益立刻体现；配合 contain-intrinsic-size: auto 120px 让浏览器记住真实高度',
+      'updateTokenBar 的全对话 token 估算加缓存（convContextTokens）：原先流式期间每 500ms 遍历上千条消息重算一次，现在只比对数组长度与末条长度，不变直接命中缓存',
+      '删除消息后「是否显示欢迎屏」改判 conversation.length，不再依赖 DOM 里有没有 .msg（首屏只渲染尾部，DOM 判断会误判）',
+      '缩略导航条点位上限 THUMB_MAX_DOTS=400：原先按消息数一比一生成 div（每条各带一个 top 值），3000 条消息就是 3000 个节点，切对话时光建这批节点就上百毫秒；现在超出上限按等间隔采样，dot 仍记真实消息下标（inner._dotMap），点击跳转与悬停提示不变',
+      '分批边界对齐（_alignChunkStart）：切分点若落在 tool 结果消息上，assistant 的 tool_calls 与它的结果会被拆进两批，pendingCards 拿不到卡片、工具结果退化成孤立样式；现在边界遇 tool 消息往前收，保证整块同批',
+      '滚到顶部触发的补齐改走 _scheduleBackfill 空闲调度，不在 scroll 回调里同步渲染，滑动过程不卡手',
+      '已知取舍：首屏 80 条之外的更早消息在空闲补齐完成前不参与 Ctrl+F 页面查找，也不在文档流里（浏览器原生虚拟化都这样）；点缩略条跳转会先同步补齐到目标位置，不会跳空'
+    ]
+  },
+  {
+    v: '2026.11.08.15',
+    date: '2026-11-08',
+    title: '去掉 html/body 的 overflow 锁定与配套的 pinTop 强制复位',
+    items: [
+      'html, body 原先写死 overflow: hidden; overflow: clip，本意是修「页面莫名上滚」，但副作用是把 document 滚动彻底禁掉：移动端键盘弹起时浏览器无法滚动补偿，输入框只能被压在键盘下；双指缩放时内容也会被挤压错位',
+      '现在只保留 height:100% 与 margin:0，overflow 交给浏览器默认值',
+      '同时移除配套的 pinTop：它监听 scroll 事件，一旦 document 被滚走就强制 scrollTop=0。这段必须和 overflow 一起拿掉，否则页面依旧被钉在顶部，去掉 overflow 等于白做',
+      'overflow-anchor:none 保留在根上：它负责「渲染历史消息时浏览器不修正滚动位置」，这才是当初「整页上移」的真正解法，与 overflow 锁定无关',
+      '注意：这是移除保护性 hack，可能让旧的「页面莫名上滚」问题回归，需真机观察'
+    ]
+  },
+  {
+    v: '2026.11.08.14',
+    date: '2026-11-08',
+    title: '撤回 viewport 的 interactive-widget，并修双指缩放被误判成键盘',
+    items: [
+      '上一版（2026.11.08.11）为了让安卓 Chrome 在键盘弹起时重排，给 viewport 加了 interactive-widget=resizes-content。实测这个方向是错的：它让浏览器自己去改布局视口，和本页 html/body 上的 overflow:clip 叠加后，表现为页面自己往上顶一截、松手又弹回，比不处理还差。已移除该关键字',
+      '真实根因不是"没让浏览器重排"，而是上一版同时写了两套互斥的键盘方案：既让浏览器重排（布局视口变矮），又用 JS 按 visualViewport 算差值去缩 .app。两套一起上必然重复计算、互相打架',
+      '现在只保留一套：viewport 恢复为 width=device-width, initial-scale=1, viewport-fit=cover；键盘高度完全由 JS 写 --kb-inset 驱动 .app 收缩。各平台走同一条代码路径，行为一致可控',
+      '修另一个真 bug：syncKb 用 innerHeight - (vv.height + vv.offsetTop) 判断键盘高度，但双指缩放时 vv.height 同样会变小，于是"放大"被当成"键盘弹起"，.app 高度被砍掉、整页内容被压缩错位。现在先判 vv.scale > 1.01，缩放状态下 --kb-inset 直接归零',
+      '保留 80px 以下不当作键盘的抖动过滤，以及键盘弹起后 scrollBottom 贴底'
+    ]
+  },
   {
     v: '2026.11.08.13',
     date: '2026-11-08',
@@ -5923,9 +5989,9 @@ function renderDeliverCard(msg) {
     if (copyBtn) copyBtn.addEventListener('click', () => { navigator.clipboard.writeText(path).then(() => toast('已复制路径')); });
   });
   el.dataset.idx = String(conversation.indexOf(msg));   // 供删除消息时同步清理卡片 DOM
-  messagesEl.appendChild(el);
+  (_renderBatch ? _renderBatch.frag : messagesEl).appendChild(el);
   scrollBottom();
-  scheduleSaveSessions();
+  if (!_renderBatch) scheduleSaveSessions();   // 历史批量渲染不需要回写存档
 }
 
 /* ---------- 询问卡片（ask_user 工具） ---------- */
@@ -5966,10 +6032,9 @@ function renderAskCard(askMsg, callback) {
     });
   }
   el.dataset.idx = String(conversation.indexOf(askMsg));   // 供删除消息时同步清理卡片 DOM
-  messagesEl.appendChild(el);
+  (_renderBatch ? _renderBatch.frag : messagesEl).appendChild(el);
   scrollBottom();
-  scheduleThumbUpdate();
-  scheduleSaveSessions();
+  if (!_renderBatch) { scheduleThumbUpdate(); scheduleSaveSessions(); }   // 历史批量渲染不需要回写存档
 }
 const CHART_COLORS = ['#5b9bd5','#ed7d31','#a5a5a5','#ffc000','#4472c4','#70ad47','#264478','#9e480e','#636363','#997300'];
 function renderChart(msg) {
@@ -5983,19 +6048,25 @@ function renderChart(msg) {
   el.className = 'msg assistant chart-msg';
   el.innerHTML = `<div class="avatar"></div><div class="bubble"><div class="chart-title"></div><canvas width="560" height="320"></canvas><div class="chart-legend"></div></div>`;
   el.querySelector('.chart-title').textContent = title;
-  const canvas = el.querySelector('canvas');
-  const ctx = canvas.getContext('2d');
-  // 高 DPI 适配
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = 560 * dpr; canvas.height = 320 * dpr;
-  canvas.style.width = '560px'; canvas.style.height = '320px';
-  ctx.scale(dpr, dpr);
-  // 绘制
-  try {
-    if (type === 'pie' || type === 'doughnut') drawPieChart(ctx, labels, datasets, type === 'doughnut', 560, 320);
-    else if (type === 'line') drawLineChart(ctx, labels, datasets, 560, 320);
-    else drawBarChart(ctx, labels, datasets, 560, 320);
-  } catch (e) { ctx.fillStyle = '#e07070'; ctx.font = '14px sans-serif'; ctx.fillText('渲染失败: ' + e.message, 20, 40); }
+  // canvas 尺寸赋值 + 逐像素绘制都挺贵，且要等节点进 DOM 才有意义：包成 paint() 供批量渲染延后执行
+  const paint = () => {
+    if (!el.isConnected) return;
+    const canvas = el.querySelector('canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    // 高 DPI 适配
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = 560 * dpr; canvas.height = 320 * dpr;
+    canvas.style.width = '560px'; canvas.style.height = '320px';
+    ctx.scale(dpr, dpr);
+    // 绘制
+    try {
+      if (type === 'pie' || type === 'doughnut') drawPieChart(ctx, labels, datasets, type === 'doughnut', 560, 320);
+      else if (type === 'line') drawLineChart(ctx, labels, datasets, 560, 320);
+      else drawBarChart(ctx, labels, datasets, 560, 320);
+    } catch (e) { ctx.fillStyle = '#e07070'; ctx.font = '14px sans-serif'; ctx.fillText('渲染失败: ' + e.message, 20, 40); }
+  };
+  if (_renderBatch) _renderBatch.charts.push(paint); else paint();
   // 图例
   const legend = el.querySelector('.chart-legend');
   datasets.forEach((ds, i) => {
@@ -6005,9 +6076,9 @@ function renderChart(msg) {
     legend.appendChild(item);
   });
   el.dataset.idx = String(conversation.indexOf(msg));   // 供删除消息时同步清理卡片 DOM
-  messagesEl.appendChild(el);
+  (_renderBatch ? _renderBatch.frag : messagesEl).appendChild(el);
   scrollBottom();
-  scheduleSaveSessions();
+  if (!_renderBatch) scheduleSaveSessions();   // 历史批量渲染不需要回写存档
 }
 function drawBarChart(ctx, labels, datasets, W, H) {
   const padL = 50, padR = 20, padT = 20, padB = 50;
@@ -9184,10 +9255,16 @@ function hideWelcomeScreen() {
   if (typewriterTimer) { clearInterval(typewriterTimer); typewriterTimer = null; }
   if (welcomeQuoteTyping) { clearInterval(welcomeQuoteTyping); welcomeQuoteTyping = null; }
 }
-// 对话渲染：全量渲染（无滑窗、无占位、无加载按钮），超长对话交给 content-visibility
+// 对话渲染：首屏只画尾部 CONV_FIRST_PAINT 条并一次贴底，更早的消息在空闲时间逐批向前补齐。
+// 三条关键约束：① 渲染期间抑制逐条 scrollBottom；② 所有节点先堆进 fragment 一次插入；
+// ③ KaTeX / 图片取图这类异步重活延后到空闲分批跑。否则消息越多越慢（平方级）。
+const CONV_FIRST_PAINT = 80;      // 首屏同步渲染的尾部消息数
+const CONV_BACKFILL_CHUNK = 200;  // 空闲补齐时每批消息数（_convBackfill 在文件顶部全局区声明）
+
 function renderConversation() {
   if (!Array.isArray(conversation)) conversation = [];
   roundAssistantEl = null;   // 历史渲染不挂工具卡片，避免挂到上一轮气泡里
+  _convBackfill = null;
   messagesEl.innerHTML = '';
   try { updateTokenBar(); } catch (e) {}
   if (conversation.length === 0) {
@@ -9195,9 +9272,24 @@ function renderConversation() {
     return;
   }
   hideWelcomeScreen();
+  const total = conversation.length;
   // 超长对话启用浏览器原生优化（content-visibility），普通对话不加
-  messagesEl.classList.toggle('cv-auto', conversation.length > 800);
-  renderMsgRange(0, conversation.length);
+  messagesEl.classList.toggle('cv-auto', total > 150);
+  const tail = Math.min(total, CONV_FIRST_PAINT);
+  const from = _alignChunkStart(total - tail);   // 首屏边界也不许切在 tool 消息上
+  let placeholder = null;
+  if (from > 0) {
+    placeholder = document.createElement('div');
+    placeholder.className = 'conv-more';
+    placeholder.textContent = '上方还有 ' + from + ' 条更早的消息（点这里或往上滑加载）';
+    placeholder.addEventListener('click', () => { _backfillStep(); });
+    messagesEl.appendChild(placeholder);
+  }
+  const batch = _paintRange(from, total, placeholder ? placeholder.nextSibling : null);
+  if (from > 0) {
+    _convBackfill = { from, placeholder, running: false };
+    _scheduleBackfill();
+  }
   // 双 rAF：等布局完成后再滚到底，避免 scrollHeight 还是旧值
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
@@ -9205,6 +9297,102 @@ function renderConversation() {
       scheduleThumbUpdate();
     });
   });
+  _flushBubbleTasks(batch.bubbles, batch.charts);
+}
+
+// 渲染 [start,end) 进 fragment 后一次插入（before 为 null 时追加到末尾），返回收集到的气泡待办
+function _paintRange(start, end, before) {
+  const prevSuppress = _suppressScrollBottom;
+  const prevBatch = _renderBatch;
+  _suppressScrollBottom++;
+  const batch = { frag: document.createDocumentFragment(), bubbles: [], charts: [] };
+  _renderBatch = batch;
+  try {
+    renderMsgRange(start, end);
+    if (before && before.parentNode === messagesEl) messagesEl.insertBefore(batch.frag, before);
+    else messagesEl.appendChild(batch.frag);
+  } catch (e) {
+    console.warn('[render] 渲染消息失败', e);
+    if (batch.frag.childNodes.length) messagesEl.appendChild(batch.frag);
+  } finally {
+    _renderBatch = prevBatch;
+    _suppressScrollBottom = prevSuppress;
+  }
+  return batch;
+}
+
+// 空闲补齐更早的一批：插到顶部提示块之后，并按新增高度补偿 scrollTop，用户视口不动
+function _backfillStep() {
+  const st = _convBackfill;
+  if (!st || st.from <= 0) return true;
+  const end = st.from;
+  const start = _alignChunkStart(Math.max(0, end - CONV_BACKFILL_CHUNK));
+  const beforeH = messagesEl.scrollHeight;
+  const batch = _paintRange(start, end, st.placeholder ? st.placeholder.nextSibling : messagesEl.firstChild);
+  st.from = start;
+  const delta = messagesEl.scrollHeight - beforeH;
+  if (delta > 0) messagesEl.scrollTop += delta;   // 内容加在上方，视口位置保持不变
+  if (st.placeholder) {
+    if (start <= 0) st.placeholder.remove();
+    else st.placeholder.textContent = '上方还有 ' + start + ' 条更早的消息（点这里或往上滑加载）';
+  }
+  _flushBubbleTasks(batch.bubbles, batch.charts);
+  if (st.from > 0) { _scheduleBackfill(); return false; }
+  _convBackfill = null;
+  scheduleThumbUpdate();
+  return true;
+}
+
+function _scheduleBackfill() {
+  const st = _convBackfill;
+  if (!st || st.running || st.from <= 0) return;
+  st.running = true;
+  const idle = window.requestIdleCallback || (fn => setTimeout(() => fn({ timeRemaining: () => 8 }), 80));
+  idle(() => {
+    st.running = false;
+    if (_convBackfill !== st) return;
+    _backfillStep();
+  });
+}
+
+// 分批渲染的边界不能落在 tool 结果消息上：否则 assistant 的 tool_calls 与它的结果被拆到两批，
+// pendingCards 拿不到卡片，工具结果会退化成「孤立工具结果」样式。往前提一格即可保证整块同批。
+function _alignChunkStart(start) {
+  let s = start;
+  let guard = 0;
+  while (s > 0 && conversation[s] && conversation[s].role === 'tool' && guard++ < 50) s--;
+  return s;
+}
+
+// 一次性补齐到指定下标（缩略条跳转、搜索定位需要目标消息已在 DOM 里）
+function ensureRendered(idx) {
+  let guard = 0;
+  while (_convBackfill && _convBackfill.from > idx && guard++ < 200) _backfillStep();
+  return !_convBackfill || _convBackfill.from <= idx;
+}
+
+// 批量渲染攒下的异步重活（KaTeX 排版、ref 图片取 dataURL）改到空闲时间分批跑，首屏不再被几百个 Promise 拖慢
+function _flushBubbleTasks(bubbles, charts) {
+  const queue = [];
+  if (charts) for (const fn of charts) queue.push(fn);
+  if (bubbles) for (const b of bubbles) queue.push(b);
+  if (!queue.length) return;
+  const idle = window.requestIdleCallback || (fn => setTimeout(() => fn({ timeRemaining: () => 8 }), 16));
+  let i = 0;
+  const pump = () => {
+    let n = 0;
+    while (i < queue.length && n < 12) {
+      const item = queue[i++];
+      n++;
+      if (typeof item === 'function') { try { item(); } catch (e) {} continue; }   // 图表绘制
+      const b = item;
+      if (!b || !b.isConnected) continue;
+      try { renderMathIn(b); } catch (e) {}
+      try { if (b.querySelector('img.ref-thumb:not([data-loaded])')) hydrateRefCards(b); } catch (e) {}
+    }
+    if (i < queue.length) idle(pump);
+  };
+  idle(pump);
 }
 /* ---------- [ref:/path] 闭合占位符：UI 渲染时展开成文件卡片 ---------- */
 const REF_MARK_RE = /\[ref:\s*([^\]\s]+)\s*\]/g;
@@ -9376,7 +9564,7 @@ function renderMsgRange(startIdx, endIdx) {
         const pre2 = card2.querySelector('.tool-result');
         if (wrap2 && pre2) { pre2.textContent = resultText; wrap2.removeAttribute('hidden'); }
         el.querySelector('.bubble').appendChild(card2);
-        messagesEl.appendChild(el);
+        (_renderBatch ? _renderBatch.frag : messagesEl).appendChild(el);
       }
     }
   }
@@ -9556,7 +9744,13 @@ function setStopBtn(on, busy) {
 }
 
 function clearEmptyHint() { hideWelcomeScreen(); }
-function scrollBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; scheduleThumbUpdate(); }
+// 批量渲染历史时抑制逐条贴底：给 scrollTop 赋值要读 scrollHeight，会强制同步布局，
+// 上千条消息逐条调用等于 O(n²)，这是「点进超长对话卡住」的主因（_suppressScrollBottom 见文件顶部声明）
+function scrollBottom() {
+  if (_suppressScrollBottom) return;
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  scheduleThumbUpdate();
+}
 
 /* ---------- 滚动缩略导航条 ---------- */
 let _thumbSignature = '';
@@ -9568,6 +9762,7 @@ let _thumbScrollTimer = null;
 let _thumbProgrammaticScrollAt = -1e9;
 const THUMB_MIN_INTERVAL = 150;
 const THUMB_ITEM_H = 8;
+const THUMB_MAX_DOTS = 400;   // 缩略条最多画多少个点位，超出按等间隔采样（几千个 div 建起来很贵）
 
 function bindThumbScrollGuard(bar) {
   if (bar._thumbScrollBound) return;
@@ -9606,8 +9801,12 @@ function updateScrollThumbnail() {
   bar.classList.add('active');
   bindThumbScrollGuard(bar);
   const total = msgs.length;
+  // dot 数量上限：几千条消息就生成几千个 div（各带 top 定位），切对话时光建这批节点就要上百毫秒。
+  // 超过上限按等间隔采样，dot 仍记录真实消息下标，跳转与悬停提示不受影响。
+  const step = Math.max(1, Math.ceil(total / THUMB_MAX_DOTS));
+  const dotCount = Math.ceil(total / step);
   // 固定间距：dots 一律按 THUMB_ITEM_H 排布，对话再长也不会被压缩成密条
-  const innerH = total * THUMB_ITEM_H;
+  const innerH = dotCount * THUMB_ITEM_H;
   const sig = (currentSessionId || '') + ':' + total;
   let inner = bar.querySelector('.thumb-inner');
   // 消息数或会话变了才重建 dot；否则只更新高度和 viewport
@@ -9618,8 +9817,12 @@ function updateScrollThumbnail() {
     inner = document.createElement('div');
     inner.className = 'thumb-inner';
     inner.style.height = innerH + 'px';
+    // 存一份采样表：dot 序号 → 真实 messagesEl 下标，供点击跳转用
+    const dotMap = [];
     const frag = document.createDocumentFragment();
-    msgs.forEach((m, i) => {
+    for (let i = 0, k = 0; i < total && k < dotCount; i += step, k++) {
+      const m = msgs[i];
+      if (!m) continue;
       let type = 'assistant';
       if (m.role === 'user') type = 'user';
       else if (m.role === 'tool') type = 'tool';
@@ -9628,9 +9831,11 @@ function updateScrollThumbnail() {
       const dot = document.createElement('div');
       dot.className = 'scroll-thumb-item ' + type;
       dot.dataset.idx = String(i);
-      dot.style.top = (i * THUMB_ITEM_H) + 'px';
+      dot.style.top = (k * THUMB_ITEM_H) + 'px';
+      dotMap.push(i);
       frag.appendChild(dot);
-    });
+    }
+    inner._dotMap = dotMap;
     // viewport 标记
     const vp = document.createElement('div');
     vp.className = 'scroll-viewport-marker';
@@ -9651,9 +9856,16 @@ function updateScrollThumbnail() {
           count++;
         }
       }
+      // 目标消息可能还没渲染（首屏只画了尾部），先补齐再滚
+      try { ensureRendered(realIdx); } catch (err) {}
       const target = messagesEl.querySelector('.msg[data-idx="' + realIdx + '"]');
       // 只滚 .messages，不用 scrollIntoView（它会一路滚到 document，导致整页上移）
       if (target) messagesEl.scrollTo({ top: target.offsetTop - messagesEl.offsetTop - 8, behavior: 'smooth' });
+      else {
+        // 卡片类消息（deliver / chart / ask）没有 .msg 容器时按比例估算位置
+        const ratio = conversation.length > 1 ? realIdx / (conversation.length - 1) : 1;
+        messagesEl.scrollTo({ top: ratio * messagesEl.scrollHeight, behavior: 'smooth' });
+      }
     });
     inner.addEventListener('mouseover', (e) => {
       const dot = e.target.closest('.scroll-thumb-item');
@@ -9711,11 +9923,15 @@ function updateScrollThumbnail() {
   }
   } catch (e) { console.warn('updateScrollThumbnail error:', e); }
 }
-// 滚动时更新视口标记
-messagesEl.addEventListener('scroll', () => { scheduleThumbUpdate(); });
+// 滚动时更新视口标记；滚到顶部附近顺带补一批更早的消息（首屏只渲染了尾部）
+messagesEl.addEventListener('scroll', () => {
+  scheduleThumbUpdate();
+  if (messagesEl.scrollTop < 200 && _convBackfill && !_convBackfill.running) _scheduleBackfill();
+}, { passive: true });
 
 function appendMsg(role, html, idx) {
-  clearEmptyHint();
+  // 批量渲染历史时欢迎屏已由 renderConversation 隐藏，不必逐条重复隐藏
+  if (!_renderBatch) clearEmptyHint();
   const el = document.createElement('div');
   el.className = 'msg ' + role;
   // 未显式指定索引时，默认是追加到 conversation 末尾的新消息
@@ -9726,9 +9942,14 @@ function appendMsg(role, html, idx) {
   if (role === 'assistant') currentAssistantEl = el;
   const bubble = el.querySelector('.bubble');
   if (html != null) bubble.innerHTML = html;
-  renderMathIn(bubble);
-  // [ref:] 图片卡片懒加载：插入 DOM 后再从 VFS 取 dataURL 填 <img>
-  if (bubble.querySelector('img.ref-thumb')) hydrateRefCards(bubble);
+  if (_renderBatch) {
+    // 批量渲染：KaTeX 与图片取图攒到挂载后统一空闲跑，避免首屏被几百次异步任务拖住
+    _renderBatch.bubbles.push(bubble);
+  } else {
+    renderMathIn(bubble);
+    // [ref:] 图片卡片懒加载：插入 DOM 后再从 VFS 取 dataURL 填 <img>
+    if (bubble.querySelector('img.ref-thumb')) hydrateRefCards(bubble);
+  }
   const copyBtn = el.querySelector('[data-action="copy"]');
   if (copyBtn) copyBtn.addEventListener('click', () => {
     const clone = bubble.cloneNode(true);
@@ -9750,12 +9971,17 @@ function appendMsg(role, html, idx) {
       while (end < conversation.length && conversation[end].role === 'tool') end++;
     }
     conversation.splice(idx, end - idx);
+    // 删除会改变后续下标：未渲染区间的起点跟着前移，否则补齐时范围错位
+    if (_convBackfill && _convBackfill.from > idx) {
+      _convBackfill.from = Math.max(0, _convBackfill.from - (end - idx));
+    }
     el.remove();
     // chart / deliver / ask 卡片是独立 DOM 元素，删除消息时必须按 dataset.idx 一并清掉，否则残留
     messagesEl.querySelectorAll('.chart-msg, .deliver-msg, .ask-msg').forEach(e => {
       if (e.dataset.idx === String(idx)) e.remove();
     });
-    if (messagesEl.querySelectorAll('.msg').length === 0) {
+    // 首屏可能只渲染了尾部，不能按 DOM 里有没有 .msg 判断，得看数据源
+    if (conversation.length === 0) {
       showWelcomeScreen();
     }
     scheduleSaveSessions();
@@ -9800,7 +10026,7 @@ function appendMsg(role, html, idx) {
     }
     regenerateFrom(idx);
   });
-  messagesEl.appendChild(el);
+  (_renderBatch ? _renderBatch.frag : messagesEl).appendChild(el);
   scrollBottom();
   return bubble;
 }
@@ -9961,7 +10187,7 @@ function addToolCard(name, args, status) {
   el.className = 'msg tool';
   el.innerHTML = `<div class="avatar"></div><div class="bubble"></div>`;
   el.querySelector('.bubble').appendChild(card);
-  messagesEl.appendChild(el);
+  (_renderBatch ? _renderBatch.frag : messagesEl).appendChild(el);
   scrollBottom();
   return card;
 }
@@ -12365,6 +12591,21 @@ function estimateTokens(text) {
   for (const ch of s) { if (/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch)) cjk++; else other++; }
   return Math.ceil(cjk / 1.5 + other / 4);
 }
+// 全对话 token 估算带缓存：每次完全重算要遍历上千条消息，流式期间 500ms 一次会明显掉帧
+let _convTokCache = { conv: null, len: -1, tailLen: -1, tok: 0 };
+function convContextTokens() {
+  const conv = Array.isArray(conversation) ? conversation : [];
+  const last = conv.length ? conv[conv.length - 1] : null;
+  const tailLen = last ? String(contentToText(last.content) || '').length : 0;
+  if (_convTokCache.conv === conv && _convTokCache.len === conv.length && _convTokCache.tailLen === tailLen) return _convTokCache.tok;
+  let tok = 0;
+  for (let i = 0; i < conv.length; i++) {
+    const m = conv[i];
+    if (m) tok += estimateTokens(contentToText(m.content || ''));
+  }
+  _convTokCache = { conv, len: conv.length, tailLen, tok };
+  return tok;
+}
 function updateTokenBar() {
   const inp = $('input'); const inputText = inp ? inp.value : '';
   const ti = $('tokenInput'); const tc = $('tokenContext');
@@ -12378,8 +12619,7 @@ function updateTokenBar() {
       const out = lastUsage.completion_tokens || 0;
       tc.textContent = `缓存 ${rate}% | 命中 ${hit} 未命中 ${miss} | 输出 ${out}`;
     } else {
-      const ctxText = conversation.map(m => contentToText(m.content)).join('\n');
-      tc.textContent = '对话 ~' + estimateTokens(ctxText) + ' tokens';
+      tc.textContent = '对话 ~' + convContextTokens() + ' tokens';
     }
   }
 }
@@ -13709,26 +13949,23 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
   safe('mergeSessionsFromVfs', () => mergeSessionsFromVfs().catch(e => console.warn('[init] mergeSessions', e)));
   safe('loadTodos', () => loadTodos().catch(e => console.error('[init] loadTodos', e)));
   safe('renderTree', renderTree);
-  // 视口钉顶兜底：document 一旦被任何来源（滚动锚定/键盘/focus/scrollIntoView）推走，立即复位
-  // CSS 侧的 overflow:clip 已禁止程序滚动，这里再兜一层，防将来新代码回归
-  try {
-    const pinTop = () => {
-      const se = document.scrollingElement || document.documentElement;
-      if (se && se.scrollTop) se.scrollTop = 0;
-      if (document.body && document.body.scrollTop) document.body.scrollTop = 0;
-    };
-    window.addEventListener('scroll', pinTop, { passive: true });
-    if (window.visualViewport) window.visualViewport.addEventListener('scroll', pinTop, { passive: true });
-  } catch (e) { console.warn('[init] pinTop 绑定失败', e); }
+  // 注：原先这里有一段 pinTop 兜底——监听 scroll 事件，一旦 document 被滚走就强制复位 scrollTop。
+  // 它是配合 html/body 的 overflow:clip 一起锁死视口的，现在 overflow 已移除，这段也必须一并去掉：
+  // 否则页面依旧被强行钉在顶部，键盘弹起时浏览器没法滚动补偿，去掉 overflow 等于白去。
+  // 渲染历史消息导致的「整页上移」已由根上的 overflow-anchor:none 解决，不需要这里再兜。
   // 移动端软键盘：visualViewport 比 window.innerHeight 少的那部分就是被键盘(和地址栏)盖住的高度，
   // 写进 --kb-inset 让 .app 收缩到键盘上方，输入框才不会被压住。
-  // 安卓 Chrome 在 interactive-widget=resizes-content 下会自己重排、innerHeight 同步变小，
-  // 算出来的差值是 0，不会重复扣减；iOS Safari 不支持该关键字，全靠这条兜住。
+  // 这是唯一一套键盘处理逻辑：已移除 viewport 的 interactive-widget=resizes-content，
+  // 避免浏览器重排布局视口与这里的算法重复扣减、互相打架。
   try {
     const vv = window.visualViewport;
     if (vv) {
       const root = document.documentElement;
       const syncKb = () => {
+        // 双指缩放时 vv.height 同样会变小，但那不是键盘。
+        // 不排除的话缩放会被当成键盘：.app 高度被砍掉，整页内容被压缩错位——
+        // 表现就是「一放大页面就自己乱动」。缩放状态下直接归零，保持满高。
+        if (vv.scale > 1.01) { root.style.setProperty('--kb-inset', '0px'); return; }
         const raw = Math.round((window.innerHeight || 0) - (vv.height + vv.offsetTop));
         // 小于 80px 一律当作地址栏收起/展开的抖动，不当键盘处理，否则界面会跟着轻微跳
         const kb = raw > 80 ? raw : 0;
