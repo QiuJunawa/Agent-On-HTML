@@ -1,4 +1,6 @@
 {
+  "name": "Agent-On-HTML · Codespace Bridge",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
   "postStartCommand": "bash ${containerWorkspaceFolder}/.devcontainer/agent-bridge/start.sh",
   "forwardPorts": [8787],
   "portsAttributes": {
