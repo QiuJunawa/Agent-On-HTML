@@ -290,6 +290,10 @@
   .session-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .session-title { font-size: 13px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .session-time { font-size: 11px; color: var(--text-muted); }
+  .session-info { flex-direction: row; align-items: center; gap: 7px; }
+  .session-icon { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1; }
+  .session-icon .ico-svg { width: 14px; height: 14px; color: var(--text-muted); }
+  .session-title { flex: 1; min-width: 0; }
   .session-del {
     background: transparent; border: none; color: var(--text-muted); cursor: pointer;
     font-size: 12px; padding: 4px 8px; border-radius: 4px; flex: 0 0 auto;
@@ -723,6 +727,17 @@
     transition: border-color 0.15s, box-shadow 0.15s;
   }
   .welcome-input-wrap textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+  .welcome-input-actions { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin-top: 7px; }
+  .welcome-input-actions .ghost-btn { display: inline-flex; align-items: center; padding: 5px 12px; font-size: 12px; }
+  .welcome-upload-hint { font-size: 11.5px; color: var(--text-muted); }
+  .welcome-input-actions .ghost-btn .welcome-up-ico { width: 13px; height: 13px; margin-right: 4px; vertical-align: -0.15em; }
+  .welcome-paste-preview { flex-wrap: wrap; gap: 8px; width: 100%; max-width: 620px; }
+  /* 拖拽进入输入区时的提示态 */
+  .welcome-input-wrap.dragover textarea {
+    border-color: var(--accent); background: var(--accent-bg);
+    box-shadow: 0 0 0 3px var(--accent-bg);
+  }
+  .welcome-input-wrap.dragover .welcome-upload-hint { color: var(--accent); }
   .welcome-suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 620px; }
   .welcome-suggestion {
     padding: 8px 16px; border-radius: 20px;
@@ -1021,6 +1036,55 @@
   .at-editor textarea { resize: vertical; line-height: 1.6; }
   .at-editor .at-check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); margin-bottom: 10px; }
   .at-editor .at-check input { width: auto; }
+
+  /* ===== 侧栏顶部：内容切换（VFS / 对话历史）+ 更多菜单 ===== */
+  .side-head { position: relative; gap: 6px; }
+  .side-head .side-scope { display: none; }   /* 原生 select 由 CustomSelect 接管，按钮插在它后面 */
+  .side-head .cselect-btn { flex: 1 1 auto; min-width: 0; }
+  .side-more-btn { flex: 0 0 auto; font-size: 17px; line-height: 1; letter-spacing: 1px; }
+  /* 原来的 6 个操作按钮收进「⋯」弹出的浮动面板，仍是一排图标，ID 与事件全部保持不变 */
+  .side-tools.side-menu {
+    position: absolute; top: calc(100% + 2px); right: 8px; z-index: 120;
+    display: flex; gap: 2px; padding: 5px;
+    /* 原为 var(--bg-elevated)，但主题里只定义了 --bg-elevated-1..4，没有无后缀的那个。
+       变量不存在 → 整个 background 声明失效 → 菜单背景透明，底下的文件树直接透过来。 */
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 10px 28px var(--bg-modal);
+  }
+  .side-tools.side-menu[hidden] { display: none; }
+  /* 侧栏切到「对话历史」时的列表容器 */
+  .side-history { flex: 1; overflow-y: auto; padding: 6px 0 12px; }
+  .side-history[hidden] { display: none; }
+  .tree[hidden], .todo-panel[hidden] { display: none; }
+  .side-empty { padding: 18px 12px; text-align: center; font-size: 12px; color: var(--text-muted); }
+
+  /* ===== 对话区顶栏：图标化 ===== */
+  .chat-head-btn { flex: 0 0 auto; width: 30px; height: 30px; }
+  .chat-head-btn.active { color: var(--text-link); }
+  .chat-head .title { font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .chat-title-icon { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1; }
+  .chat-title-icon .ico-svg { width: 15px; height: 15px; }
+  .chat-title-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session-list-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 7px 12px 9px; border-bottom: 1px solid var(--border);
+    font-size: 12px; color: var(--text-secondary);
+  }
+  .session-list-head .sl-actions { display: flex; gap: 6px; }
+  .session-list-head .ghost-btn { padding: 3px 9px; font-size: 11.5px; }
+
+  /* ===== 底部输入区工具条：左 ＋/⋯，右 模型/ⓘ ===== */
+  .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .composer-bar .cb-left, .composer-bar .cb-right { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .composer-bar .cb-right { flex: 0 1 auto; justify-content: flex-end; }
+  .composer-bar .model-tag { max-width: 150px; }
+  .composer-bar .cb-right .cselect-btn { min-width: 0; max-width: 210px; padding: 5px 9px; font-size: 12px; }
+  .composer-bar .profile-hint { display: none; }   /* 预设地址只在 token 条里露出，避免工具条被撑长 */
+  .composer-bar .icon-btn.active { color: var(--accent); }
+  .token-bar[hidden] { display: none; }
+  /* 对话历史视图下，文件操作菜单整体退场（历史列表不需要新建文件/导出这些） */
+  .side-head .side-more-btn[hidden],
+  .side-head .side-menu[hidden] { display: none; }
 </style>
 </head>
 <body data-mode="chat">
@@ -1037,10 +1101,14 @@
 
 <div class="app">
   <!-- 侧栏：文件树 -->
-  <aside class="sidebar">
+  <aside class="sidebar" aria-label="文件与对话历史">
     <div class="side-head">
-      <span class="brand"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true" style="width:15px;height:15px;vertical-align:-0.2em;margin-right:5px"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>VFS</span>
-      <div class="side-tools">
+      <select id="sideScope" class="side-scope" title="切换侧栏内容">
+        <option value="vfs">VFS</option>
+        <option value="history">对话历史</option>
+      </select>
+      <button class="icon-btn side-more-btn" id="btnSideMore" type="button" title="更多操作" aria-haspopup="true" aria-expanded="false">⋯</button>
+      <div class="side-tools side-menu" id="sideMoreMenu" hidden>
         <button class="icon-btn" id="btnNewFile" type="button" title="新建文件"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></button>
         <button class="icon-btn" id="btnNewDir" type="button" title="新建文件夹"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></button>
         <button class="icon-btn" id="btnExport" type="button" title="导出备份"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>
@@ -1050,6 +1118,7 @@
       </div>
     </div>
     <div class="tree" id="tree"></div>
+    <div class="side-history" id="sideHistory" hidden></div>
     <div class="todo-panel" id="todoPanel">
       <div class="todo-head"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg> 待办 <span class="todo-count" id="todoCount">0/0</span><button class="todo-clear" id="todoClearDone" type="button" title="清空已完成的待办" hidden>清空已完成</button></div>
       <div class="todo-list" id="todoList"></div>
@@ -1060,16 +1129,23 @@
   <!-- 中间：聊天 -->
   <main class="chat">
     <header class="chat-head">
-      <div class="title" id="chatTitle" style="cursor:pointer" title="点击查看对话列表">AI Agent</div>
-      <div class="model-tag" id="modelTag">未配置</div>
+      <button class="icon-btn chat-head-btn" id="btnPanelToggle" type="button" title="展开/收起文件面板" aria-label="文件面板"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
+      <div class="title" id="chatTitle" title="点击查看对话列表"><span class="chat-title-icon" id="chatTitleIcon"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span><span class="chat-title-text" id="chatTitleText">AI Agent</span></div>
+      <button class="icon-btn chat-head-btn" id="btnEditTitle" type="button" title="编辑标题" aria-label="编辑标题"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>
       <div class="spacer"></div>
-      <button class="ghost-btn" id="btnNewChat" type="button">新对话</button>
-      <button class="ghost-btn" id="btnClear" type="button">清空对话</button>
-      <button class="ghost-btn" id="btnToggleSidebar" type="button">隐藏侧栏</button>
-      <button class="ghost-btn" id="btnTogglePreview" type="button">隐藏预览</button>
-      <button class="ghost-btn" id="btnDebug" type="button" title="查看发出去的请求上下文"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg> 调试</button>
-      <button class="ghost-btn" id="btnSettings" type="button"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> 设置</button>
-      <div class="session-list" id="sessionList" style="display:none"></div>
+      <button class="icon-btn chat-head-btn" id="btnSettings" type="button" title="设置" aria-label="设置"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+      <button class="icon-btn chat-head-btn" id="btnTogglePreview" type="button" title="展开预览面板" aria-label="预览面板"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg></button>
+      <div class="session-list" id="sessionList" style="display:none">
+        <div class="session-list-head">
+          <span>对话历史</span>
+          <div class="sl-actions">
+            <button class="ghost-btn" id="btnNewChat" type="button">新对话</button>
+            <button class="ghost-btn" id="btnClear" type="button">清空</button>
+            <button class="ghost-btn" id="btnDebug" type="button" title="查看发出去的请求上下文">调试</button>
+          </div>
+        </div>
+        <div id="sessionListRows"></div>
+      </div>
     </header>
     <div class="messages" id="messages"></div>
     <div class="welcome-screen" id="welcomeScreen" style="display:none">
@@ -1078,8 +1154,14 @@
       <div class="welcome-profile-bar">
         <select id="welcomeProfileSelect" title="切换 AI 预设"></select>
       </div>
-      <div class="welcome-input-wrap">
-        <textarea id="welcomeInput" rows="1" placeholder="给 AI 下达指令…（Enter 发送，Shift+Enter 换行，可直接粘贴图片）"></textarea>
+      <div class="welcome-paste-preview paste-preview" id="welcomePastePreview" style="display:none"></div>
+      <div class="welcome-input-wrap" id="welcomeDropZone">
+        <textarea id="welcomeInput" rows="1" placeholder="给 AI 下达指令…（Enter 发送，Shift+Enter 换行，可粘贴图片 / 拖入文件）"></textarea>
+        <div class="welcome-input-actions">
+          <button id="btnWelcomeUpload" class="ghost-btn" type="button" aria-label="上传文件"><svg class="ico-svg welcome-up-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>上传文件</button>
+          <span class="welcome-upload-hint">也可以把文件直接拖到输入框</span>
+        </div>
+        <input type="file" id="welcomeFileInput" multiple style="display:none">
       </div>
       <div class="welcome-suggestions">
         <button class="welcome-suggestion" type="button">创建 /notes 目录，写一份项目计划</button>
@@ -1089,10 +1171,6 @@
     </div>
     <div class="scroll-thumbnail" id="scrollThumbnail"></div>
     <div class="composer">
-      <div class="profile-bar">
-        <select id="profileSelect" title="切换 AI 预设"></select>
-        <span class="profile-hint" id="profileHint"></span>
-      </div>
       <div class="paste-preview" id="pastePreview" style="display:none"></div>
       <div class="quote-bar" id="quoteBar" style="display:none">
         <span class="quote-label">引用</span>
@@ -1100,18 +1178,25 @@
         <button class="quote-cancel" type="button" id="btnQuoteCancel"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
       </div>
       <div class="input-row">
-        <button id="btnUploadFile" class="icon-btn" type="button" title="上传文件到 VFS 并在消息中引用" style="flex:0 0 auto;align-self:flex-end;margin-bottom:6px"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg></button>
-        <input type="file" id="fileInput" multiple style="display:none">
         <textarea id="input" rows="1" placeholder="给 AI 下达指令…（Enter 发送，Shift+Enter 换行，可直接粘贴图片）"></textarea>
         <button id="btnStop" class="stop-btn" type="button" style="display:none" title="停止生成"></button>
         <button id="btnSend" class="send-btn" type="button">发送</button>
       </div>
-      <div class="token-bar"><span id="tokenInput">输入 0 tokens</span><span id="tokenContext">对话 0 tokens</span></div>
+      <div class="composer-bar">
+        <div class="cb-left">
+          <button id="btnUploadFile" class="icon-btn" type="button" title="上传文件到 VFS 并在消息中引用" aria-label="上传文件"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        </div>
+        <div class="cb-right">
+          <select id="profileSelect" title="切换 AI 预设与思考强度"></select>
+        </div>
+      </div>
+      <input type="file" id="fileInput" multiple style="display:none">
+      <div class="token-bar" id="tokenBar" hidden><span id="tokenInput">输入 0 tokens</span><span id="tokenContext">对话 0 tokens</span></div>
     </div>
   </main>
 
   <!-- 右侧：编辑器 -->
-  <aside class="editor">
+  <aside class="editor" aria-label="文件编辑器与预览">
     <div class="editor-head">
       <span id="editorPath">未打开文件</span>
       <div>
@@ -1123,7 +1208,7 @@
     <textarea id="editor" spellcheck="false" placeholder="在左侧点击一个文件开始编辑…"></textarea>
     <div class="preview-pane" id="previewPane" style="display:none">
       <div class="md-preview" id="mdPreview"></div>
-      <iframe id="htmlPreview" sandbox="allow-scripts" style="display:none;width:100%;height:100%;border:none;background:#fff"></iframe>
+      <iframe id="htmlPreview" sandbox="allow-scripts" title="HTML 预览" style="display:none;width:100%;height:100%;border:none;background:#fff"></iframe>
     </div>
     <div class="img-preview" id="imgPreview" style="display:none"><img id="imgPreviewImg" alt="预览"></div>
   </aside>
@@ -1504,10 +1589,16 @@
       </div>
       <div id="csStatus" style="font-size:12px;color:var(--text-muted);line-height:1.7;margin:-4px 0 4px"></div>
       <div class="field">
-        <label>在 Codespace 终端里运行（只需一次，之后令牌会复用）</label>
+        <label>在 Codespace 终端里运行（只需一次，之后令牌会复用、并自动开机自启）</label>
         <pre id="csInstallCmd" style="margin:0;padding:10px;border-radius:8px;background:var(--code-bg);border:1px solid var(--code-border);font-size:11.5px;line-height:1.6;white-space:pre;overflow-x:auto;color:var(--text-secondary)"></pre>
         <div style="margin-top:8px">
           <button class="ghost-btn" id="btnCsCopyCmd" type="button">复制安装命令</button>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;line-height:1.7">
+          这条命令做四件事：写桥接脚本 → 写后台启动脚本 <code>start.sh</code>（端口已在监听就跳过，可重复执行）→ 立即后台启动并打印令牌 → 把 <code>postStartCommand</code> 写进仓库的 <code>.devcontainer/devcontainer.json</code>。
+          <br><b>Codespaces 里没有 systemd</b>，容器生命周期钩子是唯一可靠的自动启动方式，所以走 postStartCommand。
+          <br>⚠️ 写完要<b>把 .devcontainer/devcontainer.json 提交并推送</b>，否则下次开机会被仓库里的旧版本覆盖；提交后重启 Codespace 即生效（也可在命令面板跑 <code>Codespaces: Rebuild Container</code> 立刻验证）。
+          <br>日志在 <code>~/.agent-bridge/bridge.log</code>。
         </div>
       </div>
       <div class="field">
@@ -1932,6 +2023,67 @@ function icon(name, cls) {
   if (!p) return '';
   return '<svg class="ico-svg' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" aria-hidden="true">' + p + '</svg>';
 }
+
+/* ---------- 标题图标的语义别名 → SVG ----------
+ * 标题生成模型只返回语义别名（code / bug / chart 这种），不返回 emoji，也不返回 SVG：
+ * 让模型画 SVG 既不可靠、又有注入风险；emoji 则宽度和风格都不受控。
+ * 这里把别名映射到内置的 ICON_PATHS，TITLE_ICON_HINT 由同一张表提炼，
+ * 保证「告诉模型的词」和「前端能认的词」不会越改越偏。
+ * 表里同时收英文和中文别名：模型偶尔会直接把中文需求原样回写。 */
+const TITLE_ICON_ALIASES = {
+  chat: 'message', talk: 'message', 对话: 'message', 聊天: 'message',
+  code: 'code', 代码: 'code', 编程: 'code', 开发: 'code',
+  bug: 'alert', error: 'alert', 报错: 'alert', 错误: 'alert', 异常: 'alert',
+  debug: 'terminal', 调试: 'terminal', terminal: 'terminal', shell: 'terminal', 命令: 'terminal',
+  file: 'file', 文件: 'file', 文档: 'book', doc: 'book', docs: 'book', 阅读: 'book', book: 'book',
+  folder: 'folder', 目录: 'folder', 文件夹: 'folder',
+  image: 'image', 图片: 'image', 图像: 'image', design: 'image', 设计: 'image', ui: 'image', 样式: 'image',
+  chart: 'chart', 图表: 'chart', 数据: 'chart', data: 'chart', 统计: 'chart', 分析数据: 'chart',
+  database: 'database', 数据库: 'database', vfs: 'database',
+  settings: 'settings', 配置: 'settings', config: 'settings', 设置: 'settings',
+  search: 'search', 搜索: 'search', 查找: 'search', 检索: 'search',
+  fix: 'wrench', 修复: 'wrench', 重构: 'wrench', refactor: 'wrench', 工具: 'wrench', tool: 'wrench',
+  idea: 'sparkles', 灵感: 'sparkles', 创意: 'sparkles', ai: 'sparkles', 想法: 'sparkles',
+  brain: 'brain', 思考: 'brain', 推理: 'brain', 分析: 'brain',
+  fast: 'zap', 性能: 'zap', perf: 'zap', 优化: 'zap', 加速: 'zap',
+  clock: 'clock', 时间: 'clock', 计划: 'clock', plan: 'clock', 定时: 'clock', 任务: 'clock',
+  cloud: 'cloud', 云: 'cloud', 同步: 'cloud', sync: 'cloud', 备份: 'cloud',
+  upload: 'upload', 上传: 'upload',
+  download: 'download', 下载: 'download', 导出: 'download', export: 'download',
+  link: 'link', 链接: 'link', url: 'link',
+  globe: 'globe', 网络: 'globe', 网页: 'globe', web: 'globe', 爬虫: 'globe', 接口: 'globe',
+  key: 'key', 密钥: 'key', 密码: 'key', 登录: 'key', auth: 'key', api: 'key',
+  shield: 'shield', 安全: 'shield', 权限: 'shield', security: 'shield', 隐私: 'shield',
+  list: 'list', 清单: 'list', 列表: 'list', todo: 'list', 待办: 'list', 整理: 'list',
+  history: 'history', 历史: 'history', 记录: 'history',
+  package: 'package', 部署: 'package', deploy: 'package', 依赖: 'package', 安装: 'package',
+  layers: 'layers', 架构: 'layers', 结构: 'layers', 分层: 'layers',
+  bot: 'bot', agent: 'bot', 机器人: 'bot', 助手: 'bot',
+  user: 'user', 用户: 'user', 个人: 'user', 账号: 'user',
+  save: 'save', 保存: 'save', 存储: 'save',
+  play: 'play', 运行: 'play', 启动: 'play', run: 'play',
+  info: 'info', 说明: 'info', 帮助: 'info', help: 'info',
+  edit: 'edit', 编辑: 'edit', 写作: 'edit', write: 'edit', 文案: 'edit',
+  refresh: 'refresh', 刷新: 'refresh', 重建: 'refresh',
+  trash: 'trash', 清理: 'trash', 删除: 'trash',
+  check: 'check', 完成: 'check', 测试: 'check', test: 'check', 验码: 'check',
+  send: 'send', 发送: 'send',
+  filter: 'filter', 筛选: 'filter', 过滤: 'filter',
+  copy: 'copy', 复制: 'copy', 粘贴: 'paste'
+};
+const TITLE_ICON_DEFAULT = 'message';   // 别名缺失/无法识别时回落的图标：对话气泡
+/* 把模型给的别名归一化成 ICON_PATHS 里的键。容忍 <code> / :code: / “code” 这类包装。 */
+function resolveTitleIcon(alias) {
+  const a = String(alias || '').trim().toLowerCase()
+    .replace(/[<>:\'"“”『』「」，,。.\s]/g, '');
+  if (!a) return TITLE_ICON_DEFAULT;
+  return TITLE_ICON_ALIASES[a] || (ICON_PATHS[a] ? a : TITLE_ICON_DEFAULT);
+}
+function titleIconHTML(alias) {
+  return icon(resolveTitleIcon(alias));
+}
+/* 写进提示词的别名清单：与上面的表同源，改表就能同步改提示词 */
+const TITLE_ICON_HINT = 'chat 对话 / code 代码 / bug 报错 / debug 调试 / file 文档 / book 阅读 / folder 目录 / image 图片设计 / chart 图表数据 / database 数据库 / settings 配置 / search 搜索 / fix 修复重构 / idea 灵感创意 / brain 分析思考 / fast 性能优化 / clock 时间计划 / cloud 云同步 / upload 上传 / download 下载 / link 链接 / globe 网页网络 / key 密钥登录 / shield 安全权限 / list 清单待办 / history 历史 / package 部署依赖 / layers 架构 / bot Agent / user 用户 / edit 写作 / check 测试完成';
 
 /* ---------- Toast 堆叠补位（FLIP） ----------
  * .toast-wrap 是 fixed + bottom 的 flex 列，新增/移除一条会撑高或压矮容器，
@@ -2558,8 +2710,80 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 // 别手工改三处：插件 release-log 提供 release_bump —— 自动算版本号（同日末位 +1）+ 插日志 + 改 APP_VERSION + 回读自检；
 // 另有 release_check 只读体检（版本是否一致、日期是否对齐、有无重复版本、残留 TODO），发版前后各跑一次。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.12.2';
+const APP_VERSION = '2026.11.14.4';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.14.4',
+    date: '2026-11-14',
+    title: '标题图标改用语义别名映射 SVG',
+    items: [
+      '标题图标改为「模型只给语义别名、前端映射成内联 SVG」：新增 TITLE_ICON_ALIASES 别名表（约 60 组，英文+中文双别名），映射到已有 ICON_PATHS，不再让模型输出 emoji 或 SVG',
+      '新增 resolveTitleIcon() / titleIconHTML()：别名归一化后回落，容忍 <code>、:code:、「code」这类包装；无法识别时回落到 message 对话气泡图标',
+      '提示词改为要求 <icon>语义别名<\/icon><title>标题<\/title>，别名清单 TITLE_ICON_HINT 与映射表同源，改表即同步提示词',
+      '顶栏与侧栏对话列表统一走 titleIconHTML，sessions 里只存别名不存图形，跨设备同步后仍能正确渲染'
+    ]
+  },
+  {
+    v: '2026.11.14.3',
+    date: '2026-11-14',
+    title: '修侧栏菜单透明、精简底部工具条、标题带图标',
+    items: [
+      '修侧栏「⋯」菜单背景透明：CSS 写的是 var(--bg-elevated)，而主题只定义了 --bg-elevated-1..4，变量不存在导致整条 background 失效，菜单透明、底下文件树直接透上来。改用 var(--bg-card)',
+      '对话历史视图下收起「⋯」按钮与弹出菜单（历史列表不需要新建文件/导出这些文件操作）',
+      '底部工具条精简：删除「⋯」和「ⓘ」，左侧只留上传 ＋，右侧保留下拉框',
+      '右侧下拉框文案改为「预设名 · 思考强度」，并新增 effortShortLabel() 把 reasoningEffort 映射成 默认/低/中/高/最大/关闭',
+      '标题与图标同时生成：标题请求改为返回 <icon>表情<\/icon><title>标题<\/title> 标记语言，解析后图标写入顶栏与对话列表行；图标为空则回落为对话气泡图标'
+    ]
+  },
+  {
+    v: '2026.11.14.2',
+    date: '2026-11-14',
+    title: '界面重构：侧栏下拉 + 图标化顶栏 + 底部工具条',
+    items: [
+      '侧栏顶部改为「VFS / 对话历史」下拉（复用现有 CustomSelect），原先 6 个文件操作按钮收进「⋯」弹出菜单，DOM id 与事件全部保留',
+      '侧栏支持对话历史视图：与顶栏下拉共用 buildSessionRow，新建/删除/改标题时自动同步刷新',
+      '对话区顶栏改为纯图标：面板开关 + 标题 + 编辑标题 + 设置 + 预览开关，新建/清空/调试移入对话列表下拉头部',
+      '底部输入区改为工具条：左侧 ＋ 上传与 ⋯（展开 token 统计），右侧「模型档位 ▾」+ ⓘ 模型信息',
+      '新增标题编辑、模型信息、token 条折叠能力；applyPreviewVisibility/applySidebarVisibility 改为改写 title/active 以保住图标'
+    ]
+  },
+  {
+    v: '2026.11.14.1',
+    date: '2026-11-14',
+    title: '欢迎页支持上传文件',
+    items: [
+      '欢迎页输入框下方新增「上传文件」按钮与对应文件选择器，可多选',
+      '整块欢迎页支持拖拽文件上传，拖入时输入框高亮提示',
+      '抽出通用 handleUploadFiles()，对话栏与欢迎页共用上传逻辑（图片进 pendingImages、文本落 /uploads/ 并插入 [ref:] 标记）',
+      '粘贴图片缩略图预览改为双容器同步，欢迎页也能看到待发送图片'
+    ]
+  },
+  {
+    v: '2026.11.12.4',
+    date: '2026-11-12',
+    title: 'Codespace 桥接支持开机自启动：安装命令自动写入 devcontainer postStartCommand',
+    items: [
+      'Codespaces 容器里没有 systemd，不能用 systemctl enable 做自启；改为写入仓库 .devcontainer/devcontainer.json 的 postStartCommand —— 容器生命周期钩子是 Codespaces 里唯一可靠的自动启动机制，每次开机都会执行',
+      '新增 CS_START_SH_SRC：幂等后台启动脚本 install 到 ~/.agent-bridge/start.sh，用 ss 检测端口是否已在监听（在跑就跳过），nohup 起进程并把日志写到 ~/.agent-bridge/bridge.log，手动执行和 postStartCommand 共用同一份',
+      '新增 CS_AUTOSTART_SRC：安装到 ~/.agent-bridge/setup-autostart.mjs，自动定位工作区（GITHUB_WORKSPACE → CODESPACE_WORKSPACE → cwd），把 postStartCommand 写进 .devcontainer/devcontainer.json',
+      'devcontainer.json 是允许注释和尾逗号的 JSONC，所以先做注释剥离（区分字符串内的 // 与 /* */、正确处理转义引号）再去尾逗号，保住用户已有的 name/image/forwardPorts/customizations 等配置，只增改 postStartCommand 一项',
+      '已有 devcontainer.json 解析失败时不覆盖文件，改为打印「请手动加这一项」并退出码 3，避免把用户配置写坏；原文有 postStartCommand 时替换并回显旧值',
+      '安装命令从「前台 node 启动」改为「写 server.mjs + 写 start.sh + 写 setup-autostart.mjs → 后台启动 → 写入自启动」，设置页补说明：写完必须提交推送 devcontainer.json 才生效、可跑 Codespaces: Rebuild Container 立即验证、日志路径在哪'
+    ]
+  },
+  {
+    v: '2026.11.12.3',
+    date: '2026-11-12',
+    title: '修设置页 Codespace「检测连接」永远失败：桥接脚本缺 /health 路由',
+    items: [
+      '真 bug：设置页「检测连接」必现失败。csUiTest 请求的是 /health，但内嵌的 CS_BRIDGE_SERVER_SRC 只实现了 / /exec /ls /read /write 五条路由，根本没有 /health，于是每次拿到 404「未知接口 /health」，被 csBridgeRequest 判成失败——跟 Codespace 是否在跑、端口是否 Public、令牌对不对全都无关',
+      '桥接脚本补 healthInfo()（返回 host/user/root/node/port/cwd/uptime，os.userInfo 取不到时回落 os.homedir）与 /health 路由；放在 authOk 之后，这样一次检测能同时验证「桥接连得上」和「令牌对不对」',
+      '新增 csProbeBridge() 兼容老脚本：用户 Codespace 里跑的多半还是旧脚本，只改源码不重启桥接照样 404，所以 404 时退化成「根路径探测 + /exec 取机器信息」，拼成同样的形状返回',
+      '兼容路径加了确认关口：根路径必须回 service === \'agent-bridge\'，否则报「端口有响应但不是 agent-bridge」，避免把别的服务误判成桥接正常；取机器信息失败不影响「桥接是通的」这一结论',
+      '只把「未知接口 / HTTP 404」当脚本过旧处理，连不上、401 鉴权失败、返回非 JSON 等真故障原样抛出，不掩盖',
+      '检测成功且走的是兼容路径时，状态区多一行黄色提示：Codespace 里是旧版脚本，功能可用但建议重跑安装命令换新版；csUiTest 的两处请求（首次检测与自动设 Public 后重试）都改走 csProbeBridge'
+    ]
+  },
   {
     v: '2026.11.12.2',
     date: '2026-11-12',
@@ -6986,7 +7210,18 @@ async function saveCfg() {
   } catch (e) { toast('配置保存失败', 'err'); }
   updateModelTag();
 }
-function updateModelTag() { const el = $('modelTag'); if (el) el.textContent = cfg.apiKey ? cfg.model : '未配置 API Key'; }
+function updateModelTag() {
+  // 底部「未配置 API Key」标签已随工具条精简移除，这里改为刷新预设下拉的「预设名 · 思考强度」文案
+  try { if (typeof profiles !== 'undefined' && profiles.length) refreshProfiles(); } catch (e) {}
+}
+/* 顶栏标题 = 图标 + 文本。图标由标题生成模型返回「语义别名」，再由 titleIconHTML 映射成内联 SVG。
+   不能再用 textContent 直接写 #chatTitle，否则图标节点会被整段抹掉。 */
+function setChatTitle(title, iconAlias) {
+  const t = $('chatTitleText');
+  if (t) t.textContent = title || '新对话';
+  const ic = $('chatTitleIcon');
+  if (ic) ic.innerHTML = titleIconHTML(iconAlias);
+}
 
 /* ---------- AI 预设（多组 API 存 VFS /config/ai-profiles.json） ---------- */
 const PROFILE_FILE = '/config/ai-profiles.json';
@@ -7022,9 +7257,14 @@ function applyProfile(p, notify) {
   if (typeof p.temperature === 'number') cfg.temperature = p.temperature;
   saveCfg();
   updateModelTag();
-  const hint = $('profileHint');
-  if (hint) hint.textContent = p.baseUrl ? p.baseUrl.replace(/^https?:\/\//, '') : '';
+  refreshProfiles();   // 重算下拉文案，把「预设名 · 思考强度」一起刷新
   if (notify) toast('已切换到预设：' + (p.name || p.model));
+  refreshProfiles();   // 重算下拉文案，把「预设名 · 思考强度」一起刷新
+}
+/* 思考强度档位的中文短名，用于底部预设下拉的「预设名 · 强度」展示 */
+function effortShortLabel() {
+  const v = cfg.reasoningEffort || '';
+  return ({ '': '默认', low: '低', medium: '中', high: '高', max: '最大', disabled: '关闭' })[v] || v;
 }
 function refreshProfiles() {
   ['profileSelect', 'welcomeProfileSelect'].forEach(id => {
@@ -7034,7 +7274,9 @@ function refreshProfiles() {
     profiles.forEach((p, i) => {
       const opt = document.createElement('option');
       opt.value = i;
-      opt.textContent = (p.name || ('预设' + (i + 1))) + (i === activeProfile ? ' ✓' : '');
+      // 右侧下拉同时展示「预设名 · 思考强度」，强度取自全局 cfg.reasoningEffort
+      const nm = p.name || ('预设' + (i + 1));
+      opt.textContent = i === activeProfile ? nm + ' · ' + effortShortLabel() : nm;
       sel.appendChild(opt);
     });
     sel.value = String(activeProfile);
@@ -8581,12 +8823,28 @@ async function doWrite(payload) {
   return { path: p, bytes: Buffer.byteLength(content, 'utf8') };
 }
 
+// /health：设置页「检测连接」就靠它。之前脚本根本没有这个路由，
+// 浏览器请求 /health 拿到的是 404「未知接口」，检测永远失败而实际桥接是好的。
+function healthInfo() {
+  let user = '';
+  let root = os.homedir();
+  try { const u = os.userInfo(); user = u.username; root = u.homedir; } catch (e) {}
+  return {
+    ok: true, service: 'agent-bridge', version: 2,
+    host: os.hostname(), user: user, root: root,
+    node: process.version, port: PORT, cwd: process.cwd(), dir: DIR,
+    uptime_ms: Math.round(process.uptime() * 1000)
+  };
+}
+
 const server = http.createServer(async function (req, res) {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
   if (req.method === 'OPTIONS') { send(res, 204, {}); return; }
   if (url.pathname === '/') { send(res, 200, { ok: true, service: 'agent-bridge', port: PORT }); return; }
   if (!authOk(req, url)) { send(res, 401, { ok: false, error: 'unauthorized' }); return; }
   try {
+    // /health 不读请求体，GET 直接回；放在 authOk 之后，这样检测能同时验证令牌对不对
+    if (url.pathname === '/health') { send(res, 200, healthInfo()); return; }
     const raw = await readBody(req);
     const payload = raw.trim() ? JSON.parse(raw) : {};
     if (url.pathname === '/exec') { send(res, 200, Object.assign({ ok: true }, await runExec(payload))); return; }
@@ -8604,13 +8862,98 @@ server.listen(PORT, '0.0.0.0', function () {
   console.log('[agent-bridge] 桥接令牌：' + TOKEN);
   console.log('把上一行这串令牌填进「设置 → Codespace → 桥接令牌」。');
 });`;
+// 后台启动脚本：幂等（端口已在监听就跳过），手动执行与 devcontainer postStartCommand 共用同一份
+const CS_START_SH_SRC = [
+  '#!/bin/bash',
+  '# agent-bridge 启动脚本：可重复执行，已在跑就跳过。',
+  'set -u',
+  'DIR="$HOME/.agent-bridge"',
+  'PORT="${AGENT_BRIDGE_PORT:-8787}"',
+  'LOG="$DIR/bridge.log"',
+  'mkdir -p "$DIR"',
+  'if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":$PORT "; then',
+  '  echo "[agent-bridge] 端口 $PORT 已在监听，跳过启动"; exit 0',
+  'fi',
+  'if ! command -v node >/dev/null 2>&1; then echo "[agent-bridge] 找不到 node，无法启动"; exit 1; fi',
+  'nohup node "$DIR/server.mjs" >>"$LOG" 2>&1 &',
+  'echo "[agent-bridge] 已后台启动（PID $!），日志：$LOG"'
+].join('\n');
+
+// Codespaces 里没有 systemd，容器生命周期钩子是唯一可靠的自动启动方式。
+// 所以把 postStartCommand 写进仓库的 .devcontainer/devcontainer.json —— 该文件随工作区持久化，
+// 每次 Codespace 启动都会执行，桥接就跟着起来了。
+const CS_AUTOSTART_SRC = `import fs from 'node:fs';
+import path from 'node:path';
+
+const CMD = 'bash -lc "$HOME/.agent-bridge/start.sh"';
+const ws = process.env.GITHUB_WORKSPACE || process.env.CODESPACE_WORKSPACE || process.cwd();
+const dir = path.join(ws, '.devcontainer');
+const file = path.join(dir, 'devcontainer.json');
+
+// devcontainer.json 是 JSONC（允许注释和尾逗号）：先剥注释再 parse，尽量保住用户已有配置
+function stripJsonc(s) {
+  let out = '';
+  let inStr = false, inLine = false, inBlock = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i], n = s[i + 1];
+    if (inLine) { if (c === '\\n') { inLine = false; out += c; } continue; }
+    if (inBlock) { if (c === '*' && n === '/') { inBlock = false; i++; } continue; }
+    if (inStr) {
+      out += c;
+      if (c === '\\\\') { out += (n || ''); i++; continue; }
+      if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; out += c; continue; }
+    if (c === '/' && n === '/') { inLine = true; i++; continue; }
+    if (c === '/' && n === '*') { inBlock = true; i++; continue; }
+    out += c;
+  }
+  return out.replace(/,(\\s*[}\\]])/g, '$1');
+}
+
+let json = {};
+let existed = false;
+if (fs.existsSync(file)) {
+  existed = true;
+  const raw = fs.readFileSync(file, 'utf8');
+  try {
+    json = JSON.parse(stripJsonc(raw)) || {};
+  } catch (e) {
+    console.log('!! 已有的 devcontainer.json 解析失败，未做修改：' + e.message);
+    console.log('   请手动把这一项加进 devcontainer.json：');
+    console.log('   "postStartCommand": ' + JSON.stringify(CMD));
+    process.exit(3);
+  }
+}
+
+const had = json.postStartCommand;
+json.postStartCommand = CMD;
+fs.mkdirSync(dir, { recursive: true });
+fs.writeFileSync(file, JSON.stringify(json, null, 2) + '\\n', 'utf8');
+console.log((existed ? '已更新 ' : '已创建 ') + file);
+if (had && had !== CMD) console.log('（原来的 postStartCommand 已被替换：' + had + '）');
+console.log('postStartCommand = ' + CMD);
+console.log('之后每次 Codespace 启动都会自动拉起桥接；想立刻验证可在命令面板跑 Codespaces: Rebuild Container。');
+`;
 // 安装命令：heredoc 内嵌完整脚本，断网也能用；不依赖任何 raw 链接
 const CS_INSTALL_CMD = [
   'mkdir -p "$HOME/.agent-bridge" && chmod 700 "$HOME/.agent-bridge"',
   "cat > \"$HOME/.agent-bridge/server.mjs\" <<'AGENT_BRIDGE_SERVER_SRC'",
   CS_BRIDGE_SERVER_SRC,
   'AGENT_BRIDGE_SERVER_SRC',
-  'chmod 600 "$HOME/.agent-bridge/server.mjs" && node "$HOME/.agent-bridge/server.mjs"'
+  'chmod 600 "$HOME/.agent-bridge/server.mjs"',
+  "cat > \"$HOME/.agent-bridge/start.sh\" <<'AGENT_BRIDGE_START_SH'",
+  CS_START_SH_SRC,
+  'AGENT_BRIDGE_START_SH',
+  'chmod 700 "$HOME/.agent-bridge/start.sh"',
+  "cat > \"$HOME/.agent-bridge/setup-autostart.mjs\" <<'AGENT_BRIDGE_AUTOSTART'",
+  CS_AUTOSTART_SRC,
+  'AGENT_BRIDGE_AUTOSTART',
+  'chmod 600 "$HOME/.agent-bridge/setup-autostart.mjs"',
+  'bash "$HOME/.agent-bridge/start.sh"',
+  'node "$HOME/.agent-bridge/setup-autostart.mjs"',
+  'echo "--- 完成：桥接已启动，开机自启动已写入 .devcontainer/devcontainer.json ---"'
 ].join('\n');
 const CS_NOT_READY_MSG = '错误：GitHub Codespaces 还没配置。请让用户在「设置 → Codespace」里填 GitHub Token、选 Codespace、填桥接令牌（在 Codespace 里跑安装命令后会打印）。';
 let csUrlCache = { key: '', url: '', ts: 0 };
@@ -9001,8 +9344,37 @@ async function csUiPublish() {
 }
 
 function csShowHealth(d) {
-  csSetStatus('✅ 桥接正常：主机 <code>' + escapeHtml(d.host || '') + '</code> · 用户 <code>' + escapeHtml(d.user || '') + '</code> · 根目录 <code>' + escapeHtml(d.root || '') + '</code> · Node ' + escapeHtml(d.node || ''));
+  csSetStatus('✅ 桥接正常：主机 <code>' + escapeHtml(d.host || '') + '</code> · 用户 <code>' + escapeHtml(d.user || '') + '</code> · 根目录 <code>' + escapeHtml(d.root || '') + '</code> · Node ' + escapeHtml(d.node || '') +
+    (d.legacy ? '<br><span style="color:var(--text-warning)">注意：Codespace 里跑的是旧版桥接脚本（没有 /health 路由）。功能可用，但建议重跑一次安装命令换成新版。</span>' : ''));
   toast('Codespace 桥接已连通');
+}
+
+/** 桥接探活。
+ * 新版脚本有 /health；老脚本只有 / /exec /ls /read /write，请求 /health 会 404「未知接口」。
+ * 但「脚本旧」不等于「连不上」—— 若因 404 就判失败，用户会以为 Codespace 挂了。
+ * 所以：404 时退化成「根路径探测 + /exec 取机器信息」，拼成同样的形状返回。
+ * 其它错误（连不上 / 401 / 非 JSON）原样抛出，不能掩盖真正的故障。
+ */
+async function csProbeBridge() {
+  let healthErr = null;
+  try {
+    const d = await csBridgeRequest('/health', null, { force: true });
+    if (d && d.ok !== false) return d;
+  } catch (e) { healthErr = e; }
+  const msg = String((healthErr && healthErr.message) || '');
+  if (!/未知接口|HTTP 404/i.test(msg)) throw healthErr || new Error('桥接检测失败');
+  // —— 以下是老脚本兼容路径 ——
+  const root = await csBridgeRequest('/', null, { force: true });
+  if (!root || root.service !== 'agent-bridge') {
+    throw new Error('端口 ' + csBridgePort() + ' 有响应，但返回的不是 agent-bridge（service 字段对不上），请确认桥接脚本跑在这个端口上');
+  }
+  let info = { host: '', user: '', root: '', node: '' };
+  try {
+    const r = await csBridgeRequest('/exec', { cmd: 'echo "$(hostname)|$(whoami)|$HOME|$(node -v 2>/dev/null)"', timeout_ms: 15000 });
+    const parts = String(r.stdout || '').trim().split('|');
+    info = { host: parts[0] || '', user: parts[1] || '', root: parts[2] || '', node: parts[3] || '' };
+  } catch (e) { /* 取机器信息失败不影响「桥接是通的」这个结论 */ }
+  return Object.assign({ ok: true, legacy: true }, info);
 }
 
 async function csUiTest() {
@@ -9010,7 +9382,7 @@ async function csUiTest() {
   if (!csToolsReady()) { toast('还缺桥接令牌或 Codespace', 'err'); return; }
   csSetStatus('正在检测桥接…');
   try {
-    const d = await csBridgeRequest('/health', null, { force: true });
+    const d = await csProbeBridge();
     await saveCfg();
     csShowHealth(d);
     return;
@@ -9020,7 +9392,7 @@ async function csUiTest() {
       csSetStatus('连不上，尝试把端口 ' + csBridgePort() + ' 设为 Public 后重试…');
       try {
         await csGhMakePublic(csCodespaceName(), csBridgePort());
-        const d = await csBridgeRequest('/health', null, { force: true });
+        const d = await csProbeBridge();
         await saveCfg();
         csShowHealth(d);
         return;
@@ -9311,6 +9683,8 @@ function saveSessions() {
   try {
     data = serializeSessions();
   } catch (e) { console.warn('保存会话失败', e); return; }
+  // 侧栏停在「对话历史」时同步刷新，否则新建/删除/改标题后列表还是旧的
+  try { refreshSideHistoryIfOpen(); } catch (e) {}
   try { writeSessionsLocal(data); } catch (e) { console.warn('localStorage 写入异常', e); }
   // localStorage 配额不足也照常写 VFS（大对话/图片过多时的最终保障）
   scheduleSessionsSaveToVfs(data);
@@ -9652,10 +10026,10 @@ function switchSession(id) {
   if (!Array.isArray(s.conversation)) s.conversation = [];   // 防御：旧数据/云端合并可能没有 conversation 字段
   conversation = s.conversation;
   currentTitle = s.title || '';
+  currentTitleIcon = s.icon || '';
   sessionFile = s.mdFile || null;   // 恢复会话对应的存档路径（跨设备后仍能继续归档到同一文件）
   renderConversation();
-  const titleEl = document.querySelector('.chat-head .title');
-  if (titleEl) titleEl.textContent = s.title || '新对话';
+  setChatTitle(s.title, s.icon);
   updateTokenBar();
   hideSessionList();
 }
@@ -10207,31 +10581,67 @@ function renderMsgRange(startIdx, endIdx) {
     }
   }
 }
+function buildSessionRow(s) {
+  const row = document.createElement('div');
+  row.className = 'session-row' + (s.id === currentSessionId ? ' active' : '');
+  const dt = new Date(s.updatedAt || s.createdAt || Date.now());
+  const timeStr = (dt.getMonth()+1) + '/' + dt.getDate() + ' ' + String(dt.getHours()).padStart(2,'0') + ':' + String(dt.getMinutes()).padStart(2,'0');
+  row.innerHTML = `<div class="session-info"><span class="session-title"></span><span class="session-time">${timeStr}</span></div><button class="session-clone" type="button" title="克隆对话">${icon('clone')}</button><button class="session-del" type="button" title="删除对话">${icon('x')}</button>`;
+  const rowIcon = document.createElement('span');
+  rowIcon.className = 'session-icon';
+  // 与顶栏同一套：存的是语义别名，渲染时才映射成 SVG
+  rowIcon.innerHTML = titleIconHTML(s.icon);
+  row.querySelector('.session-info').prepend(rowIcon);
+  row.querySelector('.session-title').textContent = s.title || '新对话';
+  row.querySelector('.session-info').addEventListener('click', () => switchSession(s.id));
+  row.querySelector('.session-clone').addEventListener('click', (e) => {
+    e.stopPropagation();
+    cloneSession(s.id);
+  });
+  row.querySelector('.session-del').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!(await customConfirm('确定删除对话「' + (s.title || '新对话') + '」吗？', 'delete_session'))) return;
+    deleteSession(s.id);
+  });
+  return row;
+}
+function sortedSessions() {
+  return [...sessions].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+}
 function renderSessionList() {
-  const panel = $('sessionList');
-  if (!panel) return;
-  panel.innerHTML = '';
-  // 按最近聊天时间（updatedAt）降序排序
-  const sorted = [...sessions].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
-  for (const s of sorted) {
-    const row = document.createElement('div');
-    row.className = 'session-row' + (s.id === currentSessionId ? ' active' : '');
-    const dt = new Date(s.updatedAt || s.createdAt || Date.now());
-    const timeStr = (dt.getMonth()+1) + '/' + dt.getDate() + ' ' + String(dt.getHours()).padStart(2,'0') + ':' + String(dt.getMinutes()).padStart(2,'0');
-    row.innerHTML = `<div class="session-info"><span class="session-title"></span><span class="session-time">${timeStr}</span></div><button class="session-clone" type="button" title="克隆对话">${icon('clone')}</button><button class="session-del" type="button" title="删除对话">${icon('x')}</button>`;
-    row.querySelector('.session-title').textContent = s.title || '新对话';
-    row.querySelector('.session-info').addEventListener('click', () => switchSession(s.id));
-    row.querySelector('.session-clone').addEventListener('click', (e) => {
-      e.stopPropagation();
-      cloneSession(s.id);
-    });
-    row.querySelector('.session-del').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (!(await customConfirm('确定删除对话「' + (s.title || '新对话') + '」吗？', 'delete_session'))) return;
-      deleteSession(s.id);
-    });
-    panel.appendChild(row);
-  }
+  // 顶栏下拉里的对话列表：标题栏（新建/清空/调试）是静态 DOM，只重建行容器，不能整个 innerHTML 清空
+  const list = $('sessionListRows');
+  if (!list) return;
+  list.innerHTML = '';
+  for (const s of sortedSessions()) list.appendChild(buildSessionRow(s));
+  refreshSideHistoryIfOpen();
+}
+/* 侧栏正停留在「对话历史」时，任何会话变更都要把侧栏列表一起刷掉，否则会看到旧标题/已删的对话 */
+function refreshSideHistoryIfOpen() {
+  const hist = $('sideHistory');
+  if (hist && !hist.hidden) renderSideHistory();
+}
+/* 侧栏切到「对话历史」时渲染的列表，与顶栏下拉共用 buildSessionRow */
+function renderSideHistory() {
+  const box = $('sideHistory');
+  if (!box) return;
+  box.innerHTML = '';
+  const rows = sortedSessions();
+  if (!rows.length) { box.innerHTML = '<div class="side-empty">还没有对话记录</div>'; return; }
+  for (const s of rows) box.appendChild(buildSessionRow(s));
+}
+/* 侧栏内容切换：VFS 文件树 / 对话历史。todoPanel 属于文件侧内容，切到历史时一并收起 */
+function applySideScope(scope) {
+  const isHist = scope === 'history';
+  const tree = $('tree'); if (tree) tree.hidden = isHist;
+  const todo = $('todoPanel'); if (todo) todo.hidden = isHist;
+  const hist = $('sideHistory'); if (hist) hist.hidden = !isHist;
+  // 对话历史页不放文件操作：把「⋯」按钮与它的弹出菜单一起收起，避免误操作和视觉干扰
+  const moreBtn = $('btnSideMore'); if (moreBtn) moreBtn.hidden = isHist;
+  const moreMenu = $('sideMoreMenu'); if (moreMenu && isHist) moreMenu.hidden = true;
+  const sel = $('sideScope');
+  if (sel && sel.value !== scope) sel.value = scope;
+  if (isHist) renderSideHistory();
 }
 function showSessionList() { const panel = $('sessionList'); if (panel) { renderSessionList(); panel.style.display = 'block'; } }
 function hideSessionList() { const panel = $('sessionList'); if (panel) panel.style.display = 'none'; }
@@ -12123,6 +12533,7 @@ async function streamChat() {
 
 let lastUsage = null;   // 最近一次 API 返回的实际 token 用量
 let currentTitle = '';  // 当前对话标题（自动生成）
+let currentTitleIcon = '';  // 当前对话的标题图标（由标题生成模型返回，空则回落为对话图标）
 let quotedMsg = null;   // 当前被引用的消息 { role, text }
 
 function setQuote(role, text) {
@@ -12150,7 +12561,7 @@ async function generateTitle(firstUserMsg) {
     const reqBody = {
       model: cfg.model,
       messages: [
-        { role: 'system', content: '你是对话标题生成器。根据用户消息，生成一个不超过15字的简短标题，直接输出标题，不要加引号、不要解释、不要换行。' },
+        { role: 'system', content: '你是对话标题生成器。根据用户消息，输出两行，严格使用标记语言：\n第一行：<icon>语义别名</icon>\n第二行：<title>不超过15字的简短标题</title>\n\n图标别名必须从下面列表里选一个英文词（不要输出 emoji、不要输出 SVG、不要自造新词）：\n' + TITLE_ICON_HINT + '\n\n示例：\n<icon>code</icon>\n<title>修复登录接口的 500 错误</title>\n\n不要输出任何其他内容，不要加引号、不要解释。' },
         { role: 'user', content: String(firstUserMsg).slice(0, 500) }
       ],
       // 标题生成是纯抽取任务，不需要思考：开思考会让模型先"想"再输出，
@@ -12219,14 +12630,21 @@ async function generateTitle(firstUserMsg) {
       }
     }
     _dbg.status = 'ok'; _dbg.response = title || ('[thinking] ' + thinking);
-    title = title.trim().replace(/^["'「『]+|["'」』]+$/g, '').slice(0, 30);
-    console.log('[generateTitle] 收到标题:', JSON.stringify(title));
+    // 模型按标记语言返回：<icon>语义别名</icon><title>标题</title>。
+    // 若网关/模型不守格式，退回整段当标题、别名留空，由 titleIconHTML 回落成对话图标。
+    const rawOut = String(title || '');
+    const mIcon = /<icon>([\s\S]*?)<\/icon>/i.exec(rawOut);
+    const mTitle = /<title>([\s\S]*?)<\/title>/i.exec(rawOut);
+    const iconAlias = mIcon ? mIcon[1].trim().slice(0, 40) : '';
+    title = (mTitle ? mTitle[1] : rawOut.replace(/<icon>[\s\S]*?<\/icon>/gi, '')).trim()
+      .replace(/^["'「『]+|["'」』]+$/g, '').slice(0, 30);
+    console.log('[generateTitle] 收到标题:', JSON.stringify(title), '图标别名:', JSON.stringify(iconAlias), '→', resolveTitleIcon(iconAlias));
     if (title) {
       currentTitle = title;
-      const titleEl = document.querySelector('.chat-head .title');
-      if (titleEl) titleEl.textContent = title;
+      currentTitleIcon = iconAlias;
+      setChatTitle(title, iconAlias);
       const s = sessions.find(x => x.id === currentSessionId);
-      if (s) { s.title = title; s.updatedAt = Date.now(); saveSessions(); }
+      if (s) { s.title = title; s.icon = iconAlias; s.updatedAt = Date.now(); saveSessions(); }
     } else {
       console.warn('[generateTitle] 完整响应:', JSON.stringify(j).slice(0, 500));
       toast('标题生成失败：API 返回空内容（完整响应已打印到 Console）', 'err');
@@ -12812,18 +13230,64 @@ function extFromMime(mime) {
   return '.png';
 }
 function renderPastePreview() {
-  const box = $('pastePreview'); if (!box) return;
-  if (!pendingImages.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
-  box.style.display = 'flex';
-  box.innerHTML = '';
-  pendingImages.forEach((img, i) => {
-    const d = document.createElement('div');
-    d.className = 'paste-thumb';
-    d.innerHTML = '<img src="' + img.dataUrl + '" alt="粘贴图片"><span class="paste-remove" title="移除">' + icon('x') + '</span>';
-    d.querySelector('.paste-remove').addEventListener('click', () => { pendingImages.splice(i, 1); renderPastePreview(); });
-    box.appendChild(d);
+  // 对话栏和欢迎页各有一个预览容器，两边都要跟着 pendingImages 同步
+  const boxes = document.querySelectorAll('#pastePreview, #welcomePastePreview');
+  if (!boxes.length) return;
+  boxes.forEach((box) => {
+    if (!pendingImages.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.style.display = 'flex';
+    box.innerHTML = '';
+    pendingImages.forEach((img, i) => {
+      const d = document.createElement('div');
+      d.className = 'paste-thumb';
+      d.innerHTML = '<img src="' + img.dataUrl + '" alt="待发送图片"><span class="paste-remove" title="移除">' + icon('x') + '</span>';
+      d.querySelector('.paste-remove').addEventListener('click', () => { pendingImages.splice(i, 1); renderPastePreview(); });
+      box.appendChild(d);
+    });
   });
 }
+// 把 File 列表写进 VFS：图片进 pendingImages（视觉模型直接能看到），文本类落到 /uploads/ 并在输入框插入 [ref:] 标记。
+// 对话栏与欢迎页共用；targetInput 决定标记插到哪个输入框。
+async function handleUploadFiles(files, targetInput) {
+  const list = Array.from(files || []);
+  if (!list.length) return 0;
+  const inp = targetInput || $('input');
+  let okCount = 0;
+  try {
+    await requireVfs();
+    for (const file of list) {
+      if (file.size > UPLOAD_MAX_BYTES) { toast('文件超过 5MB，已跳过：' + file.name, 'err'); continue; }
+      const ts = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const safeName = file.name.replace(/[^\w.\-]+/g, '_');
+      const name = ts.getFullYear() + pad(ts.getMonth()+1) + pad(ts.getDate()) + '-' + pad(ts.getHours()) + pad(ts.getMinutes()) + pad(ts.getSeconds()) + '-' + Math.floor(Math.random()*1000) + '-' + safeName;
+      const path = '/uploads/' + name;
+      if (isImagePath(file.name)) {
+        // 图片统一走 pendingImages：和粘贴图片同一生命周期，视觉模型能直接看到
+        const dataUrl = await readFileAsDataURL(file);
+        await VFS.writeFile(path, dataUrl);
+        pendingImages.push({ path, dataUrl });
+        renderPastePreview();
+        toast('已上传图片：' + path);
+        okCount++;
+        continue;   // 不往输入框插文字标记，避免和缩略图重复
+      }
+      const text = await file.text().catch(() => '');
+      await VFS.writeFile(path, text);
+      if (inp) {
+        const mark = '[ref:' + path + ']';
+        inp.value = inp.value ? (inp.value + '\n' + mark) : mark;
+        inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 200) + 'px';
+        try { inp.dispatchEvent(new Event('input')); } catch (e) {}
+      }
+      toast('已上传：' + path);
+      okCount++;
+    }
+    updateTokenBar();
+  } catch (err) { toast('上传文件失败：' + (err && err.message ? err.message : err), 'err'); }
+  return okCount;
+}
+
 async function handlePasteImage(e) {
   const items = e.clipboardData && e.clipboardData.items;
   if (!items) return;
@@ -13161,13 +13625,20 @@ function switchSettingsTab(name) {
 
 function applyPreviewVisibility() {
   document.body.classList.toggle('hide-preview', !!cfg.hidePreview);
+  // 顶栏按钮已改成纯图标（内联 SVG），不能再把 textContent 当文案写，否则图标会被抹掉
   const btn = $('btnTogglePreview');
-  if (btn) btn.textContent = cfg.hidePreview ? '显示预览' : '隐藏预览';
+  if (btn) {
+    btn.title = cfg.hidePreview ? '展开预览面板' : '收起预览面板';
+    btn.classList.toggle('active', !cfg.hidePreview);
+  }
 }
 function applySidebarVisibility() {
   document.body.classList.toggle('hide-sidebar', !!cfg.hideSidebar);
-  const btn = $('btnToggleSidebar');
-  if (btn) btn.textContent = cfg.hideSidebar ? '显示侧栏' : '隐藏侧栏';
+  const btn = $('btnPanelToggle');
+  if (btn) {
+    btn.title = cfg.hideSidebar ? '展开文件面板' : '收起文件面板';
+    btn.classList.toggle('active', !cfg.hideSidebar);
+  }
 }
 function applyTheme() {
   document.body.classList.toggle('theme-light', cfg.theme === 'light');
@@ -14753,6 +15224,7 @@ function bindEvents() {
     wi.addEventListener('input', () => { onInputText(wi, wi.value.length, 200); });
     wi.addEventListener('paste', handlePasteImage);
   }
+  // 欢迎页粘贴图片：与对话栏同一套 pendingImages，发送时自动带上
   document.querySelectorAll('.welcome-suggestion').forEach(btn => {
     btn.addEventListener('click', () => {
       if (wi) { wi.value = btn.textContent; wi.focus({ preventScroll: true }); wi.style.height = 'auto'; wi.style.height = Math.min(wi.scrollHeight, 200) + 'px'; }
@@ -14790,7 +15262,38 @@ function bindEvents() {
     }
   });
   on('btnTogglePreview', 'click', () => { cfg.hidePreview = !cfg.hidePreview; saveCfg(); applyPreviewVisibility(); });
-  on('btnToggleSidebar', 'click', () => { cfg.hideSidebar = !cfg.hideSidebar; saveCfg(); applySidebarVisibility(); });
+  on('btnPanelToggle', 'click', () => { cfg.hideSidebar = !cfg.hideSidebar; saveCfg(); applySidebarVisibility(); });
+  // 侧栏顶部：VFS / 对话历史 切换 + 「⋯」更多菜单（原 6 个文件操作按钮收进这里）
+  on('sideScope', 'change', (e) => applySideScope(e.target.value));
+  on('btnSideMore', 'click', (e) => {
+    e.stopPropagation();
+    const menu = $('sideMoreMenu');
+    if (!menu) return;
+    const willOpen = menu.hidden;
+    menu.hidden = !willOpen;
+    e.currentTarget.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  });
+  document.addEventListener('click', (e) => {
+    const menu = $('sideMoreMenu');
+    if (!menu || menu.hidden) return;
+    if (menu.contains(e.target) || e.target.closest('#btnSideMore')) return;
+    menu.hidden = true;
+    const btn = $('btnSideMore'); if (btn) btn.setAttribute('aria-expanded', 'false');
+  });
+  // 顶栏：编辑当前对话标题
+  on('btnEditTitle', 'click', (e) => {
+    e.stopPropagation();
+    const next = prompt('修改当前对话的标题：', currentTitle || '新对话');
+    if (next === null) return;
+    const t = next.trim().slice(0, 40);
+    if (!t) { toast('标题不能为空', 'err'); return; }
+    currentTitle = t;
+    setChatTitle(t, currentTitleIcon);
+    const s = sessions.find(x => x.id === currentSessionId);
+    if (s) { s.title = t; s.updatedAt = Date.now(); saveSessions(); }
+    toast('标题已更新');
+  });
+  // 底部工具条已精简：去掉「⋯」与「ⓘ」，只保留左侧上传与右侧预设下拉
   on('btnUploadFile', 'click', () => $('fileInput').click());
   on('btnQuoteCancel', 'click', clearQuote);
   const cfgTempEl = $('cfgTemp');
@@ -14809,38 +15312,66 @@ function bindEvents() {
   });
   const fileInputEl = $('fileInput');
   if (fileInputEl) fileInputEl.addEventListener('change', async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    try {
-      await requireVfs();
-      const inp = $('input');
-      for (const file of files) {
-        if (file.size > UPLOAD_MAX_BYTES) { toast('文件超过 5MB，已跳过：' + file.name, 'err'); continue; }
-        const ts = new Date();
-        const pad = (n) => String(n).padStart(2, '0');
-        const safeName = file.name.replace(/[^\w.\-]+/g, '_');
-        const name = ts.getFullYear() + pad(ts.getMonth()+1) + pad(ts.getDate()) + '-' + pad(ts.getHours()) + pad(ts.getMinutes()) + pad(ts.getSeconds()) + '-' + Math.floor(Math.random()*1000) + '-' + safeName;
-        const path = '/uploads/' + name;
-        if (isImagePath(file.name)) {
-          // 图片统一走 pendingImages：和粘贴图片同一生命周期，视觉模型能直接看到
-          const dataUrl = await readFileAsDataURL(file);
-          await VFS.writeFile(path, dataUrl);
-          pendingImages.push({ path, dataUrl });
-          renderPastePreview();
-          toast('已上传图片：' + path);
-          continue;   // 不往输入框插文字标记，避免和缩略图重复
-        }
-        const text = await file.text().catch(() => '');
-        await VFS.writeFile(path, text);
-        const mark = '[ref:' + path + ']';
-        inp.value = inp.value ? (inp.value + '\n' + mark) : mark;
-        inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 180) + 'px';
-        toast('已上传：' + path);
-      }
-      updateTokenBar();
-    } catch (err) { toast('上传文件失败：' + (err && err.message ? err.message : err), 'err'); }
+    await handleUploadFiles(e.target.files, $('input'));
     fileInputEl.value = '';
   });
+  // 欢迎页上传：按钮 / 拖拽，都写进 VFS 并把标记/缩略图挂到欢迎页大输入框
+  const welcomeFileInputEl = $('welcomeFileInput');
+  const btnWelcomeUploadEl = $('btnWelcomeUpload');
+  if (btnWelcomeUploadEl && welcomeFileInputEl) {
+    btnWelcomeUploadEl.addEventListener('click', () => welcomeFileInputEl.click());
+  }
+  if (welcomeFileInputEl) welcomeFileInputEl.addEventListener('change', async (e) => {
+    await handleUploadFiles(e.target.files, $('welcomeInput'));
+    welcomeFileInputEl.value = '';
+  });
+  const dropZone = $('welcomeDropZone');
+  if (dropZone) {
+    const stopDrag = (e) => { e.preventDefault(); e.stopPropagation(); };
+    // 拖拽：只接管文件，纯文本拖拽不拦（浏览器默认行为照旧）
+    const hasFiles = (e) => {
+      const dt = e.dataTransfer;
+      if (!dt) return false;
+      if (dt.types && Array.from(dt.types).indexOf('Files') !== -1) return true;
+      return !!(dt.files && dt.files.length);
+    };
+    dropZone.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; stopDrag(e); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; stopDrag(e); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', (e) => {
+      if (!hasFiles(e)) return;
+      stopDrag(e);
+      // relatedTarget 为空（拖出窗口）或已离开子元素时才熄灭高亮
+      if (!e.relatedTarget || !dropZone.contains(e.relatedTarget)) dropZone.classList.remove('dragover');
+    });
+    dropZone.addEventListener('drop', async (e) => {
+      stopDrag(e);
+      dropZone.classList.remove('dragover');
+      const files = e.dataTransfer && e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+      if (!files.length) return;
+      await handleUploadFiles(files, $('welcomeInput'));
+      const wiEl = $('welcomeInput');
+      if (wiEl) { wiEl.style.height = 'auto'; wiEl.style.height = Math.min(wiEl.scrollHeight, 200) + 'px'; wiEl.focus({ preventScroll: true }); }
+    });
+    // 兜底：拖到欢迎屏空白处也认（dropZone 内的 drop 已 stopPropagation，不会双触发）
+    const welcomeScreenEl = $('welcomeScreen');
+    if (welcomeScreenEl) {
+      welcomeScreenEl.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; stopDrag(e); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; dropZone.classList.add('dragover'); });
+      welcomeScreenEl.addEventListener('dragleave', (e) => {
+        if (!hasFiles(e)) return;
+        if (!e.relatedTarget || !welcomeScreenEl.contains(e.relatedTarget)) dropZone.classList.remove('dragover');
+      });
+      welcomeScreenEl.addEventListener('drop', async (e) => {
+        if (e.defaultPrevented) return;   // 已被输入区处理过
+        stopDrag(e);
+        dropZone.classList.remove('dragover');
+        const files = e.dataTransfer && e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+        if (!files.length) return;
+        await handleUploadFiles(files, $('welcomeInput'));
+        const wiEl = $('welcomeInput');
+        if (wiEl) { wiEl.style.height = 'auto'; wiEl.style.height = Math.min(wiEl.scrollHeight, 200) + 'px'; wiEl.focus({ preventScroll: true }); }
+      });
+    }
+  }
   if (input) {
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessage(); } });
     input.addEventListener('input', () => { onInputText(input, input.value.length, 180); });
@@ -14971,15 +15502,19 @@ function bindEvents() {
   });
   document.addEventListener('click', (e) => {
     const panel = $('sessionList');
-    if (panel && panel.style.display === 'block' && !panel.contains(e.target) && e.target.id !== 'chatTitle') hideSessionList();
+    if (!panel || panel.style.display !== 'block') return;
+    if (panel.contains(e.target)) return;
+    // 点标题、编辑标题按钮、新建/清空/调试按钮本身不关面板（它们自己的逻辑接管）
+    if (e.target.closest('#chatTitle, #btnEditTitle, #btnNewChat, #btnClear, #btnDebug')) return;
+    hideSessionList();
   });
   on('btnClear', 'click', async () => {    if (!(await customConfirm('确定清空当前对话记录吗？（文件不会被删除）', 'clear_chat'))) return;
     conversation.length = 0; sessionFile = null; currentTitle = '';
     resetExpandedGroups();   // 新对话重置工具展开状态，回到最小工具面
     const s = sessions.find(x => x.id === currentSessionId);
     if (s) { s.title = '新对话'; s.updatedAt = Date.now(); saveSessions(); }
-    const titleEl = document.querySelector('.chat-head .title');
-    if (titleEl) titleEl.textContent = '新对话';
+    currentTitleIcon = '';
+    setChatTitle('新对话', '');
     showWelcomeScreen(); toast('对话已清空');
   });
   on('btnNewFile', 'click', async () => {
@@ -15230,8 +15765,7 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
   // 恢复最近一次对话的渲染和标题
   safe('renderConversation', () => {
     renderConversation();
-    const titleEl = document.querySelector('.chat-head .title');
-    if (titleEl && currentTitle) titleEl.textContent = currentTitle;
+    if (currentTitle) setChatTitle(currentTitle, currentTitleIcon);
   });
   // 意外中断恢复：检测当前会话最后一条是否为未回复的 user 消息
   try {
@@ -15243,7 +15777,9 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
     }
   } catch (e) {}
   safe('applyPreviewVisibility', applyPreviewVisibility);
+  // 顶栏按钮是纯图标，状态（title/active）必须由这两个函数一次性矫正，避免刷完页面图标还停在上次的文案上
   safe('applySidebarVisibility', applySidebarVisibility);
+  safe('applySideScope', () => applySideScope('vfs'));
   safe('applyTheme', applyTheme);
   safe('updateTokenBar', updateTokenBar);
   // 首次使用隐私提示（localStorage 标记，看过不再弹）
