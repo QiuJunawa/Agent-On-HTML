@@ -2710,8 +2710,47 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 // 别手工改三处：插件 release-log 提供 release_bump —— 自动算版本号（同日末位 +1）+ 插日志 + 改 APP_VERSION + 回读自检；
 // 另有 release_check 只读体检（版本是否一致、日期是否对齐、有无重复版本、残留 TODO），发版前后各跑一次。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.14.4';
+const APP_VERSION = '2026.11.14.7';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.14.7',
+    date: '2026-11-14',
+    title: 'VFS 层根治隐式目录：检测到就补成显式目录',
+    items: [
+      '新增 VFS.healImplicitDirs()：扫描 meta，把「只有子条目、自身缺 dir 条目」的路径补成显式目录，逐级推导（/a/b/c.txt 会同时补 /a 与 /a/b），返回补写个数',
+      '跳过已存在的 dir 条目；万一同路径已是 file（数据本身冲突）也跳过，不拿目录去覆盖文件',
+      '接入启动流程：VFS.init() 结尾调用一次，老版本数据、备份导入、云端恢复留下的隐式目录在加载时自动补齐',
+      '接入导入流程：replaceAll() 写完数据后调用一次，导入的备份即使缺中间层目录也会立刻补全',
+      '为什么必须在 VFS 层治：listDir 对隐式目录返回 null，而父级又能从子路径反推出它显示 —— 目录看着在、点进去是空的，递归遍历整棵子树静默丢失且不报错，是最难查的一类 bug；在源头补齐后，文件树、插件、递归遍历一次性都正常',
+      'ops-lite 插件里的 ls() 前缀扫描兜底保留，作为运行期防御：万一会话中又出现新的隐式目录，插件仍能正确遍历'
+    ]
+  },
+  {
+    v: '2026.11.14.6',
+    date: '2026-11-14',
+    title: '插件 ops-lite 修复隐式目录处理',
+    items: [
+      '现象：ops_tree 把某些子目录显示成空目录、它下面的文件和子目录一个都不出现；ops_grep 限定 path 搜索时静默漏检却不报错；ops_read_many 传隐式目录路径直接回「没有目标文件」；ops_outline 传隐式目录路径误报「文件不存在」',
+      '根因：VFS.listDir 对「隐式目录」返回 null —— 这类目录在 meta 里没有自己的 dir 条目，只是被父级从子文件路径 /a/b.txt 反推出 b/ 来显示（index.html deletePath 里早有注释说明这一点）。ops 插件五个工具全都依赖 listDir，遇到它就整棵子树静默丢失',
+      '新增 ls()：先试 VFS.listDir，返回 null 时按 meta 前缀扫描重建一层目录项（有 /dir/... 键就说明目录真实存在），空目录与不存在仍返回 null，对调用方语义不变',
+      '新增 isImplicitDir()：VFS.stat 返回 null 但 meta 里有以其为前缀的子项 → 判定为隐式目录，供报错文案区分「是目录」与「不存在」',
+      'ops_tree 的递归改用 ls()，隐式目录能正常展开；collect（ops_grep / ops_read_many 共用）同样改用 ls()，不再整棵子树丢文件',
+      'ops_outline 与 ops_read_many 原先只看 VFS.stat，现在会对隐式目录给出「是目录」的准确提示，而不是谎报「文件不存在」',
+      '改动只涉及 /plugins/ops-lite.js（v0.1.0 → 0.1.1）；已加载的插件需在插件页重载或刷新页面才生效'
+    ]
+  },
+  {
+    v: '2026.11.14.5',
+    date: '2026-11-14',
+    title: '修复清空对话后旧消息复活',
+    items: [
+      '现象：点「清空对话」后只要再发一条新消息，上一轮的所有消息原地重现，和新对话混在一起',
+      '根因：清空走的是 showWelcomeScreen()，它只把消息区 messagesEl 设成 display:none，从未清过 innerHTML；下一条消息 appendMsg 开头的 clearEmptyHint() 又把整块重新显示，旧 DOM 节点全在，于是「复活」',
+      '修法一：showWelcomeScreen() 顺手清空 messagesEl.innerHTML —— 回到欢迎屏本就代表当前会话没有消息可显示，隐藏与清空必须同时发生',
+      '修法二：「清空对话」按钮改调 renderConversation()，除清 DOM 外还一并复位批量渲染状态（_renderBatch / roundAssistantEl / _convBackfill）并刷新 token 条，不残留上一轮的渲染上下文',
+      '数据侧本来就正常：conversation 已清空、saveSessions 会把空 items 写回分片，本次是纯渲染层修复，不涉及存档格式'
+    ]
+  },
   {
     v: '2026.11.14.4',
     date: '2026-11-14',
@@ -3932,6 +3971,10 @@ const VFS = {
         try { localStorage.setItem(VFS_SEED_KEY, '1'); } catch (e) {}
       }
     } catch (e) { console.warn('[VFS] 内置文件补写失败', e); }
+    // 启动自愈：把历史数据里的隐式目录补成显式 dir 条目。
+    // 老版本/备份导入/云端恢复都可能只落文件条目，中间层目录缺席；
+    // 不补的话这些目录 listDir 返回 null，递归遍历会静默丢掉整棵子树。
+    try { await this.healImplicitDirs(); } catch (e) { console.warn('[VFS] 隐式目录自愈失败', e); }
   },
 
   async seedDefaultFiles() {
@@ -4062,6 +4105,44 @@ const VFS = {
     if (newDirs.length) {
       await idbBatch(newDirs.map(m => ({ store: 'meta', action: 'put', record: m })));
     }
+  },
+
+  /* ---------- 隐式目录自愈 ----------
+   * 什么叫隐式目录：meta 里只存在子文件条目（如 `/a/b.txt`），父目录 `/a` 却没有自己的 dir 条目。
+   * 这是怎么来的：备份导入 / 云端恢复 / 老版本数据只写了文件条目，中间层目录没落库。
+   * 为什么必须治：listDir 第 4000 行 `if (dir !== '/' && (!node || node.type !== 'dir')) return null`
+   *   —— 父级能从子路径反推出 `/a/` 显示出来，但 `/a` 自己一被列就返回 null。
+   *   于是目录在树里看着是空的、递归遍历（插件 ops_tree / ops_grep / ops_read_many）整棵子树静默丢失，
+   *   而且不报错，是最难查的那种 bug。
+   * 治法是补，不是判：扫一遍 meta，把所有「有子条目却缺自身条目」的路径补成显式 dir 条目。
+   * 逐级推导而非只看一层，`/a/b/c.txt` 会同时补上 `/a` 和 `/a/b`。
+   * 已存在的 dir 条目跳过；万一同路径已是文件（数据本身冲突）也跳过，不拿目录去覆盖文件。
+   * 返回补写的目录个数。 */
+  async healImplicitDirs() {
+    const need = new Map();
+    const now = Date.now();
+    for (const key of Object.keys(this.meta)) {
+      if (key === '/') continue;
+      const segs = key.split('/').filter(Boolean);
+      // 只补父级：对 /a/b/c.txt 而言 c.txt 是自己，需要补的是 /a 与 /a/b
+      for (let i = 1; i < segs.length; i++) {
+        const dir = '/' + segs.slice(0, i).join('/');
+        if (need.has(dir)) continue;
+        const m = this.meta[dir];
+        if (m && m.type === 'dir') continue;   // 已是显式目录，无需处理
+        if (m && m.type === 'file') continue;  // 数据冲突：别用目录覆盖已有文件
+        need.set(dir, { path: dir, type: 'dir', size: 0, mtime: now });
+      }
+    }
+    if (!need.size) return 0;
+    const list = [...need.values()];
+    for (const m of list) this.meta[m.path] = m;
+    try {
+      // memoryOnly 时 idbBatch 内部写 memStore，两种模式都覆盖
+      await idbBatch(list.map(m => ({ store: 'meta', action: 'put', record: m })));
+    } catch (e) { console.warn('[VFS] 隐式目录补写失败', e); }
+    console.log('[VFS] 已补写隐式目录 ' + list.length + ' 个');
+    return list.length;
   },
 
   async writeFile(p, content) {
@@ -4243,6 +4324,9 @@ const VFS = {
       }
     }
     await idbBatch(ops);
+    // 导入的备份可能只含文件条目，缺中间层目录 —— 在这里补齐，
+    // 否则导入后那些目录在树里能看见、点进去却是空的，递归遍历还会静默漏掉它们。
+    try { await this.healImplicitDirs(); } catch (e) { console.warn('[VFS] 导入后隐式目录自愈失败', e); }
   }
 };
 
@@ -10227,7 +10311,10 @@ function showWelcomeScreen() {
   ws.style.display = 'flex';
   const composer = document.querySelector('.composer');
   if (composer) composer.style.display = 'none';
-  if (messagesEl) messagesEl.style.display = 'none';
+  // 回到欢迎屏 = 当前会话没有消息可显示，隐藏与清空必须同时发生：
+  // 只把消息区 display:none 藏起来的话，下一条消息 appendMsg 开头的 clearEmptyHint()
+  // 会把这整块重新显示，上一轮的旧 DOM 节点全在，于是旧消息原地「复活」。
+  if (messagesEl) { messagesEl.style.display = 'none'; messagesEl.innerHTML = ''; }
   // 副标题必须跟着标题一起立刻清空、并顺手掐掉上一轮的打字器：
   // 否则在欢迎页直接点「新对话」时，标题先被清成空白，上一屏那句副标题却原样留着，
   // 要等标题打完（140ms × 字数）才被 renderWelcomeQuote 覆盖，出现「标题空了、副标题还在」的错位。
@@ -15515,7 +15602,11 @@ function bindEvents() {
     if (s) { s.title = '新对话'; s.updatedAt = Date.now(); saveSessions(); }
     currentTitleIcon = '';
     setChatTitle('新对话', '');
-    showWelcomeScreen(); toast('对话已清空');
+    // 走 renderConversation 而不是只调 showWelcomeScreen：前者除了清空消息区 DOM，
+    // 还会复位批量渲染状态（_renderBatch / roundAssistantEl / _convBackfill）并刷新 token 条，
+    // 避免残留上一轮的渲染上下文；conversation 已空，它会自动落到欢迎屏分支。
+    renderConversation();
+    toast('对话已清空');
   });
   on('btnNewFile', 'click', async () => {
     await requireVfs(); const p = prompt('新文件路径（绝对路径）：', '/untitled.md'); if (!p) return;
