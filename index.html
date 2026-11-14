@@ -790,6 +790,17 @@
   .cselect-item:hover { background: var(--border); color: var(--text-primary); }
   .cselect-item.selected { background: var(--bg-info); color: var(--text-link); }
   .cselect-item.selected::after { content: ' ✓'; font-size: 11px; }
+  /* 菜单末尾的「思考强度」行：与预设列表隔开，右侧带当前档位和展开箭头 */
+  .cselect-subrow {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-top: 4px; border-top: 1px solid var(--border); border-radius: 0 0 5px 5px;
+  }
+  .cselect-subrow .cselect-subval { color: var(--text-secondary); font-size: 12px; }
+  .cselect-sub {
+    position: fixed; z-index: 10000; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 4px; max-height: 260px; overflow-y: auto;
+    box-shadow: 0 8px 24px var(--bg-modal); min-width: 110px;
+  }
   /* ===== 左侧导航栏 ===== */
   .nav-rail {
     position: fixed; left: 0; top: 0; bottom: 0; width: 56px;
@@ -1061,6 +1072,15 @@
   /* ===== 对话区顶栏：图标化 ===== */
   .chat-head-btn { flex: 0 0 auto; width: 30px; height: 30px; }
   .chat-head-btn.active { color: var(--text-link); }
+  /* 编辑标题是低频操作：平时透明隐藏，悬停标题或按钮本身时才出现。
+     用相邻兄弟选择器而不是改 DOM 结构：编辑器按钮紧跟 .title，可直接命中；
+     只改 opacity 不改 display，按钮位宽度保留，显隐时顶栏不会发生右移。 */
+  #btnEditTitle { opacity: 0; pointer-events: none; transition: opacity .15s; }
+  .chat-head .title:hover + #btnEditTitle,
+  #btnEditTitle:hover,
+  #btnEditTitle:focus-visible { opacity: 1; pointer-events: auto; }
+  /* 触屏没有 hover，永远显示，否则手机上永远点不到 */
+  @media (hover: none) { #btnEditTitle { opacity: 1; pointer-events: auto; } }
   .chat-head .title { font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; min-width: 0; }
   .chat-title-icon { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1; }
   .chat-title-icon .ico-svg { width: 15px; height: 15px; }
@@ -1133,14 +1153,14 @@
       <div class="title" id="chatTitle" title="点击查看对话列表"><span class="chat-title-icon" id="chatTitleIcon"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span><span class="chat-title-text" id="chatTitleText">AI Agent</span></div>
       <button class="icon-btn chat-head-btn" id="btnEditTitle" type="button" title="编辑标题" aria-label="编辑标题"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>
       <div class="spacer"></div>
+      <button class="icon-btn chat-head-btn" id="btnNewChat" type="button" title="新建对话" aria-label="新建对话"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <button class="icon-btn chat-head-btn" id="btnClear" type="button" title="清空当前对话（文件不会被删除）" aria-label="清空当前对话"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
       <button class="icon-btn chat-head-btn" id="btnSettings" type="button" title="设置" aria-label="设置"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
       <button class="icon-btn chat-head-btn" id="btnTogglePreview" type="button" title="展开预览面板" aria-label="预览面板"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg></button>
       <div class="session-list" id="sessionList" style="display:none">
         <div class="session-list-head">
           <span>对话历史</span>
           <div class="sl-actions">
-            <button class="ghost-btn" id="btnNewChat" type="button">新对话</button>
-            <button class="ghost-btn" id="btnClear" type="button">清空</button>
             <button class="ghost-btn" id="btnDebug" type="button" title="查看发出去的请求上下文">调试</button>
           </div>
         </div>
@@ -1868,7 +1888,7 @@ let conversation = [];
  * 靠「运行时才访问」躲 TDZ 太脆弱，统一放这里。
  * _renderBatch：非空表示正在批量渲染，节点写进 frag、异步重活（KaTeX/取图/画图）延后
  * _suppressScrollBottom：>0 时抑制 scrollBottom，避免逐条赋值 scrollTop 造成平方级重排
- * _convBackfill：{ from, placeholder, running } 首屏之外尚未渲染的消息区间起点
+ * _convBackfill：{ from, placeholder } 首屏之外尚未渲染的消息区间起点（延后渲染，滑到顶才一次性补上）
  */
 let _renderBatch = null;
 let _suppressScrollBottom = 0;
@@ -1890,6 +1910,12 @@ class CustomSelect {
     this.menu.style.display = 'none';
     selectEl.parentNode.insertBefore(this.btn, selectEl.nextSibling);
     document.body.appendChild(this.menu);
+    // 二级菜单（思考强度等）：独立挂 body，避免被父菜单的 overflow 裁掉
+    this.sub = document.createElement('div');
+    this.sub.className = 'cselect-sub';
+    this.sub.style.display = 'none';
+    document.body.appendChild(this.sub);
+    selectEl.__cselectInst = this;
     this._observe();
     this.refresh();
     this.btn.addEventListener('click', (e) => { e.stopPropagation(); this.toggle(); });
@@ -1912,7 +1938,10 @@ class CustomSelect {
     const opts = Array.from(this.sel.options);
     const cur = this.sel.value;
     const selected = opts.find(o => o.value === cur) || opts[0];
-    this.btn.querySelector('.cselect-label').textContent = selected ? selected.textContent : '';
+    // 按钮文案 = 当前项文本 + 附加后缀（思考强度等），后缀由 __cselectExtra 提供
+    const extra = typeof this.sel.__cselectExtra === 'function' ? this.sel.__cselectExtra() : null;
+    const suffix = extra && extra.buttonSuffix ? ' · ' + extra.buttonSuffix : '';
+    this.btn.querySelector('.cselect-label').textContent = (selected ? selected.textContent : '') + suffix;
     this.menu.innerHTML = '';
     opts.forEach(o => {
       const item = document.createElement('div');
@@ -1926,7 +1955,41 @@ class CustomSelect {
       });
       this.menu.appendChild(item);
     });
+    // 末行固定为「思考强度」，点开是二级菜单，不再把强度拼进每一条预设名
+    if (extra) {
+      const row = document.createElement('div');
+      row.className = 'cselect-item cselect-subrow';
+      const lab = document.createElement('span');
+      lab.textContent = extra.label;
+      const val = document.createElement('span');
+      val.className = 'cselect-subval';
+      val.textContent = (extra.value || '默认') + ' ▸';
+      row.append(lab, val);
+      row.addEventListener('click', (e) => { e.stopPropagation(); this.openSub(row, extra); });
+      this.menu.appendChild(row);
+    }
   }
+  /* 二级菜单贴着父行展开；右侧放不下就翻到左边，避免溢出屏幕 */
+  openSub(anchor, extra) {
+    this.closeSub();
+    const r = anchor.getBoundingClientRect();
+    const items = extra.items || [];
+    this.sub.innerHTML = '';
+    items.forEach(it => {
+      const el = document.createElement('div');
+      el.className = 'cselect-item' + (it.value === (extra.rawValue || '') ? ' selected' : '');
+      el.textContent = it.label;
+      el.addEventListener('click', () => { extra.onPick(it.value); this.closeSub(); this.close(); });
+      this.sub.appendChild(el);
+    });
+    const w = Math.max(r.width, 110);
+    this.sub.style.minWidth = w + 'px';
+    const rightSpace = window.innerWidth - r.right;
+    this.sub.style.left = (rightSpace > w + 12 ? r.right + 4 : Math.max(8, r.left - w - 4)) + 'px';
+    this.sub.style.top = Math.max(8, Math.min(r.top, window.innerHeight - 40 - items.length * 34)) + 'px';
+    this.sub.style.display = 'block';
+  }
+  closeSub() { if (this.sub) this.sub.style.display = 'none'; }
   toggle() { this.menu.style.display === 'none' ? this.open() : this.close(); }
   open() {
     CustomSelect._closeAll();
@@ -1946,9 +2009,10 @@ class CustomSelect {
     this.menu.style.display = 'block';
     this.btn.classList.add('open');
   }
-  close() { this.menu.style.display = 'none'; this.btn.classList.remove('open'); }
+  close() { this.menu.style.display = 'none'; this.btn.classList.remove('open'); this.closeSub(); }
   static _closeAll() {
     document.querySelectorAll('.cselect-menu').forEach(m => { m.style.display = 'none'; });
+    document.querySelectorAll('.cselect-sub').forEach(m => { m.style.display = 'none'; });
     document.querySelectorAll('.cselect-btn.open').forEach(b => b.classList.remove('open'));
   }
 }
@@ -2017,6 +2081,133 @@ const ICON_PATHS = {
   chart: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
   package: '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
   sparkles: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z"/>',
+  /* ---- 第二批：交互与状态 ---- */
+  minus: '<line x1="5" y1="12" x2="19" y2="12"/>',
+  arrowLeft: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
+  arrowRight: '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
+  arrowUp: '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>',
+  arrowDown: '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
+  arrowUpRight: '<line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/>',
+  chevronUp: '<polyline points="18 15 12 9 6 15"/>',
+  chevronLeft: '<polyline points="15 18 9 12 15 6"/>',
+  undo: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+  redo: '<polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/>',
+  menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
+  moreHorizontal: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  moreVertical: '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
+  plusCircle: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>',
+  checkCircle: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+  xCircle: '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>',
+  alertCircle: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+  helpCircle: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  loader: '<line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>',
+  pause: '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>',
+  repeat: '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+  shuffle: '<polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/>',
+  maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>',
+  minimize: '<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>',
+  /* ---- 语义图标：可见性 / 权限 ---- */
+  bug: '<path d="M8 2l1.88 1.88"/><path d="M14.12 3.88L16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>',
+  lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  unlock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>',
+  /* ---- 语义图标：标记 / 分类 ---- */
+  tag: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
+  bookmark: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
+  star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+  heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
+  bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  award: '<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
+  trophy: '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/>',
+  /* ---- 语义图标：时间 ---- */
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  timer: '<line x1="10" y1="2" x2="14" y2="2"/><line x1="12" y1="14" x2="15" y2="11"/><circle cx="12" cy="14" r="8"/>',
+  hourglass: '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.17a2 2 0 0 0-.59-1.42L12 12l-4.41 4.41A2 2 0 0 0 7 17.83V22"/><path d="M7 2v4.17a2 2 0 0 0 .59 1.42L12 12l4.41-4.41A2 2 0 0 0 17 6.17V2"/>',
+  /* ---- 语义图标：沟通 ---- */
+  mail: '<path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><polyline points="22 6 12 13 2 6"/>',
+  inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  atSign: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/>',
+  hash: '<line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>',
+  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  userPlus: '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>',
+  logIn: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>',
+  logOut: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>',
+  /* ---- 语义图标：系统 / 设备 ---- */
+  server: '<rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>',
+  cpu: '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>',
+  hardDrive: '<line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/>',
+  monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+  smartphone: '<rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>',
+  battery: '<rect x="1" y="6" width="18" height="12" rx="2"/><line x1="23" y1="13" x2="23" y2="11"/>',
+  power: '<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>',
+  wifi: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>',
+  signal: '<path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8"/><path d="M22 4v16"/>',
+  activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  rocket: '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+  /* ---- 语义图标：目标 / 成长 ---- */
+  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  gift: '<polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>',
+  lightbulb: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/>',
+  graduationCap: '<path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1.66 2.69 3 6 3s6-1.34 6-3v-5"/>',
+  flask: '<path d="M9 2v6L4 20a2 2 0 0 0 1.8 3h12.4A2 2 0 0 0 20 20L15 8V2"/><path d="M8 2h8"/><path d="M6.5 15h11"/>',
+  atom: '<circle cx="12" cy="12" r="1"/><ellipse cx="12" cy="12" rx="10" ry="4.5"/><ellipse cx="12" cy="12" rx="10" ry="4.5" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="10" ry="4.5" transform="rotate(120 12 12)"/>',
+  puzzle: '<path d="M19.44 7.85c-.05.32.06.65.29.88l1.57 1.57c.47.47.7 1.09.7 1.7s-.23 1.23-.7 1.7l-1.61 1.61a.98.98 0 0 1-.84.28c-.47-.07-.8-.48-.97-.93a2.5 2.5 0 1 0-3.21 3.21c.45.17.86.5.93.97a.98.98 0 0 1-.28.84l-1.61 1.61a2.4 2.4 0 0 1-1.7.71 2.4 2.4 0 0 1-1.7-.71l-1.57-1.57a1.03 1.03 0 0 0-.88-.29c-.49.07-.84.5-1.02.97a2.5 2.5 0 1 1-3.24-3.24c.46-.18.89-.53.96-1.02a1.03 1.03 0 0 0-.29-.88L2.71 13.7A2.4 2.4 0 0 1 2 12c0-.62.24-1.23.71-1.7L4.23 8.77c.24-.24.58-.35.92-.3.51.08.87.53 1.07 1.01a2.5 2.5 0 1 0 3.26-3.26c-.48-.2-.93-.56-1.01-1.07-.05-.34.06-.68.3-.92l1.53-1.52A2.4 2.4 0 0 1 12 2c.62 0 1.23.24 1.7.71l1.57 1.57c.23.23.56.34.88.29.49-.07.84-.5 1.02-.97a2.5 2.5 0 1 1 3.24 3.24c-.46.18-.89.53-.96 1.02z"/>',
+  /* ---- 语义图标：数据 / 布局 ---- */
+  table: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>',
+  grid: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+  layout: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>',
+  pieChart: '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>',
+  trendingUp: '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
+  trendingDown: '<polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/>',
+  percent: '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+  creditCard: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+  dollarSign: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  shoppingCart: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
+  receipt: '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1z"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/>',
+  /* ---- 语义图标：文件细化 ---- */
+  folderOpen: '<path d="M6 14l1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
+  folderPlus: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/>',
+  filePlus: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>',
+  fileCode: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="10 13 8 15 10 17"/><polyline points="14 13 16 15 14 17"/>',
+  files: '<path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v12a2 2 0 0 1-2 2z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/>',
+  bookOpen: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+  archive: '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
+  /* ---- 语义图标：媒体 / 创作 ---- */
+  music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  video: '<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/>',
+  film: '<rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/>',
+  mic: '<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>',
+  volume: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>',
+  camera: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+  palette: '<circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.83-.44-1.13-.29-.29-.44-.65-.44-1.12a1.64 1.64 0 0 1 1.67-1.67H16c3.05 0 5.56-2.5 5.56-5.55C21.97 6.01 17.46 2 12 2z"/>',
+  brush: '<path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/>',
+  pen: '<path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/>',
+  type: '<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/>',
+  wand: '<path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8L19 13"/><path d="M17.8 6.2L19 5"/><path d="M3 21l9-9"/><path d="M12.2 6.2L11 5"/>',
+  crop: '<path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"/><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"/>',
+  scissors: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>',
+  /* ---- 语义图标：情感 / 自然 ---- */
+  smile: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>',
+  thumbsUp: '<path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>',
+  thumbsDown: '<path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2"/>',
+  flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  droplet: '<path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>',
+  sun: '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>',
+  moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  leaf: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
+  map: '<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>',
+  mapPin: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+  navigation: '<polygon points="3 11 22 2 13 21 11 13 3 11"/>',
+  compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
+  /* ---- 语义图标：版本控制 ---- */
+  gitBranch: '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  gitCommit: '<circle cx="12" cy="12" r="4"/><line x1="1.05" y1="12" x2="7" y2="12"/><line x1="17.01" y1="12" x2="22.96" y2="12"/>',
+  gitMerge: '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/>',
+  gitPullRequest: '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/>',
 };
 function icon(name, cls) {
   const p = ICON_PATHS[name];
@@ -2033,7 +2224,7 @@ function icon(name, cls) {
 const TITLE_ICON_ALIASES = {
   chat: 'message', talk: 'message', 对话: 'message', 聊天: 'message',
   code: 'code', 代码: 'code', 编程: 'code', 开发: 'code',
-  bug: 'alert', error: 'alert', 报错: 'alert', 错误: 'alert', 异常: 'alert',
+  bug: 'bug', 缺陷: 'bug', error: 'alert', 报错: 'alert', 错误: 'alert', 异常: 'alert',
   debug: 'terminal', 调试: 'terminal', terminal: 'terminal', shell: 'terminal', 命令: 'terminal',
   file: 'file', 文件: 'file', 文档: 'book', doc: 'book', docs: 'book', 阅读: 'book', book: 'book',
   folder: 'folder', 目录: 'folder', 文件夹: 'folder',
@@ -2069,7 +2260,92 @@ const TITLE_ICON_ALIASES = {
   check: 'check', 完成: 'check', 测试: 'check', test: 'check', 验码: 'check',
   send: 'send', 发送: 'send',
   filter: 'filter', 筛选: 'filter', 过滤: 'filter',
-  copy: 'copy', 复制: 'copy', 粘贴: 'paste'
+  copy: 'copy', 复制: 'copy', 粘贴: 'paste',
+  /* 第二批别名：均指向本轮新增的图标，避免落到默认对话气泡 */
+  lock: 'lock', 加密: 'lock', 私密: 'lock', unlock: 'unlock', 解密: 'unlock',
+  eye: 'eye', 预览: 'eye', 查看: 'eye', 审阅: 'eye', review: 'eye',
+  tag: 'tag', 标签: 'tag', 分类: 'tag',
+  bookmark: 'bookmark', 收藏: 'bookmark', 书签: 'bookmark',
+  star: 'star', 重点: 'star', 精选: 'star',
+  heart: 'heart', 喜欢: 'heart', 情感: 'heart',
+  flag: 'flag', 里程碑: 'flag', 目标: 'target', goal: 'target', 聚焦: 'target',
+  bell: 'bell', 通知: 'bell', 提醒: 'bell', notify: 'bell', 告警: 'bell',
+  calendar: 'calendar', 日历: 'calendar', 日程: 'calendar', 排期: 'calendar',
+  timer: 'timer', 计时: 'timer', 耗时: 'timer',
+  hourglass: 'hourglass', 等待: 'hourglass',
+  mail: 'mail', 邮件: 'mail', email: 'mail',
+  inbox: 'inbox', 收件箱: 'inbox',
+  phone: 'phone', 电话: 'phone', 联系: 'phone',
+  at: 'atSign', mention: 'atSign', 提及: 'atSign',
+  hash: 'hash', 话题: 'hash', 标签号: 'hash',
+  users: 'users', 团队: 'users', 群组: 'users', team: 'users', 协作: 'users',
+  invite: 'userPlus', 邀请: 'userPlus', 新增用户: 'userPlus',
+  login: 'logIn', logout: 'logOut', 退出: 'logOut',
+  share: 'share', 分享: 'share', 分发: 'share',
+  server: 'server', 服务: 'server', 后端: 'server', backend: 'server',
+  cpu: 'cpu', 处理器: 'cpu',
+  disk: 'hardDrive', 磁盘: 'hardDrive', 硬盘: 'hardDrive', 空间: 'hardDrive',
+  monitor: 'monitor', 桌面: 'monitor', 屏幕: 'monitor',
+  mobile: 'smartphone', 手机: 'smartphone', 移动: 'smartphone',
+  battery: 'battery', 电量: 'battery',
+  power: 'power', 电源: 'power', 重启: 'power',
+  wifi: 'wifi', 无线: 'wifi', 连网: 'wifi',
+  signal: 'signal', 信号: 'signal', 监控: 'activity', activity: 'activity', 心跳: 'activity',
+  rocket: 'rocket', 发布: 'rocket', launch: 'rocket', 上线: 'rocket', 增速: 'rocket',
+  trophy: 'trophy', 成就: 'trophy', 冠军: 'trophy',
+  award: 'award', 奖励: 'award', 荣誉: 'award',
+  gift: 'gift', 礼物: 'gift', 福利: 'gift',
+  bulb: 'lightbulb', 提示: 'lightbulb', 点子: 'lightbulb', tip: 'lightbulb',
+  learn: 'graduationCap', 学习: 'graduationCap', 教学: 'graduationCap', 教程: 'graduationCap', 课程: 'graduationCap',
+  lab: 'flask', 实验: 'flask', 试验: 'flask', benchmark: 'flask',
+  atom: 'atom', 科学: 'atom', 物理: 'atom',
+  puzzle: 'puzzle', 插件: 'puzzle', plugin: 'puzzle', 扩展: 'puzzle', 拼装: 'puzzle',
+  table: 'table', 表格: 'table', grid: 'grid', 网格: 'grid', 卡片: 'grid',
+  layout: 'layout', 布局: 'layout', 排版: 'layout',
+  pie: 'pieChart', 占比: 'pieChart', 饼图: 'pieChart',
+  up: 'trendingUp', 增长: 'trendingUp', 上涨: 'trendingUp',
+  down: 'trendingDown', 下降: 'trendingDown', 下跌: 'trendingDown',
+  percent: 'percent', 比例: 'percent', 百分比: 'percent',
+  card: 'creditCard', 支付: 'creditCard', 账单付款: 'creditCard',
+  money: 'dollarSign', 金额: 'dollarSign', 费用: 'dollarSign', 成本: 'dollarSign', 价格: 'dollarSign',
+  cart: 'shoppingCart', 购物: 'shoppingCart', 订单: 'shoppingCart',
+  receipt: 'receipt', 发票: 'receipt', 小票: 'receipt',
+  open: 'folderOpen', 打开: 'folderOpen',
+  newfolder: 'folderPlus', 新建目录: 'folderPlus',
+  newfile: 'filePlus', 新建文件: 'filePlus',
+  source: 'fileCode', 源码: 'fileCode', 脚本: 'fileCode',
+  archive: 'archive', 归档: 'archive', 压缩: 'archive',
+  read: 'bookOpen', 读书: 'bookOpen', 手册: 'bookOpen', 文档库: 'bookOpen',
+  music: 'music', 音乐: 'music', 音频: 'music',
+  video: 'video', 视频: 'video',
+  film: 'film', 影视: 'film',
+  mic: 'mic', 录音: 'mic', 语音: 'mic', 播客: 'mic',
+  volume: 'volume', 音量: 'volume', 播放声音: 'volume',
+  camera: 'camera', 相机: 'camera', 拍照: 'camera',
+  palette: 'palette', 调色: 'palette', 主题色: 'palette',
+  brush: 'brush', 绘画: 'brush', 配色: 'brush',
+  pen: 'pen', 画笔: 'pen', 手写: 'pen',
+  type: 'type', 字体: 'type', 文字: 'type', 文案排版: 'type',
+  magic: 'wand', 魔法: 'wand', 一键: 'wand', 智能: 'wand',
+  crop: 'crop', 裁剪: 'crop', 剪裁: 'crop',
+  cut: 'scissors', 剪切: 'scissors', 裁剪线: 'scissors',
+  smile: 'smile', 表情: 'smile', 心情: 'smile',
+  like: 'thumbsUp', 点赞: 'thumbsUp', 赞同: 'thumbsUp',
+  dislike: 'thumbsDown', 反对: 'thumbsDown', 点踩: 'thumbsDown',
+  fire: 'flame', 火热: 'flame', 热门: 'flame', 紧急: 'flame',
+  water: 'droplet', 水滴: 'droplet', 液体: 'droplet',
+  sunny: 'sun', 晴天: 'sun', 亮色: 'sun', light: 'sun',
+  dark: 'moon', 夜间: 'moon', 深色: 'moon',
+  eco: 'leaf', 环保: 'leaf', 自然: 'leaf',
+  location: 'mapPin', 定位: 'mapPin', 地址: 'mapPin',
+  route: 'map', 路线: 'map', 地图: 'map',
+  navigate: 'navigation', 导航: 'navigation', 方向: 'navigation',
+  compass: 'compass', 探索: 'compass',
+  git: 'gitBranch', 分支: 'gitBranch', branch: 'gitBranch', 版本: 'gitBranch',
+  commit: 'gitCommit', 提交: 'gitCommit',
+  merge: 'gitMerge', 合并: 'gitMerge',
+  pr: 'gitPullRequest', 拉取请求: 'gitPullRequest',
+  bugfix: 'bug', 排错: 'bug'
 };
 const TITLE_ICON_DEFAULT = 'message';   // 别名缺失/无法识别时回落的图标：对话气泡
 /* 把模型给的别名归一化成 ICON_PATHS 里的键。容忍 <code> / :code: / “code” 这类包装。 */
@@ -2083,7 +2359,7 @@ function titleIconHTML(alias) {
   return icon(resolveTitleIcon(alias));
 }
 /* 写进提示词的别名清单：与上面的表同源，改表就能同步改提示词 */
-const TITLE_ICON_HINT = 'chat 对话 / code 代码 / bug 报错 / debug 调试 / file 文档 / book 阅读 / folder 目录 / image 图片设计 / chart 图表数据 / database 数据库 / settings 配置 / search 搜索 / fix 修复重构 / idea 灵感创意 / brain 分析思考 / fast 性能优化 / clock 时间计划 / cloud 云同步 / upload 上传 / download 下载 / link 链接 / globe 网页网络 / key 密钥登录 / shield 安全权限 / list 清单待办 / history 历史 / package 部署依赖 / layers 架构 / bot Agent / user 用户 / edit 写作 / check 测试完成';
+const TITLE_ICON_HINT = 'chat 对话 / code 代码 / bug 报错 / debug 调试 / file 文档 / book 阅读 / folder 目录 / image 图片设计 / chart 图表数据 / database 数据库 / settings 配置 / search 搜索 / fix 修复重构 / idea 灵感创意 / brain 分析思考 / fast 性能优化 / clock 时间计划 / cloud 云同步 / upload 上传 / download 下载 / link 链接 / globe 网页网络 / key 密钥登录 / shield 安全权限 / list 清单待办 / history 历史 / package 部署依赖 / layers 架构 / bot Agent / user 用户 / edit 写作 / check 测试完成 / lock 加密 / eye 预览审阅 / tag 标签分类 / bookmark 收藏 / star 精选 / bell 通知提醒 / calendar 日程 / timer 计时 / mail 邮件 / users 团队协作 / share 分享 / server 服务后端 / cpu 处理器 / disk 磁盘空间 / monitor 桌面 / mobile 手机 / wifi 网络 / rocket 发布上线 / trophy 成就 / target 目标 / bulb 点子提示 / learn 学习教程 / lab 实验 / puzzle 插件扩展 / table 表格 / pie 占比 / up 增长 / down 下降 / money 费用 / cart 订单 / git 分支版本 / commit 提交 / merge 合并';
 
 /* ---------- Toast 堆叠补位（FLIP） ----------
  * .toast-wrap 是 fixed + bottom 的 flex 列，新增/移除一条会撑高或压矮容器，
@@ -2710,8 +2986,95 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 // 别手工改三处：插件 release-log 提供 release_bump —— 自动算版本号（同日末位 +1）+ 插日志 + 改 APP_VERSION + 回读自检；
 // 另有 release_check 只读体检（版本是否一致、日期是否对齐、有无重复版本、残留 TODO），发版前后各跑一次。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.14.7';
+const APP_VERSION = '2026.11.14.14';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.14.14',
+    date: '2026-11-14',
+    title: '欢迎页历史记录条清理 + 对话历史改为延后渲染',
+    items: [
+      '欢迎页残留历史记录条：updateScrollThumbnail 在消息数 ≤ 1 时只摘 active 类、从不删点位节点，切到空会话后上一轮的点位还留在 DOM 里，鼠标划过对话区（.chat:hover 把 opacity 拉回 1）就又冒出来',
+      '新增 clearScrollThumbnail()：连 .thumb-inner 节点、active 类和 _thumbSignature 一起清，showWelcomeScreen 与 renderConversation 开头各调一次，进欢迎页/切会话时一律清空',
+      '进页面不再把历史一次性渲染完：renderConversation 里取消 _scheduleBackfill()，首屏只同步渲染尾部 CONV_FIRST_PAINT 条，更早的消息延后 _convBackfill 加载',
+      '延后渲染改为按需一次性补全：新增 renderEarlierMessages()，只在用户滑到顶部或点顶部提示块时触发，不再分批、不自动续批，渲染完 _convBackfill 归零、之后滑到顶也不重复干活',
+      '删除 CONV_BACKFILL_CHUNK / _backfillStep / _scheduleBackfill 这套分批补齐机制，ensureRendered 简化为「需要就补，一次补完」',
+      '节点仍先堆进 DocumentFragment 一次插入并补偿 scrollTop，视口位置不跳，不会退化成逐条重排'
+    ]
+  },
+  {
+    v: '2026.11.14.13',
+    date: '2026-11-14',
+    title: 'SVG 图标库扩容：ICON_PATHS 从 52 个扩到 167 个，标题图标别名同步补齐',
+    items: [
+      'ICON_PATHS 新增 115 个 Lucide 风格线性图标，全部 push 到同一张表、复用 icon(name, cls) 与 .ico-svg 样式，不引入外部图标库、不加网络请求',
+      '按语义分 10 组注释归类：交互与状态（minus / 四向箭头 / chevron / undo / redo / menu / more / plusCircle / checkCircle / xCircle / alertCircle / helpCircle / loader / pause / repeat / shuffle / maximize / minimize）、权限（bug / eye / eyeOff / lock / unlock）',
+      '标记分类（tag / bookmark / star / heart / flag / bell / award / trophy）、时间（calendar / timer / hourglass）、沟通（mail / inbox / phone / atSign / hash / users / userPlus / logIn / logOut / share）',
+      '系统设备（server / cpu / hardDrive / monitor / smartphone / battery / power / wifi / signal / activity / rocket）、目标成长（target / gift / lightbulb / graduationCap / flask / atom / puzzle）',
+      '数据布局（table / grid / layout / pieChart / trendingUp / trendingDown / percent / creditCard / dollarSign / shoppingCart / receipt）、文件细化（folderOpen / folderPlus / filePlus / fileCode / files / bookOpen / archive）',
+      '媒体创作（music / video / film / mic / volume / camera / palette / brush / pen / type / wand / crop / scissors）、情感自然（smile / thumbsUp / thumbsDown / flame / droplet / sun / moon / leaf / map / mapPin / navigation / compass）、版本控制（gitBranch / gitCommit / gitMerge / gitPullRequest）',
+      'TITLE_ICON_ALIASES 同步补了约 200 条中英文别名（加密 / 预览 / 标签 / 通知 / 日程 / 团队 / 发布 / 成就 / 增长 / 费用 / 分支 …），否则模型给这些词都会落回默认的对话气泡',
+      '修正一处别名指向：bug / 缺陷 原先映射到 alert（三角警告），现在改用真正的 bug 图标，与本轮新增的图标表对齐；TITLE_ICON_HINT 由同一张表提炼，也一并扩充',
+      '发版前跑过 check_code：规范检查与运行时检查两级均无报错',
+      '残留待办：暂无'
+    ]
+  },
+  {
+    v: '2026.11.14.12',
+    date: '2026-11-14',
+    title: '修正周期同步的变更记账顺序',
+    items: [
+      'refreshFS 改为函数开头就记 _fsRevSeen：该函数有多处提前 return（未打开文件、文件已删除、编辑器有未保存改动），记在末尾会漏记，导致轮询每 2 秒重复重建文件树',
+      'fsPeriodicSync 不再提前记 rev，刷新失败时下一轮可重试；成功后由 refreshFS 内部统一记账',
+      '避免「同步本身反而引起反复重绘」的副作用'
+    ]
+  },
+  {
+    v: '2026.11.14.11',
+    date: '2026-11-14',
+    title: 'VFS 文件树周期同步兜底',
+    items: [
+      '新增 VFS.rev 变更代数：writeFile / createDir / deletePath / movePath / copyPath / replaceAll 全部 +1',
+      '新增 fsPeriodicSync() 每 2 秒轮询，只有 rev 变化才重建文件树，无变更时零开销跳过',
+      '重建前避让瞬时交互（右键菜单展开、行内删除待确认、编辑器删除待确认），避免轮询把确认态冲掉',
+      '重建后还原文件树滚动位置；页面隐藏时跳过，回到前台立即补一次',
+      '修掉「某些操作写入了 VFS 但文件树不刷新、要手动刷新页面才出现」的遗漏问题'
+    ]
+  },
+  {
+    v: '2026.11.14.10',
+    date: '2026-11-14',
+    title: '预设下拉改为列表 + 思考强度二级菜单',
+    items: [
+      '预设下拉菜单改为「逐条列出可用预设」，不再把思考强度拼进每一条预设名',
+      '菜单末尾固定一行「思考强度 … 当前档位 ▸」，点开二级菜单选 默认/低/中/高/最大/关闭，选中即写入 cfg.reasoningEffort 并 saveCfg',
+      '二级菜单独立挂载到 body，避免被父菜单 overflow 裁剪；右侧空间不足自动翻到左边，垂直位置自动收进视口',
+      'CustomSelect 增加通用附加行机制（sel.__cselectExtra）与 openSub/closeSub，其他 select 不受影响',
+      '下拉按钮文案仍为「预设名 · 强度」，列表项恢复成纯预设名；顺带修掉 applyProfile 里重复调用两次 refreshProfiles 的问题'
+    ]
+  },
+  {
+    v: '2026.11.14.9',
+    date: '2026-11-14',
+    title: '顶栏收纳新建/清空，编辑标题改悬停显示',
+    items: [
+      '编辑标题按钮改为悬停显示：默认 opacity:0 + pointer-events:none，鼠标移到标题或按钮本身才淡入，避免低频操作占位；触屏设备（hover:none）常驻显示，否则手机永远点不到',
+      '用相邻兄弟选择器 .title:hover + #btnEditTitle 实现，不改 DOM 结构；只动 opacity 不动 display，按钮宽度保留，显隐时顶栏不会右移',
+      '「新建对话」「清空」从对话历史弹层头部上移到顶栏右侧，改为图标按钮（＋ 与垃圾桶），保留原 id 与事件绑定，弹层头部只留「调试」'
+    ]
+  },
+  {
+    v: '2026.11.14.8',
+    date: '2026-11-14',
+    title: '修复标题图标不持久化',
+    items: [
+      '根因：icon 在存取两端都被丢掉 —— serializeSessions() 序列化时不写 icon，normalizeStoredSession() 反序列化时也不还原，等于只存在内存里，刷新即丢',
+      'serializeSessions() 补写 icon 字段；normalizeStoredSession() 补读 icon（老存档没有该字段则为空，由 titleIconHTML 回落成对话气泡，不会报错）',
+      'flushSessionsToVfs() 的 /conversations/*.json 分片同样补写 icon，否则跨设备恢复仍然丢图标',
+      'loadSessions() 启动分支补 currentTitleIcon = first.icon，否则刷新后顶栏图标回落成默认气泡',
+      '云端会话合并两处补齐：新建远端会话时带上 norm.icon，云端版本更新覆盖本地时同步 icon',
+      '手动改标题（btnEditTitle）时把 currentTitleIcon 一并写回会话对象，避免改标题把图标带丢；newSession() 新建会话显式带上 icon: ""'
+    ]
+  },
   {
     v: '2026.11.14.7',
     date: '2026-11-14',
@@ -3909,6 +4272,11 @@ const VFS = {
   cache: new Map(),
   CACHE_MAX: 15,
 
+  /* 变更代数：任何写操作 +1。周期刷新据此判断是否需要重绘文件树，
+     避免「每次轮询都盲重建」打断折叠、删除确认、右键菜单等瞬时交互。 */
+  rev: 0,
+  _touched() { this.rev++; },
+
   /* ---------- 路径级写锁：同一路径的「读 → 改 → 写」必须串行 ----------
    * 解决并发编辑竞态：两个 edit_file 同时拿到旧快照，各自替换后整文件写回，
    * 后落地的那次会覆盖前一次的改动（表现为「改了但没生效」）。
@@ -4158,6 +4526,7 @@ const VFS = {
       { store: 'meta', action: 'put', record: m },
       { store: 'content', action: 'put', record: { path, content: c } }
     ]);
+    this._touched();
     return !existed;
   },
 
@@ -4175,6 +4544,7 @@ const VFS = {
     const m = { path, type: 'dir', size: 0, mtime: Date.now() };
     this.meta[path] = m;
     await idbBatch([{ store: 'meta', action: 'put', record: m }]);
+    this._touched();
     return true;
   },
 
@@ -4190,6 +4560,7 @@ const VFS = {
           ...all.map(k => ({ store: 'content', action: 'delete', key: k }))
         ]);
       }
+      this._touched();
       return true;
     }
     // 目录可能是"隐式"的：meta 里没有 dir 条目，但 buildTree 从子文件路径反推显示了它。
@@ -4204,6 +4575,7 @@ const VFS = {
       ...toDelete.map(k => ({ store: 'meta', action: 'delete', key: k })),
       ...toDelete.map(k => ({ store: 'content', action: 'delete', key: k }))
     ]);
+    this._touched();
     return true;
   },
 
@@ -4240,6 +4612,7 @@ const VFS = {
       this.meta[newPath] = newMeta;
     }
     await idbBatch(ops);
+    this._touched();
     return true;
   },
 
@@ -4276,6 +4649,7 @@ const VFS = {
       this.meta[newPath] = newMeta;
     }
     await idbBatch(ops);
+    this._touched();
     return true;
   },
 
@@ -4327,6 +4701,7 @@ const VFS = {
     // 导入的备份可能只含文件条目，缺中间层目录 —— 在这里补齐，
     // 否则导入后那些目录在树里能看见、点进去却是空的，递归遍历还会静默漏掉它们。
     try { await this.healImplicitDirs(); } catch (e) { console.warn('[VFS] 导入后隐式目录自愈失败', e); }
+    this._touched();
   }
 };
 
@@ -7341,29 +7716,56 @@ function applyProfile(p, notify) {
   if (typeof p.temperature === 'number') cfg.temperature = p.temperature;
   saveCfg();
   updateModelTag();
-  refreshProfiles();   // 重算下拉文案，把「预设名 · 思考强度」一起刷新
+  refreshProfiles();   // 重算下拉：预设列表 + 末尾「思考强度」行的后缀
   if (notify) toast('已切换到预设：' + (p.name || p.model));
-  refreshProfiles();   // 重算下拉文案，把「预设名 · 思考强度」一起刷新
 }
-/* 思考强度档位的中文短名，用于底部预设下拉的「预设名 · 强度」展示 */
+/* 思考强度档位的中文短名，用于底部下拉按钮后缀与「思考强度」行的取值展示 */
 function effortShortLabel() {
   const v = cfg.reasoningEffort || '';
   return ({ '': '默认', low: '低', medium: '中', high: '高', max: '最大', disabled: '关闭' })[v] || v;
+}
+/* 思考强度档位：value 必须与请求体 reasoning_effort 的取值一致，空串表示不传 */
+const EFFORT_LEVELS = [
+  { value: '', label: '默认' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
+  { value: 'max', label: '最大' },
+  { value: 'disabled', label: '关闭' }
+];
+/* 预设下拉末尾那一行的描述：列表本体只列预设，强度单独走这一行 + 二级菜单 */
+function profileEffortExtra() {
+  return {
+    label: '思考强度',
+    value: effortShortLabel(),
+    rawValue: cfg.reasoningEffort || '',
+    buttonSuffix: effortShortLabel(),
+    items: EFFORT_LEVELS,
+    onPick(v) {
+      cfg.reasoningEffort = v;
+      saveCfg();
+      refreshProfiles();
+      toast('思考强度：' + effortShortLabel());
+    }
+  };
 }
 function refreshProfiles() {
   ['profileSelect', 'welcomeProfileSelect'].forEach(id => {
     const sel = $(id);
     if (!sel) return;
+    // 先把附加行挂上去，后面给 sel.value 赋值触发的 refresh 才能带上它
+    sel.__cselectExtra = profileEffortExtra;
     sel.innerHTML = '';
     profiles.forEach((p, i) => {
       const opt = document.createElement('option');
       opt.value = i;
-      // 右侧下拉同时展示「预设名 · 思考强度」，强度取自全局 cfg.reasoningEffort
-      const nm = p.name || ('预设' + (i + 1));
-      opt.textContent = i === activeProfile ? nm + ' · ' + effortShortLabel() : nm;
+      // 列表项只放预设名，强度不再拼进来
+      opt.textContent = p.name || ('预设' + (i + 1));
       sel.appendChild(opt);
     });
     sel.value = String(activeProfile);
+    // 项文本变了但 value 可能没变，手动再刷一次，保证按钮文案同步
+    if (sel.__cselectInst) sel.__cselectInst.refresh();
   });
   renderProfileList();
 }
@@ -7771,6 +8173,9 @@ function renderChildren(node, depth) {
 }
 
 async function refreshFS() {
+  // 先记账再干活：本函数有多处提前 return，若记在末尾，没打开文件时会漏记，
+  // 周期轮询就会每轮都判定「有变更」而反复重建文件树。
+  _fsRevSeen = VFS.rev;
   renderTree();
   if (!currentFile) return;
   const m = VFS.stat(currentFile);
@@ -7780,6 +8185,46 @@ async function refreshFS() {
   if (!isPristine) return;
   const disk = await VFS.getContent(currentFile);
   if (disk !== null && disk !== ed.value) { ed.value = disk; ed.dataset.original = disk; }
+}
+
+/* ---------- VFS 周期同步（兜底） ----------
+ * 早先靠每处写操作手动 await refreshFS()，新增功能时很容易漏，表现为
+ * 「文件其实已经写进 VFS，但左侧文件树还是旧的，得刷新页面才出现」。
+ * 这里用 VFS.rev 变更代数做轮询兜底：只有代数变了才重建，且遇到用户
+ * 正在进行的瞬时交互就推迟到下一轮，不打断操作。
+ */
+let _fsRevSeen = VFS.rev;
+let _fsSyncTimer = null;
+const FS_SYNC_INTERVAL = 2000;   // 轮询间隔（毫秒）
+
+/* 这些交互状态挂在 DOM 上， renderTree 的 innerHTML='' 会把它们抹掉，
+   所以重建前必须先避让，等用户操作结束。 */
+function fsBusyNow() {
+  const ctx = $('ctxMenu');
+  if (ctx && ctx.style.display === 'block') return true;          // 右键菜单开着
+  if (document.querySelector('.tree-row .del.armed')) return true; // 行内删除待确认
+  const delBtn = $('btnDelFile');
+  if (delBtn && delBtn.dataset.armed) return true;                 // 编辑器删除待确认
+  return false;
+}
+
+async function fsPeriodicSync() {
+  if (document.hidden) return;          // 后台页不做无谓重绘
+  if (VFS.rev === _fsRevSeen) return;   // 无变更，跳过
+  if (fsBusyNow()) return;              // 有未结束的交互，等下一轮
+  const tree = $('tree');
+  const keepTop = tree ? tree.scrollTop : 0;   // innerHTML 重建会丢滚动位置
+  // 不先记 rev：万一这次刷新抛错，下一轮还能重试；成功后由 refreshFS 内部记账
+  try { await refreshFS(); } catch (e) { console.warn('[VFS] 周期同步失败', e); }
+  if (tree && keepTop) tree.scrollTop = keepTop;
+}
+
+function startFsPeriodicSync() {
+  if (_fsSyncTimer) clearInterval(_fsSyncTimer);
+  _fsRevSeen = VFS.rev;   // 启动时以当前状态为基准，避免刚建好就白重建一次
+  _fsSyncTimer = setInterval(fsPeriodicSync, FS_SYNC_INTERVAL);
+  // 回到前台立刻补一次，不必等下一轮
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) fsPeriodicSync(); });
 }
 
 let openFileToken = 0;
@@ -9653,6 +10098,7 @@ function normalizeStoredSession(s) {
     : itemsToConversation(conversationToItems(s.conversation || []));
   return {
     id: s.id, title: s.title || '新对话', conversation: conv,
+    icon: s.icon || '',   // 缺失（老存档）则留空，由 titleIconHTML 回落成对话气泡
     createdAt: s.createdAt || Date.now(), updatedAt: s.updatedAt || Date.now(),
     mdFile: s.mdFile || '', jsonFile: s.jsonFile || ''
   };
@@ -9671,6 +10117,7 @@ function serializeSessions() {
       if (!s.jsonFile) s.jsonFile = sessionJsonPath(s);
       return {
         id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt,
+        icon: s.icon || '',           // 标题图标语义别名（如 code/bug），渲染时才映射成 SVG
         mdFile: s.mdFile || '',       // 对应 /conversations/*.md 可读副本路径
         jsonFile: s.jsonFile,         // 对应 /conversations/*.json 权威存档路径（与 md 同名）
         items: conversationToItems(s.conversation || [])
@@ -9811,6 +10258,7 @@ async function flushSessionsToVfs(data) {
       body = JSON.stringify({
         schema: SESSIONS_SCHEMA,
         id: s.id, title: s.title || '新对话',
+        icon: s.icon || '',            // 与 title 同级存档，跨设备恢复后图标才不丢
         createdAt: s.createdAt, updatedAt: s.updatedAt,
         mdFile: s.mdFile || '',
         items: Array.isArray(s.items) ? s.items : []
@@ -9861,6 +10309,7 @@ function loadSessions() {
         currentSessionId = first.id;
         conversation = first.conversation;
         currentTitle = first.title || '';
+        currentTitleIcon = first.icon || '';   // 启动恢复顶栏图标，否则刷新后图标回落成默认气泡
         sessionFile = first.mdFile || null;
         return;
       }
@@ -10021,6 +10470,7 @@ async function mergeSessionsFromVfs() {
           if (!norm) continue;
           const s = {
             id: norm.id, title: norm.title, conversation: norm.conversation,
+            icon: norm.icon || '',
             createdAt: norm.createdAt, updatedAt: norm.updatedAt,
             mdFile: norm.mdFile || '', jsonFile: norm.jsonFile || '', fromCloud: true
           };
@@ -10036,6 +10486,7 @@ async function mergeSessionsFromVfs() {
           if (isSameConv(norm.conversation, local.conversation)) continue;
           local.conversation = norm.conversation;
           local.title = norm.title || local.title;
+          if (norm.icon) local.icon = norm.icon;
           local.updatedAt = norm.updatedAt || local.updatedAt;
           if (norm.mdFile) local.mdFile = norm.mdFile;
           if (norm.jsonFile) local.jsonFile = norm.jsonFile;
@@ -10090,7 +10541,7 @@ function isSameConv(a, b) {
 }
 function newSession() {
   resetExpandedGroups();   // 新对话重置工具展开状态，回到最小工具面
-  const s = { id: 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2,6), title: '新对话', conversation: [], createdAt: Date.now(), updatedAt: Date.now() };
+  const s = { id: 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2,6), title: '新对话', icon: '', conversation: [], createdAt: Date.now(), updatedAt: Date.now() };
   sessions.unshift(s);
   switchSession(s.id);
   saveSessions();
@@ -10315,6 +10766,10 @@ function showWelcomeScreen() {
   // 只把消息区 display:none 藏起来的话，下一条消息 appendMsg 开头的 clearEmptyHint()
   // 会把这整块重新显示，上一轮的旧 DOM 节点全在，于是旧消息原地「复活」。
   if (messagesEl) { messagesEl.style.display = 'none'; messagesEl.innerHTML = ''; }
+  // 右侧「历史记录条」必须跟着一起清：updateScrollThumbnail 在消息数 <= 1 时只摘 active 类、
+  // 从不删节点，切到空会话后上一轮的点位还留在 DOM 里，鼠标划过对话区
+  //（.chat:hover 把 opacity 拉回 1）就又冒出来，看起来就是「欢迎页还挂着上个对话的历史记录条」。
+  clearScrollThumbnail();
   // 副标题必须跟着标题一起立刻清空、并顺手掐掉上一轮的打字器：
   // 否则在欢迎页直接点「新对话」时，标题先被清成空白，上一屏那句副标题却原样留着，
   // 要等标题打完（140ms × 字数）才被 renderWelcomeQuote 覆盖，出现「标题空了、副标题还在」的错位。
@@ -10354,17 +10809,18 @@ function hideWelcomeScreen() {
   if (typewriterTimer) { clearInterval(typewriterTimer); typewriterTimer = null; }
   if (welcomeQuoteTyping) { clearInterval(welcomeQuoteTyping); welcomeQuoteTyping = null; }
 }
-// 对话渲染：首屏只画尾部 CONV_FIRST_PAINT 条并一次贴底，更早的消息在空闲时间逐批向前补齐。
+// 对话渲染：进页面只同步渲染尾部 CONV_FIRST_PAINT 条并一次贴底，更早的消息「延后渲染」——
+// 不在进页面时排队、空闲时也不自动补，等用户滑到顶部或点顶部提示块时一次性渲染出来。
 // 三条关键约束：① 渲染期间抑制逐条 scrollBottom；② 所有节点先堆进 fragment 一次插入；
 // ③ KaTeX / 图片取图这类异步重活延后到空闲分批跑。否则消息越多越慢（平方级）。
-const CONV_FIRST_PAINT = 80;      // 首屏同步渲染的尾部消息数
-const CONV_BACKFILL_CHUNK = 200;  // 空闲补齐时每批消息数（_convBackfill 在文件顶部全局区声明）
+const CONV_FIRST_PAINT = 80;      // 进页面同步渲染的尾部消息数，其余延后（_convBackfill 在文件顶部全局区声明）
 
 function renderConversation() {
   if (!Array.isArray(conversation)) conversation = [];
   roundAssistantEl = null;   // 历史渲染不挂工具卡片，避免挂到上一轮气泡里
   _convBackfill = null;
   messagesEl.innerHTML = '';
+  clearScrollThumbnail();   // 先清掉上一个会话残留的历史记录条，渲染完由 scheduleThumbUpdate 重建
   try { updateTokenBar(); } catch (e) {}
   if (conversation.length === 0) {
     showWelcomeScreen();
@@ -10381,13 +10837,14 @@ function renderConversation() {
     placeholder = document.createElement('div');
     placeholder.className = 'conv-more';
     placeholder.textContent = '上方还有 ' + from + ' 条更早的消息（点这里或往上滑加载）';
-    placeholder.addEventListener('click', () => { _backfillStep(); });
+    placeholder.addEventListener('click', () => { renderEarlierMessages(); });
     messagesEl.appendChild(placeholder);
   }
   const batch = _paintRange(from, total, placeholder ? placeholder.nextSibling : null);
   if (from > 0) {
-    _convBackfill = { from, placeholder, running: false };
-    _scheduleBackfill();
+    // 延后加载：进页面只渲染尾部这一批，更早的消息既不排队也不自动渲染
+    //（原来这里会立刻 _scheduleBackfill()，空闲时一路补到底，几千条等于进页面就把历史全渲染一遍）。
+    _convBackfill = { from, placeholder };
   }
   // 双 rAF：等布局完成后再滚到底，避免 scrollHeight 还是旧值
   requestAnimationFrame(() => {
@@ -10420,38 +10877,22 @@ function _paintRange(start, end, before) {
   return batch;
 }
 
-// 空闲补齐更早的一批：插到顶部提示块之后，并按新增高度补偿 scrollTop，用户视口不动
-function _backfillStep() {
+// 延后加载：把首屏之外更早的消息一次性渲染进来 —— 不分批、不排队、不进页面自动跑。
+// 只在用户滑到顶部或点顶部提示块时触发一次；渲染完 _convBackfill 归零，
+// 之后再滑到顶也不会重复干活。节点仍然先堆进 fragment 一次插入，不会退化成逐条重排。
+function renderEarlierMessages() {
   const st = _convBackfill;
   if (!st || st.from <= 0) return true;
-  const end = st.from;
-  const start = _alignChunkStart(Math.max(0, end - CONV_BACKFILL_CHUNK));
   const beforeH = messagesEl.scrollHeight;
-  const batch = _paintRange(start, end, st.placeholder ? st.placeholder.nextSibling : messagesEl.firstChild);
-  st.from = start;
+  const batch = _paintRange(0, st.from, st.placeholder ? st.placeholder.nextSibling : messagesEl.firstChild);
+  st.from = 0;
+  if (st.placeholder) st.placeholder.remove();
   const delta = messagesEl.scrollHeight - beforeH;
   if (delta > 0) messagesEl.scrollTop += delta;   // 内容加在上方，视口位置保持不变
-  if (st.placeholder) {
-    if (start <= 0) st.placeholder.remove();
-    else st.placeholder.textContent = '上方还有 ' + start + ' 条更早的消息（点这里或往上滑加载）';
-  }
-  _flushBubbleTasks(batch.bubbles, batch.charts);
-  if (st.from > 0) { _scheduleBackfill(); return false; }
   _convBackfill = null;
+  _flushBubbleTasks(batch.bubbles, batch.charts);
   scheduleThumbUpdate();
   return true;
-}
-
-function _scheduleBackfill() {
-  const st = _convBackfill;
-  if (!st || st.running || st.from <= 0) return;
-  st.running = true;
-  const idle = window.requestIdleCallback || (fn => setTimeout(() => fn({ timeRemaining: () => 8 }), 80));
-  idle(() => {
-    st.running = false;
-    if (_convBackfill !== st) return;
-    _backfillStep();
-  });
 }
 
 // 分批渲染的边界不能落在 tool 结果消息上：否则 assistant 的 tool_calls 与它的结果被拆到两批，
@@ -10465,9 +10906,8 @@ function _alignChunkStart(start) {
 
 // 一次性补齐到指定下标（缩略条跳转、搜索定位需要目标消息已在 DOM 里）
 function ensureRendered(idx) {
-  let guard = 0;
-  while (_convBackfill && _convBackfill.from > idx && guard++ < 200) _backfillStep();
-  return !_convBackfill || _convBackfill.from <= idx;
+  if (!_convBackfill || _convBackfill.from <= idx) return true;
+  return renderEarlierMessages();   // 延后渲染是一次性的，不存在「补到哪一批」的问题
 }
 
 // 批量渲染攒下的异步重活（KaTeX 排版、ref 图片取 dataURL）改到空闲时间分批跑，首屏不再被几百个 Promise 拖慢
@@ -10926,13 +11366,24 @@ function scheduleThumbUpdate() {
   });
 }
 
+// 彻底清空缩略导航条（点位 / active / 签名）。回到欢迎屏、切到空会话时用：
+// 老逻辑在消息数 <= 1 时只摘 active 类、从不删节点，点位会一直残留在 DOM 里。
+function clearScrollThumbnail() {
+  const bar = $('scrollThumbnail');
+  if (bar) {
+    bar.classList.remove('active');
+    bar.querySelectorAll('.thumb-inner').forEach(el => el.remove());
+  }
+  _thumbSignature = '';   // 复位签名，下次有消息时完整重建
+}
+
 function updateScrollThumbnail() {
   try {
   const bar = $('scrollThumbnail');
   if (!bar) return;
   // 基于 conversation 全量数据生成，不依赖当前渲染的 DOM（滑动窗口外的消息也显示）
   const msgs = conversation.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool');
-   if (msgs.length <= 1) { bar.classList.remove('active'); return; }
+   if (msgs.length <= 1) { clearScrollThumbnail(); return; }
   bar.classList.add('active');
   bindThumbScrollGuard(bar);
   const total = msgs.length;
@@ -11058,10 +11509,10 @@ function updateScrollThumbnail() {
   }
   } catch (e) { console.warn('updateScrollThumbnail error:', e); }
 }
-// 滚动时更新视口标记；滚到顶部附近顺带补一批更早的消息（首屏只渲染了尾部）
+// 滚动时更新视口标记；滑到顶部附近才把延后的更早消息渲染出来（进页面时不做）
 messagesEl.addEventListener('scroll', () => {
   scheduleThumbUpdate();
-  if (messagesEl.scrollTop < 200 && _convBackfill && !_convBackfill.running) _scheduleBackfill();
+  if (messagesEl.scrollTop < 200 && _convBackfill) renderEarlierMessages();
 }, { passive: true });
 
 function appendMsg(role, html, idx) {
@@ -15377,7 +15828,7 @@ function bindEvents() {
     currentTitle = t;
     setChatTitle(t, currentTitleIcon);
     const s = sessions.find(x => x.id === currentSessionId);
-    if (s) { s.title = t; s.updatedAt = Date.now(); saveSessions(); }
+    if (s) { s.title = t; s.icon = currentTitleIcon || s.icon || ''; s.updatedAt = Date.now(); saveSessions(); }
     toast('标题已更新');
   });
   // 底部工具条已精简：去掉「⋯」与「ⓘ」，只保留左侧上传与右侧预设下拉
@@ -15849,6 +16300,8 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
   // 若排在前面，读到的是还没从 localStorage 合并进来的 cfg.apiKey，会把到期任务误判成「未配置 API Key」
   safe('initAutoTaskPage', initAutoTaskPage);
   safe('initCustomSelects', initCustomSelects);
+  // VFS 周期同步兜底：兜住所有「改了 VFS 却忘了 refreshFS」的路径
+  safe('startFsPeriodicSync', startFsPeriodicSync);
   safe('initConfirmModal', initConfirmModal);
   // 预填充脱敏密钥缓存，供 saveSessions 同步脱敏使用
   safe('collectSensitiveSecrets', () => collectSensitiveSecrets().catch(() => {}));
