@@ -746,6 +746,10 @@
     transition: all 0.15s;
   }
   .welcome-suggestion:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+  /* 全新设备入口：单独一行，不和示例指令混在一起 */
+  .welcome-recover { display: flex; justify-content: center; margin-top: 12px; }
+  .welcome-recover .welcome-suggestion { display: inline-flex; align-items: center; gap: 6px; }
+  .welcome-recover .welcome-suggestion .ico-svg { width: 13px; height: 13px; }
 
   @media (max-width: 1100px) {
     .editor { width: 300px; flex: 0 0 300px; }
@@ -1076,6 +1080,8 @@
      用相邻兄弟选择器而不是改 DOM 结构：编辑器按钮紧跟 .title，可直接命中；
      只改 opacity 不改 display，按钮位宽度保留，显隐时顶栏不会发生右移。 */
   #btnEditTitle { opacity: 0; pointer-events: none; transition: opacity .15s; }
+  /* 编辑态下按钮一直在位（否则松开鼠标按钮就消失，看着像点了没反应） */
+  .chat-head .title.editing ~ #btnEditTitle { opacity: 1; pointer-events: auto; }
   .chat-head .title:hover + #btnEditTitle,
   #btnEditTitle:hover,
   #btnEditTitle:focus-visible { opacity: 1; pointer-events: auto; }
@@ -1085,6 +1091,50 @@
   .chat-title-icon { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1; }
   .chat-title-icon .ico-svg { width: 15px; height: 15px; }
   .chat-title-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* 原位标题编辑：输入框直接占标题文本的位置，图标仍留在左侧可点 */
+  .chat-title-input {
+    flex: 0 1 240px; width: 240px; max-width: 46vw; min-width: 90px;
+    padding: 3px 7px; font-size: 14px; font-weight: 600;
+    color: var(--text-primary); background: var(--bg-input);
+    border: 1px solid var(--border-focus); border-radius: 6px; outline: none;
+  }
+  .chat-title-input:focus { box-shadow: 0 0 0 2px var(--accent-bg); }
+  .chat-title-input[hidden], .chat-title-text[hidden] { display: none; }
+  /* 编辑态：图标变成「可点换图标」的按钮样式 */
+  .chat-head .title.editing .chat-title-icon {
+    cursor: pointer; padding: 2px 3px; border-radius: 6px;
+    color: var(--text-link); background: var(--accent-bg);
+    box-shadow: 0 0 0 1px var(--border-focus) inset;
+  }
+  .chat-head .title.editing .chat-title-icon:hover { background: var(--accent-bg-strong); }
+  /* 图标选择面板 */
+  .title-icon-picker {
+    position: absolute; top: calc(100% + 6px); left: 16px; z-index: 120;
+    width: min(430px, calc(100% - 32px));
+    display: flex; flex-direction: column; gap: 7px;
+    padding: 9px; background: var(--bg-panel);
+    border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 14px 34px var(--shadow);
+  }
+  .title-icon-picker[hidden] { display: none; }
+  .title-icon-search {
+    width: 100%; padding: 6px 9px; font-size: 12px; color: var(--text-primary);
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 7px; outline: none;
+  }
+  .title-icon-search:focus { border-color: var(--border-focus); }
+  .title-icon-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+    gap: 4px; max-height: 220px; overflow-y: auto;
+  }
+  .title-icon-item {
+    display: flex; align-items: center; justify-content: center; aspect-ratio: 1 / 1;
+    padding: 0; color: var(--text-secondary); background: var(--bg-card);
+    border: 1px solid transparent; border-radius: 7px; cursor: pointer;
+  }
+  .title-icon-item:hover { color: var(--text-primary); background: var(--bg-hover); border-color: var(--border-hover); }
+  .title-icon-item.active { color: var(--text-link); background: var(--accent-bg); border-color: var(--border-focus); }
+  .title-icon-item .ico-svg { width: 16px; height: 16px; }
+  .title-icon-empty { grid-column: 1 / -1; padding: 14px; text-align: center; font-size: 12px; color: var(--text-muted); }
   .session-list-head {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
     padding: 7px 12px 9px; border-bottom: 1px solid var(--border);
@@ -1150,13 +1200,17 @@
   <main class="chat">
     <header class="chat-head">
       <button class="icon-btn chat-head-btn" id="btnPanelToggle" type="button" title="展开/收起文件面板" aria-label="文件面板"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
-      <div class="title" id="chatTitle" title="点击查看对话列表"><span class="chat-title-icon" id="chatTitleIcon"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span><span class="chat-title-text" id="chatTitleText">AI Agent</span></div>
+      <div class="title" id="chatTitle" title="点击查看对话列表"><span class="chat-title-icon" id="chatTitleIcon"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span><span class="chat-title-text" id="chatTitleText">AI Agent</span><input class="chat-title-input" id="chatTitleInput" type="text" maxlength="40" placeholder="对话标题" autocomplete="off" spellcheck="false" hidden></div>
       <button class="icon-btn chat-head-btn" id="btnEditTitle" type="button" title="编辑标题" aria-label="编辑标题"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>
       <div class="spacer"></div>
       <button class="icon-btn chat-head-btn" id="btnNewChat" type="button" title="新建对话" aria-label="新建对话"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
       <button class="icon-btn chat-head-btn" id="btnClear" type="button" title="清空当前对话（文件不会被删除）" aria-label="清空当前对话"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
       <button class="icon-btn chat-head-btn" id="btnSettings" type="button" title="设置" aria-label="设置"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
       <button class="icon-btn chat-head-btn" id="btnTogglePreview" type="button" title="展开预览面板" aria-label="预览面板"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg></button>
+      <div class="title-icon-picker" id="titleIconPicker" hidden>
+        <input class="title-icon-search" id="titleIconSearch" type="text" placeholder="搜索图标（英文名或中文，如 code / 代码）" autocomplete="off">
+        <div class="title-icon-grid" id="titleIconGrid"></div>
+      </div>
       <div class="session-list" id="sessionList" style="display:none">
         <div class="session-list-head">
           <span>对话历史</span>
@@ -1187,6 +1241,9 @@
         <button class="welcome-suggestion" type="button">创建 /notes 目录，写一份项目计划</button>
         <button class="welcome-suggestion" type="button">列出当前所有文件</button>
         <button class="welcome-suggestion" type="button">帮我写一个 Python 脚本</button>
+      </div>
+      <div class="welcome-recover">
+        <button class="welcome-suggestion" id="btnWelcomeRecover" type="button" title="粘一串恢复码，自动装回云端配置并拉取全部内容"><svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>用恢复码在新设备恢复</button>
       </div>
     </div>
     <div class="scroll-thumbnail" id="scrollThumbnail"></div>
@@ -1551,6 +1608,15 @@
         <button class="ghost-btn" id="btnCloudUp" type="button" style="margin-right:8px">上传到云端</button>
         <button class="ghost-btn" id="btnCloudDown" type="button">从云端恢复</button>
       </div>
+      <div class="field" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+        <label style="color:#9ec3ff">恢复码（在一台全新设备上装回这套配置）</label>
+        <div style="font-size:11.5px;color:var(--text-muted);line-height:1.7;margin-bottom:8px">
+          把上面的云端后端 / 仓库 / 令牌（以及 AI 模型配置）压缩成一小串文本。新设备上粘一次，就能自动写回配置并从云端拉回全部文件与对话。
+          <br>⚠️ 恢复码等同于密钥本身：任何拿到它的人都能读写你的云端备份。请像密码一样保管，别发到公开的地方。
+        </div>
+        <button class="ghost-btn" id="btnMakeRecovery" type="button" style="margin-right:8px">生成恢复码</button>
+        <button class="ghost-btn" id="btnUseRecovery" type="button">用恢复码恢复</button>
+      </div>
     </div>
 
     <div class="settings-pane" data-pane="cs">
@@ -1866,6 +1932,21 @@
       <span id="inputModalHint" style="flex:1;font-size:11.5px;color:var(--text-muted);align-self:center"></span>
       <button class="ghost-btn" id="inputModalCancel" type="button">取消</button>
       <button class="btn-primary" id="inputModalOk" type="button">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 恢复码弹窗：生成 / 粘贴恢复 -->
+<div class="modal" id="recoveryModal" style="z-index:3200">
+  <div class="modal-box" style="width:520px">
+    <h3 id="recoveryTitle" style="margin:0 0 10px;font-size:15px">恢复码</h3>
+    <div id="recoveryHint" style="font-size:12px;line-height:1.7;color:var(--text-secondary);margin-bottom:10px"></div>
+    <textarea id="recoveryText" spellcheck="false" autocomplete="off" placeholder="粘贴恢复码（R1:…）" style="width:100%;min-height:130px;max-height:44vh;background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:9px 11px;color:var(--text-primary);font-size:12px;line-height:1.6;font-family:ui-monospace,monospace;resize:vertical;box-sizing:border-box;word-break:break-all"></textarea>
+    <div id="recoveryStatus" style="font-size:11.5px;color:var(--text-muted);line-height:1.6;margin-top:8px;min-height:16px"></div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="ghost-btn" id="recoveryCopy" type="button">复制恢复码</button>
+      <button class="ghost-btn" id="recoveryClose" type="button">关闭</button>
+      <button class="btn-primary" id="recoveryOk" type="button">开始恢复</button>
     </div>
   </div>
 </div>
@@ -2353,7 +2434,12 @@ function resolveTitleIcon(alias) {
   const a = String(alias || '').trim().toLowerCase()
     .replace(/[<>:\'"“”『』「」，,。.\s]/g, '');
   if (!a) return TITLE_ICON_DEFAULT;
-  return TITLE_ICON_ALIASES[a] || (ICON_PATHS[a] ? a : TITLE_ICON_DEFAULT);
+  if (TITLE_ICON_ALIASES[a]) return TITLE_ICON_ALIASES[a];
+  if (ICON_PATHS[a]) return a;
+  // 手动选图标时存的是 ICON_PATHS 原始键（可能是 camelCase，如 fileCode），
+  // 小写后查不到，这里补一次大小写无关的查找，否则手选图标会回落成对话气泡。
+  const hit = Object.keys(ICON_PATHS).find(k => k.toLowerCase() === a);
+  return hit || TITLE_ICON_DEFAULT;
 }
 function titleIconHTML(alias) {
   return icon(resolveTitleIcon(alias));
@@ -2986,8 +3072,45 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 // 别手工改三处：插件 release-log 提供 release_bump —— 自动算版本号（同日末位 +1）+ 插日志 + 改 APP_VERSION + 回读自检；
 // 另有 release_check 只读体检（版本是否一致、日期是否对齐、有无重复版本、残留 TODO），发版前后各跑一次。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.14.14';
+const APP_VERSION = '2026.11.14.17';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.14.17',
+    date: '2026-11-14',
+    title: '新增恢复码：把云端配置压成一段文本，新设备粘一次即可恢复',
+    items: [
+      '新增「恢复码」：把云端后端 / 仓库 / 令牌 / AI 模型配置挑字段序列化，用浏览器原生 CompressionStream（deflate-raw）压一遍再转 base64url，外面套自检头 R1:<压缩标记>:<校验码>:<数据>',
+      '生成端只带能重建云端连接 + 能直接开聊的字段（云端四后端、AI Base URL/Key/Model、KB/Codespace 配置），主题与工具开关这类界面偏好故意不带',
+      '解析端分四步给不同人话报错：格式不对 / 校验失败（被截断或改动过）/ 解压失败 / 内容解析失败，不再只甩一句 Unexpected token',
+      '新设备入口：欢迎页新增「用恢复码在新设备恢复」按钮；设置 → 云端同步新增「生成恢复码」「用恢复码恢复」两个按钮与同款弹窗',
+      '恢复流程一次走完：解析 → 确认（显示识别到的后端）→ 写回配置并 saveCfg → 自动从云端拉取 → 重建会话列表 / 刷新文件树 / 重载预设与待办',
+      '新增 _skipCloudConfirm：恢复流程内部拉取时跳过「会覆盖本地文件」的二次确认（外面已经问过一次），四个后端的 download 统一支持',
+      '自定义 HTTP 端点后端原先从云端恢复时不弹确认，本次补上，与其它三个后端保持一致'
+    ]
+  },
+  {
+    v: '2026.11.14.16',
+    date: '2026-11-14',
+    title: '顶栏标题改为原位编辑，并支持点击图标更换',
+    items: [
+      '编辑标题不再弹系统 prompt()：标题文本原位换成输入框，Enter 确认、Esc 取消、点别处也确认',
+      '编辑期间点击标题左侧图标会弹出图标选择面板（可搜索英文名/中文别名），选完仍停在输入框，随 Enter 一起生效',
+      'resolveTitleIcon 补了大小写无关的键查找，手选的 camelCase 图标（如 fileCode）不再回落成对话气泡',
+      '切会话 / 新建会话时自动收掉未确认的标题编辑态；编辑态下编辑按钮保持常显'
+    ]
+  },
+  {
+    v: '2026.11.14.15',
+    date: '2026-11-14',
+    title: '导航栏与设置页左栏改为事件委托，插件注入的按钮直接可点',
+    items: [
+      '问题：左侧导航栏 .nav-rail 与设置页左栏 .settings-nav 的点击都是启动时 querySelectorAll(...).forEach(addEventListener) 逐个绑的。插件的按钮是加载时才注入的，启动时根本不存在 → 插件必须自己再绑一次，忘了绑就是「按钮能点但没反应」，而且不报错',
+      '改法：两处都改成容器级事件委托——监听挂容器，用 e.target.closest(\'.nav-rail-btn\' / \'.settings-nav-btn\') 找按钮，读 data-mode / data-tab 再调 switchPage / switchSettingsTab；closest 同时兜住点到内部 SVG 的情况',
+      '内层留空（没写 data-mode / data-tab）时委托故意跳过，把点击留给插件自己的监听器——插件自有功能的按钮仍由插件负责，宿主不越界',
+      '与插入时机彻底解耦：page-tab / svg-gallery / claw-mode 这类往导航栏和设置页塞按钮的插件，从此只需带上 data-mode / data-tab，不必再自己绑 click（旧版宿主仍兼容：自己绑一次也不会重复触发副作用，switchSettingsTab 幂等）',
+      '/plugins/develop.md 同步改口径：13.2 必备动作第 4 条改为「必须带 data-mode」，13.3 骨架与速查卡保留自绑并注明新版可省，14.2 重写为「点击是谁在管」，排错表两条跟着改，新增 14.9 解释为什么只有「名字→行为」由宿主定义的位置才适合委托'
+    ]
+  },
   {
     v: '2026.11.14.14',
     date: '2026-11-14',
@@ -7682,6 +7805,131 @@ function setChatTitle(title, iconAlias) {
   if (ic) ic.innerHTML = titleIconHTML(iconAlias);
 }
 
+/* ---------- 顶栏标题：原位编辑 + 点图标换图标 ----------
+ * 旧版用系统 prompt()，会弹原生输入框、样式不可控，也不能顺手换图标。
+ * 现在：标题文本节点原位换成 <input>，Enter 确认 / Esc 取消 / 点别处确认；
+ * 编辑期间点左侧图标打开图标面板，选完仍回到输入框，等 Enter 一起生效。 */
+let _titleEditing = false;      // 是否处于原位编辑态
+let _titleEditIcon = '';        // 编辑期间临时选中的图标（Enter 确认才写回会话）
+
+function isTitleEditing() { return _titleEditing; }
+
+/* 编辑态收尾：输入框换回文本节点，恢复图标与提示语。 */
+function _exitTitleEditUI() {
+  _titleEditing = false;
+  const input = $('chatTitleInput');
+  const text = $('chatTitleText');
+  const titleEl = $('chatTitle');
+  const picker = $('titleIconPicker');
+  if (picker) picker.hidden = true;
+  if (input) { input.hidden = true; input.blur(); }
+  if (text) text.hidden = false;
+  if (titleEl) { titleEl.classList.remove('editing'); titleEl.setAttribute('title', '点击查看对话列表'); }
+  const ic0 = $('chatTitleIcon');
+  if (ic0) ic0.removeAttribute('title');
+}
+
+function startTitleEdit() {
+  const input = $('chatTitleInput');
+  const text = $('chatTitleText');
+  const titleEl = $('chatTitle');
+  if (!input || !text || !titleEl) return;
+  if (_titleEditing) { input.focus(); input.select(); return; }
+  hideSessionList();
+  _titleEditing = true;
+  _titleEditIcon = currentTitleIcon || '';
+  input.value = currentTitle || '新对话';
+  text.hidden = true;
+  input.hidden = false;
+  titleEl.classList.add('editing');
+  titleEl.setAttribute('title', 'Enter 确认 · Esc 取消 · 点左侧图标可换图标');
+  const icNow = $('chatTitleIcon');
+  if (icNow) icNow.setAttribute('title', '点击更换图标');
+  input.focus();
+  input.select();
+}
+
+function cancelTitleEdit() {
+  if (!_titleEditing) return;
+  _exitTitleEditUI();
+  _titleEditIcon = '';
+  setChatTitle(currentTitle || '新对话', currentTitleIcon);
+}
+
+function commitTitleEdit() {
+  if (!_titleEditing) return;
+  const input = $('chatTitleInput');
+  const t = String((input && input.value) || '').trim().slice(0, 40);
+  if (!t) { toast('标题不能为空', 'err'); if (input) input.focus(); return; }
+  const iconNext = _titleEditIcon || '';
+  _exitTitleEditUI();
+  currentTitle = t;
+  currentTitleIcon = iconNext;
+  setChatTitle(t, iconNext);
+  const s = sessions.find(x => x.id === currentSessionId);
+  if (s) { s.title = t; s.icon = iconNext; s.updatedAt = Date.now(); saveSessions(); }
+  toast('标题已更新');
+}
+
+/* 失焦即确认：点图标 / 图标面板内部不触发，避免换图标时被提前提交 */
+function _onTitleInputBlur() {
+  setTimeout(() => {
+    if (!_titleEditing) return;
+    const ae = document.activeElement;
+    const picker = $('titleIconPicker');
+    if (ae && (ae.id === 'chatTitleInput' || ae.id === 'titleIconSearch' || ae.id === 'btnEditTitle')) return;
+    if (ae && picker && picker.contains(ae)) return;
+    if (ae && ae.closest && ae.closest('#chatTitle')) return;
+    commitTitleEdit();
+  }, 0);
+}
+
+/* ---------- 图标选择面板 ---------- */
+function titleIconEntries() {
+  return Object.keys(ICON_PATHS).map(k => ({
+    key: k,
+    aliases: Object.keys(TITLE_ICON_ALIASES).filter(a => TITLE_ICON_ALIASES[a] === k)
+  }));
+}
+
+function renderTitleIconGrid(filter) {
+  const grid = $('titleIconGrid');
+  if (!grid) return;
+  const f = String(filter || '').trim().toLowerCase();
+  const cur = resolveTitleIcon(_titleEditIcon || currentTitleIcon || '');
+  const items = titleIconEntries().filter(e => !f
+    || e.key.toLowerCase().indexOf(f) >= 0
+    || e.aliases.some(a => a.toLowerCase().indexOf(f) >= 0));
+  if (!items.length) { grid.innerHTML = '<div class="title-icon-empty">没有匹配的图标</div>'; return; }
+  grid.innerHTML = items.map(e => {
+    const tip = e.key + (e.aliases.length ? ' · ' + e.aliases.slice(0, 4).join('/') : '');
+    return '<button class="title-icon-item' + (e.key === cur ? ' active' : '') + '" type="button" data-icon="' + escapeHtml(e.key) + '" title="' + escapeHtml(tip) + '">' + icon(e.key) + '</button>';
+  }).join('');
+}
+
+function closeTitleIconPicker() { const p = $('titleIconPicker'); if (p) p.hidden = true; }
+
+function openTitleIconPicker() {
+  const p = $('titleIconPicker');
+  if (!p) return;
+  if (!p.hidden) { p.hidden = true; return; }
+  const search = $('titleIconSearch');
+  if (search) search.value = '';
+  renderTitleIconGrid('');
+  p.hidden = false;
+  if (search) search.focus();
+}
+
+function pickTitleIcon(key) {
+  if (!key || !ICON_PATHS[key]) return;
+  _titleEditIcon = key;
+  const ic = $('chatTitleIcon');
+  if (ic) ic.innerHTML = icon(key);
+  closeTitleIconPicker();
+  const input = $('chatTitleInput');
+  if (input) input.focus();
+}
+
 /* ---------- AI 预设（多组 API 存 VFS /config/ai-profiles.json） ---------- */
 const PROFILE_FILE = '/config/ai-profiles.json';
 let profiles = [];
@@ -8607,6 +8855,7 @@ async function uploadCustom() {
 }
 async function downloadCustom() {
   if (!cfg.customBackupUrl) throw new Error('未配置自定义备份端点 URL');
+  if (!_skipCloudConfirm && !(await customConfirm('从云端恢复会覆盖当前所有本地文件，确定继续？', 'cloud_restore'))) return false;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 30000);
   try {
@@ -8646,7 +8895,7 @@ async function uploadWebDAV() {
   } catch (e) { toast('上传失败：' + e.message, 'err'); return false; }
 }
 async function downloadWebDAV() {
-  if (!(await customConfirm('从云端恢复会覆盖当前所有本地文件，确定继续？', 'cloud_restore'))) return;
+  if (!_skipCloudConfirm && !(await customConfirm('从云端恢复会覆盖当前所有本地文件，确定继续？', 'cloud_restore'))) return;
   toast('正在从坚果云下载…');
   try {
     const resp = await fetch(wdUrl(), { headers: { 'Authorization': wdAuth() } });
@@ -9105,7 +9354,7 @@ async function downloadGitee() {
   const { repo, sub } = giteeParts();
   const owner = repo.split('/')[0], name = repo.split('/')[1];
   if (!owner || !name) { toast('仓库格式应为 用户名/仓库名', 'err'); return; }
-  if (!(await customConfirm('从云端恢复会覆盖当前所有本地文件，确定继续？', 'cloud_restore'))) return;
+  if (!_skipCloudConfirm && !(await customConfirm('从云端恢复会覆盖当前所有本地文件，确定继续？', 'cloud_restore'))) return;
   const tp = toastProgress('正在从 Gitee 获取文件列表…');
   try {
     const tree = await giteeTree(owner, name);
@@ -9174,7 +9423,7 @@ async function uploadGist() {
 
 async function downloadGist() {
   if (!cfg.gistToken || !cfg.gistId) { toast('请先配置 Gist Token 和 ID', 'err'); openSettings(); return; }
-  if (!(await customConfirm('从云端恢复会覆盖当前所有本地文件，确定继续？', 'cloud_restore'))) return;
+  if (!_skipCloudConfirm && !(await customConfirm('从云端恢复会覆盖当前所有本地文件，确定继续？', 'cloud_restore'))) return;
   toast('正在下载…');
   try {
     const resp = await fetch('https://api.github.com/gists/' + cfg.gistId, {
@@ -9193,6 +9442,214 @@ async function downloadGist() {
   } catch (e) {
     toast('下载失败：' + e.message, 'err');
   }
+}
+
+/* =========================================================
+ *  4b-2. 恢复码（把云端配置压成一段文本，新设备粘一次就装回去）
+ * =========================================================
+ * 动机：换设备要重填七八个字段（后端、仓库、令牌、模型…），还容易漏。
+ * 做法：只挑「能重建云端连接 + 能直接开聊」的字段 → JSON → deflate-raw → base64url，
+ *       外面套一层自检头 R1:<压缩标记>:<校验码>:<数据>。
+ * 为什么不用 AES 加密：加密就得再传一个密码，反而更难用；这东西本身就是密钥，
+ *       靠「别外传」保护，UI 里也把这句话写清楚，不装作用户看得见就安全。
+ * 为什么自己写 deflate 而不是引库：浏览器原生 CompressionStream 就是 gzip/deflate，
+ *       纯前端不想为这一功能再挂一个 CDN 依赖；不支持时自动退回不压缩（仍能解）。
+ */
+const RECOVERY_PREFIX = 'R1';
+// 只带「重建云端连接 + 能立刻开聊」的字段；主题、工具开关这类界面偏好故意不带（新设备用默认更干净）
+const RECOVERY_FIELDS = [
+  'cloudBackend', 'giteeRepo', 'giteeToken', 'giteePath',
+  'wdServer', 'wdUser', 'wdPass', 'wdPath',
+  'gistToken', 'gistId', 'gistFilename', 'customBackupUrl',
+  'autoSyncMinutes', 'fullSync',
+  'baseUrl', 'apiKey', 'model', 'temperature', 'reasoningEffort', 'corsProxy',
+  'kbPlatform', 'kbRepo', 'kbToken', 'kbBranch', 'searchApiKey',
+  'csToken', 'csName', 'csBridgePort', 'csBridgeToken', 'csBridgeUrl', 'csDomain', 'csWorkdir'
+];
+let _skipCloudConfirm = false;   // 恢复流程内部拉取时跳过「会覆盖本地文件」的二次确认（外面已经问过一次）
+
+function _fnv1a(bytes) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) { h ^= bytes[i]; h = (h * 0x01000193) >>> 0; }
+  return h >>> 0;
+}
+function _sumOf(bytes) { return ('000000' + _fnv1a(bytes).toString(36)).slice(-6); }
+function bytesToB64url(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlToBytes(s) {
+  let t = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  while (t.length % 4) t += '=';
+  const bin = atob(t);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+async function _deflateBytes(bytes) {
+  if (typeof CompressionStream === 'undefined') return null;
+  try {
+    const st = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(st).arrayBuffer());
+  } catch (e) { return null; }
+}
+async function _inflateBytes(bytes) {
+  const st = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(st).arrayBuffer());
+}
+
+/* 生成恢复码：返回 { code, rawLen, packedLen, obj } */
+async function makeRecoveryCode() {
+  const payload = { v: 1, t: Date.now(), cfg: {} };
+  for (const f of RECOVERY_FIELDS) {
+    const v = cfg[f];
+    if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) continue;
+    payload.cfg[f] = v;
+  }
+  const raw = new TextEncoder().encode(JSON.stringify(payload));
+  const comp = await _deflateBytes(raw);
+  const useComp = !!(comp && comp.length < raw.length);
+  const bytes = useComp ? comp : raw;
+  return {
+    code: RECOVERY_PREFIX + ':' + (useComp ? '1' : '0') + ':' + _sumOf(bytes) + ':' + bytesToB64url(bytes),
+    rawLen: raw.length, packedLen: bytes.length, obj: payload
+  };
+}
+
+/* 解析恢复码：先查格式 → 再校验头 → 再解压 → 再 JSON。每一步失败都给人话，别只抛一个 Unexpected token */
+async function parseRecoveryCode(input) {
+  const s = String(input || '').replace(/\s+/g, '');
+  if (!s) throw new Error('请先粘贴恢复码');
+  const m = /^R1:([01]):([0-9a-z]{6}):([A-Za-z0-9\-_]+)$/.exec(s);
+  if (!m) throw new Error('格式不对：恢复码应以 R1: 开头。检查是否漏粘/多粘了字符');
+  let bytes = b64urlToBytes(m[3]);
+  if (_sumOf(bytes) !== m[2]) throw new Error('校验失败：恢复码不完整（复制时被截断或改动过）');
+  if (m[1] === '1') {
+    try { bytes = await _inflateBytes(bytes); }
+    catch (e) { throw new Error('解压失败：恢复码已损坏'); }
+  }
+  let obj = null;
+  try { obj = JSON.parse(new TextDecoder().decode(bytes)); }
+  catch (e) { throw new Error('内容解析失败：恢复码已损坏'); }
+  if (!obj || typeof obj !== 'object' || !obj.cfg || typeof obj.cfg !== 'object') throw new Error('恢复码里没有有效配置');
+  return obj;
+}
+
+/* 把恢复码里的配置写回 cfg（只认白名单字段，别的键一律忽略，防止被塞奇怪的东西） */
+async function applyRecoveryConfig(payload) {
+  const c = payload.cfg || {};
+  let n = 0;
+  for (const f of RECOVERY_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(c, f)) { cfg[f] = c[f]; n++; }
+  }
+  await saveCfg();
+  try { setupAutoSync(); } catch (e) {}
+  updateModelTag();
+  return n;
+}
+
+function recoveryBackendLabel(c) {
+  const be = (c && c.cloudBackend) || 'gitee';
+  if (be === 'gitee') return 'Gitee · ' + ((c && c.giteeRepo) || '（未填仓库）');
+  if (be === 'webdav') return '坚果云 WebDAV · ' + ((c && c.wdUser) || '（未填账号）');
+  if (be === 'gist') return 'GitHub Gist · ' + ((c && c.gistId) || '（未填 Gist ID）');
+  if (be === 'custom') return '自定义端点 · ' + ((c && c.customBackupUrl) || '（未填 URL）');
+  return be;
+}
+
+/* 拉取完之后的收尾：重建会话列表 + 刷新文件树 + 用恢复码里的配置重开预设 */
+async function afterCloudRestore() {
+  try { await loadProfiles(); } catch (e) {}
+  // 本地 localStorage 里可能是新设备那条空对话；云端数据落地后按 VFS 合并一次，再取最新的当当前会话
+  try { await mergeSessionsFromVfs(); } catch (e) { console.warn('[恢复码] 会话合并失败', e); }
+  try {
+    const first = Array.isArray(sessions) ? sessions[0] : null;
+    if (first) {
+      currentSessionId = first.id;
+      conversation = Array.isArray(first.conversation) ? first.conversation : [];
+      currentTitle = first.title || '';
+      currentTitleIcon = first.icon || '';
+      sessionFile = first.mdFile || null;
+    }
+    saveSessions();
+    renderConversation();
+    setChatTitle(currentTitle || '新对话', currentTitleIcon);
+    updateTokenBar();
+  } catch (e) { console.warn('[恢复码] 会话重建失败', e); }
+  try { await refreshFS(); } catch (e) {}
+  try { await loadTodos(); } catch (e) {}
+}
+
+/* 完整恢复流程：解析 → 确认 → 写配置 → 拉云端 → 收尾。返回 true 表示走完了 */
+async function runRecovery(rawCode) {
+  let payload = null;
+  try { payload = await parseRecoveryCode(rawCode); }
+  catch (e) { toast(e.message, 'err'); return false; }
+  const label = recoveryBackendLabel(payload.cfg);
+  const ok = await customConfirm(
+    '恢复码解析成功：' + label + '\n\n'
+    + '接下来会写回配置，并从云端拉取全部文件与对话。\n'
+    + '注意：会覆盖当前页面里的本地文件内容。',
+    'recovery_apply'
+  );
+  if (!ok) return false;
+  const n = await applyRecoveryConfig(payload);
+  toast('已写回 ' + n + ' 项配置，开始从云端拉取…');
+  if (typeof closeSettings === 'function') { try { closeSettings(); } catch (e) {} }
+  _skipCloudConfirm = true;
+  try { await cloudDownload(); }
+  catch (e) { toast('云端拉取失败：' + (e && e.message ? e.message : e), 'err'); }
+  finally { _skipCloudConfirm = false; }
+  await afterCloudRestore();
+  if (Object.keys(VFS.meta || {}).length) toast('✅ 恢复完成，文件与对话已就位');
+  return true;
+}
+
+/* ---------- 恢复码弹窗 ---------- */
+let _recoveryMode = 'use';
+function _setRecoveryStatus(msg, isErr) {
+  const el = $('recoveryStatus');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.style.color = isErr ? 'var(--text-error)' : 'var(--text-muted)';
+}
+function openRecoveryModal(mode, code) {
+  const modal = $('recoveryModal');
+  if (!modal) return;
+  _recoveryMode = mode === 'make' ? 'make' : 'use';
+  const isMake = _recoveryMode === 'make';
+  const title = $('recoveryTitle'), hint = $('recoveryHint'), ta = $('recoveryText');
+  const okBtn = $('recoveryOk'), copyBtn = $('recoveryCopy');
+  if (title) title.textContent = isMake ? '生成恢复码' : '用恢复码恢复';
+  if (hint) {
+    hint.innerHTML = isMake
+      ? '把下面这串文本复制走（存密码管理器 / 私密笔记）。新设备打开本页面 → 欢迎页「用恢复码在新设备恢复」→ 粘贴即可。'
+      : '粘贴你之前保存的恢复码（以 <code>R1:</code> 开头）。会自动写回云端配置并从云端拉取全部文件与对话。';
+  }
+  if (ta) { ta.value = code || ''; ta.readOnly = isMake; }
+  if (okBtn) { okBtn.style.display = isMake ? 'none' : ''; okBtn.textContent = '开始恢复'; }
+  if (copyBtn) copyBtn.style.display = isMake ? '' : 'none';
+  _setRecoveryStatus('');
+  modal.style.display = 'flex';
+  setTimeout(() => { try { if (isMake) ta.select(); else ta.focus(); } catch (e) {} }, 30);
+}
+function closeRecoveryModal() { const m = $('recoveryModal'); if (m) m.style.display = 'none'; }
+
+async function openRecoveryMaker() {
+  const be = cfg.cloudBackend || 'gitee';
+  const ready = be === 'webdav' ? !!(cfg.wdUser && cfg.wdPass)
+    : be === 'gitee' ? !!(cfg.giteeRepo && cfg.giteeToken)
+    : be === 'custom' ? !!cfg.customBackupUrl
+    : !!cfg.gistToken;
+  if (!ready) { toast('当前云端后端还没配置完整，先生成恢复码也没用', 'err'); return; }
+  let r = null;
+  try { r = await makeRecoveryCode(); }
+  catch (e) { toast('生成失败：' + (e && e.message ? e.message : e), 'err'); return; }
+  openRecoveryModal('make', r.code);
+  const ratio = r.rawLen ? Math.round((1 - r.packedLen / r.rawLen) * 100) : 0;
+  _setRecoveryStatus('后端：' + recoveryBackendLabel(cfg) + ' ｜ ' + r.rawLen + ' 字节压到 ' + r.packedLen
+    + ' 字节（' + ratio + '%），长度 ' + r.code.length + ' 字符');
 }
 
 /* =========================================================
@@ -10541,6 +10998,7 @@ function isSameConv(a, b) {
 }
 function newSession() {
   resetExpandedGroups();   // 新对话重置工具展开状态，回到最小工具面
+  if (isTitleEditing()) cancelTitleEdit();   // 新建会话前先收掉原位标题编辑态
   const s = { id: 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2,6), title: '新对话', icon: '', conversation: [], createdAt: Date.now(), updatedAt: Date.now() };
   sessions.unshift(s);
   switchSession(s.id);
@@ -10558,6 +11016,7 @@ function switchSession(id) {
     }
   }
   currentSessionId = id;
+  if (isTitleEditing()) cancelTitleEdit();   // 切会话时把还没确认的标题编辑丢掉，否则输入框会残留旧会话的标题
   if (!Array.isArray(s.conversation)) s.conversation = [];   // 防御：旧数据/云端合并可能没有 conversation 字段
   conversation = s.conversation;
   currentTitle = s.title || '';
@@ -15779,7 +16238,16 @@ function bindEvents() {
   if (dbgModal) dbgModal.addEventListener('click', (e) => { if (e.target === dbgModal) dbgModal.classList.remove('open'); });
   on('btnFeedback', 'click', () => { window.open('https://gitee.com/qiujunawa/ai-agent-on-html/issues', '_blank', 'noopener'); });
   on('btnShowChangelog', 'click', () => showChangelog());
-  document.querySelectorAll('.settings-nav-btn').forEach(t => t.addEventListener('click', () => switchSettingsTab(t.dataset.tab)));
+  // 设置页左栏同样用委托：Claw 模式这类插件会往 .settings-nav 注入自己的 [data-tab] 按钮
+  const setNavEl = document.querySelector('.settings-nav');
+  if (setNavEl) {
+    setNavEl.addEventListener('click', (e) => {
+      const btn = e.target.closest ? e.target.closest('.settings-nav-btn') : null;
+      if (!btn || !setNavEl.contains(btn)) return;
+      const tab = btn.dataset.tab;
+      if (tab) switchSettingsTab(tab);   // 没写 data-tab 的按钮留给插件自己处理
+    });
+  }
   on('btnMemClear', 'click', async () => {
     if (!(await customConfirm('确定清空全部长期记忆吗？此操作不可撤销。', 'clear_memory'))) return;
     await memClear();
@@ -15818,18 +16286,43 @@ function bindEvents() {
     menu.hidden = true;
     const btn = $('btnSideMore'); if (btn) btn.setAttribute('aria-expanded', 'false');
   });
-  // 顶栏：编辑当前对话标题
-  on('btnEditTitle', 'click', (e) => {
-    e.stopPropagation();
-    const next = prompt('修改当前对话的标题：', currentTitle || '新对话');
-    if (next === null) return;
-    const t = next.trim().slice(0, 40);
-    if (!t) { toast('标题不能为空', 'err'); return; }
-    currentTitle = t;
-    setChatTitle(t, currentTitleIcon);
-    const s = sessions.find(x => x.id === currentSessionId);
-    if (s) { s.title = t; s.icon = currentTitleIcon || s.icon || ''; s.updatedAt = Date.now(); saveSessions(); }
-    toast('标题已更新');
+  // 顶栏：编辑当前对话标题（原位输入框，不再弹系统 prompt）
+  on('btnEditTitle', 'click', (e) => { e.stopPropagation(); startTitleEdit(); });
+  on('chatTitleInput', 'keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); commitTitleEdit(); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelTitleEdit(); }
+  });
+  on('chatTitleInput', 'blur', _onTitleInputBlur);
+  // 图标面板：搜索 / 选择 / Esc 关闭
+  on('titleIconSearch', 'input', (e) => renderTitleIconGrid(e.target.value));
+  // 编辑态下点图标 / 面板：用 mousedown 阻止焦点转移，否则输入框先 blur 触发「失焦即确认」，
+  // 编辑态会被提前结束，图标面板刚开就被关掉。搜索框例外，它需要拿焦点。
+  on('chatTitleIcon', 'mousedown', (e) => { if (isTitleEditing()) e.preventDefault(); });
+  on('titleIconPicker', 'mousedown', (e) => {
+    if (!(e.target.closest && e.target.closest('#titleIconSearch'))) e.preventDefault();
+  });
+  on('titleIconSearch', 'keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation();
+      closeTitleIconPicker();
+      const input = $('chatTitleInput'); if (input) input.focus();
+    } else if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault(); e.stopPropagation();
+      const first = $('titleIconGrid') && $('titleIconGrid').querySelector('.title-icon-item');
+      if (first) pickTitleIcon(first.getAttribute('data-icon'));
+    }
+  });
+  on('titleIconSearch', 'blur', _onTitleInputBlur);
+  on('titleIconGrid', 'click', (e) => {
+    const btn = e.target.closest('.title-icon-item');
+    if (!btn) return;
+    pickTitleIcon(btn.getAttribute('data-icon'));
+  });
+  document.addEventListener('click', (e) => {
+    const p = $('titleIconPicker');
+    if (!p || p.hidden) return;
+    if (p.contains(e.target) || e.target.closest('#chatTitleIcon')) return;
+    p.hidden = true;
   });
   // 底部工具条已精简：去掉「⋯」与「ⓘ」，只保留左侧上传与右侧预设下拉
   on('btnUploadFile', 'click', () => $('fileInput').click());
@@ -16034,6 +16527,12 @@ function bindEvents() {
   on('btnNewChat', 'click', () => { newSession(); toast('已新建对话'); });
   on('chatTitle', 'click', (e) => {
     e.stopPropagation();
+    // 编辑态：点图标开/关图标面板，点文本区不弹会话列表
+    if (isTitleEditing()) {
+      if (e.target.closest('#chatTitleIcon')) openTitleIconPicker();
+      else { closeTitleIconPicker(); const input = $('chatTitleInput'); if (input) input.focus(); }
+      return;
+    }
     const panel = $('sessionList');
     if (panel && panel.style.display === 'block') hideSessionList();
     else showSessionList();
@@ -16221,6 +16720,42 @@ function bindEvents() {
   });
   on('btnCloudUp', 'click', async (e) => { e.preventDefault(); await cloudUpload(); });
   on('btnCloudDown', 'click', async (e) => { e.preventDefault(); await cloudDownload(); });
+  // 恢复码：设置页的两个按钮 + 欢迎页入口 + 弹窗里的三个按钮
+  on('btnMakeRecovery', 'click', (e) => { e.preventDefault(); openRecoveryMaker(); });
+  on('btnUseRecovery', 'click', (e) => { e.preventDefault(); openRecoveryModal('use', ''); });
+  on('btnWelcomeRecover', 'click', (e) => { e.preventDefault(); openRecoveryModal('use', ''); });
+  on('recoveryClose', 'click', (e) => { e.preventDefault(); closeRecoveryModal(); });
+  on('recoveryCopy', 'click', (e) => {
+    e.preventDefault();
+    const ta = $('recoveryText');
+    if (ta && ta.value) copyTextToClipboard(ta.value);
+  });
+  on('recoveryOk', 'click', async (e) => {
+    e.preventDefault();
+    const ta = $('recoveryText');
+    const code = ((ta && ta.value) || '').trim();
+    if (!code) { _setRecoveryStatus('请先粘贴恢复码', true); if (ta) ta.focus(); return; }
+    _setRecoveryStatus('正在校验…');
+    const btn = $('recoveryOk');
+    if (btn) btn.disabled = true;
+    try {
+      const ok = await runRecovery(code);
+      if (ok) closeRecoveryModal(); else _setRecoveryStatus('已取消或未完成，可修改后重试', true);
+    } catch (err) {
+      _setRecoveryStatus('恢复失败：' + (err && err.message ? err.message : err), true);
+    } finally { if (btn) btn.disabled = false; }
+  });
+  {
+    const rm = $('recoveryModal');
+    if (rm) {
+      rm.addEventListener('click', (e) => { if (e.target.id === 'recoveryModal') closeRecoveryModal(); });
+      const ta = $('recoveryText');
+      if (ta) ta.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); closeRecoveryModal(); }
+        else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); const ok = $('recoveryOk'); if (ok && !ok.disabled) ok.click(); }
+      });
+    }
+  }
   // GitHub Codespaces 设置页
   on('btnCsRefresh', 'click', (e) => { e.preventDefault(); csUiRefresh(); });
   on('btnCsTest', 'click', (e) => { e.preventDefault(); csUiTest(); });
@@ -16239,9 +16774,18 @@ function bindEvents() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSettings(); });
 
   // ==== 左侧导航栏 ====
-  document.querySelectorAll('.nav-rail-btn').forEach(btn => {
-    btn.addEventListener('click', () => switchPage(btn.dataset.mode));
-  });
+  // 事件委托，不是逐元素绑定：插件会往 .nav-rail 里塞自己的页面按钮（page-tab / svg-gallery 等），
+  // 那些按钮是插件加载时才插进来的，启动时 querySelectorAll 根本抓不到 → 点了没反应。
+  // 挂在容器上就与插入时机无关；closest 同时兜住点到内部 SVG / span 的情况。
+  const navRailEl = document.querySelector('.nav-rail');
+  if (navRailEl) {
+    navRailEl.addEventListener('click', (e) => {
+      const btn = e.target.closest ? e.target.closest('.nav-rail-btn') : null;
+      if (!btn || !navRailEl.contains(btn)) return;
+      const mode = btn.dataset.mode;
+      if (mode) switchPage(mode);   // 没写 data-mode 的按钮留给插件自己处理
+    });
+  }
   // ==== 插件页 ====
   on('btnNewPlugin', 'click', () => {
     if (document.body.dataset.mode !== 'plugins') switchPage('plugins');
