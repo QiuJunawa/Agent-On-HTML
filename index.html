@@ -1473,6 +1473,19 @@
         </select>
       </div>
       <div class="field">
+        <label>对话自动生成（首轮消息后单独发一次请求，可关掉省 Token）</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;margin-top:6px">
+          <input id="cfgTitleGenOn" type="checkbox" style="width:auto"> 生成对话标题（首轮消息后自动起一个不超过 15 字的标题）
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;margin-top:6px">
+          <input id="cfgTitleIconGenOn" type="checkbox" style="width:auto"> 生成对话图标（按内容选一个语义图标，显示在顶栏与历史列表）
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;margin-top:6px">
+          <input id="cfgTitleGenParallel" type="checkbox" style="width:auto"> 与首轮对话并行生成（默认开；关掉恢复旧行为：等本轮回答全部结束后再生成）
+        </label>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;line-height:1.6">前两项共用同一次请求：只关一项就只落地另一项，<strong>两项都关则完全不发请求</strong>。第三项只改时机不改内容：并行=消息发出后立刻请求，标题早出现、但与主对话争并发；串行=等本轮回答结束再请求，不争并发、但首轮带工具时要等挺久。关掉不影响顶栏手动改标题（悬停标题出现铅笔按钮）和手动挑图标。</div>
+      </div>
+      <div class="field">
         <label>最大工具循环</label>
         <input id="cfgLoops" type="number" min="1" max="100">
       </div>
@@ -3072,8 +3085,136 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 // 别手工改三处：插件 release-log 提供 release_bump —— 自动算版本号（同日末位 +1）+ 插日志 + 改 APP_VERSION + 回读自检；
 // 另有 release_check 只读体检（版本是否一致、日期是否对齐、有无重复版本、残留 TODO），发版前后各跑一次。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.14.17';
+const APP_VERSION = '2026.11.15.3';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.15.3',
+    date: '2026-11-15',
+    title: '修 check_code 报错精度：HTML 未闭合标签行号错位、剥离 script 后偏移、Python 未闭合不报行号',
+    items: [
+      '回应用户提问「检查逻辑只报行号吗」：不是。JSON / JS（能从栈取到行列时）/ HTML 规范级 / HTML 运行时都能报行列；只有 JS 逐行定位、HTML 本地闭合检查、Python 这几个分支只报行号，本次把后两处补齐或修正',
+      '修 checkHtml 未闭合标签的行号是错的：旧写法取 code.lastIndexOf("<")——全文最后一个 < 的位置，与未闭合的那个标签毫无关系。实测 <div>+<span>x<\/span> 报第 2 行（真正第 1 行）、<section>+<p>+<br> 报第 3 行（真正第 1 行）、<div>+<ul>+<li>+<\/ul> 报第 4 行（真正第 1 行），只有未闭合标签恰好是最后一个时才蒙对',
+      'checkHtml 的 stack 改为存 { tag, idx }，idx 记录该开标签偏移；报错时取 realLeft[0] 报「最早未闭合的 <x> 在第 N 行」，并保留完整的「未闭合链路」',
+      '修 checkHtml 剥离 script/style 时的行号偏移隐患：旧写法把整块内容替换成单个短标签，替换后长度与换行数都变了，而 mm.index 来自替换后的串、lineAt 却按原文算，必然错位。改为等长空白替换（保留换行），前后长度与换行位置完全一致，偏移 1:1 对应',
+      '修 checkPy 同类缺陷：未闭合括号只报「存在未闭合的括号」、未闭合引号只报「存在未闭合的字符串引号」，都不给行号，等于让人自己全文找。改为 stack 存 { ch, idx }、额外记录引号起始偏移，报「最早的在第 N 行」「起始于第 N 行」',
+      'checkPy 顺带修空栈取值的健壮性：原来 stack.pop() 在栈空时返回 undefined，openers[undefined] 虽不抛错但语义含糊，改为显式判断 top 是否存在',
+      '验证：HTML 未闭合标签 7 例全过（含 script/style 多行后未闭合、合法 HTML5 省略结束标签不误报）；Python 5 例全过（含注释里的括号不计）',
+      '说明：<div><span><\/div> 这类嵌套错配本地检查仍返回 null，属既有设计（源码注释写明「按原样截断，避免误报」），由 parse5 / html-validate 那层负责，实测能正确报 close-order'
+    ]
+  },
+  {
+    v: '2026.11.15.2',
+    date: '2026-11-15',
+    title: 'check_code 直接传 code 时按 \'auto\' 语义择一，兼顾顶层 await 与真错误',
+    items: [
+      'checkJs 的 allowTopAwait 由两态扩为三态：true（插件 / .mjs，直接按 AsyncFunction 解析）、false（有路径的普通 .js，按脚本语义）、\'auto\'（直接传 code、无路径可判断时自动择一）',
+      'toolCheckCode 在只传 code 不传 path 时传 \'auto\'：先按脚本语义 new Function 解析（更严格，能抓出真错误），仅当失败原因确实是顶层 await 时才回退 _AsyncFunction 重试',
+      '为什么不无条件用 AsyncFunction：那会把「await 写在普通函数里」这类真错误放过去。实测该写法在 auto 下仍正确报错',
+      'auto 档实测四例：顶层 await → 通过；await 写在普通函数里 → 报错；const c = ; → 报「第 2 行附近」；正常代码 → 通过'
+    ]
+  },
+  {
+    v: '2026.11.15.1',
+    date: '2026-11-15',
+    title: '修 check_code 的 JS 校验误报与行号定位错乱，并固定插件导航按钮位置',
+    items: [
+      '修 checkCode 误报顶层 await：插件在 loadPlugin 里由 AsyncFunction 包裹执行，顶层 await 合法，但 checkJs 用 new Function 按脚本语义解析，把 /plugins/*.js 与 .mjs 里合法的顶层 await 判成「await is only valid in async functions」。svg-gallery.js 第 100 行 await reloadFromVfs() 就是被这条例错误拦下的',
+      'checkJs 新增 allowTopAwait 参数：目标为 .mjs 或路径以 /plugins/ 开头时改用 AsyncFunction 解析，与宿主真实执行方式一致；普通 .js 仍按脚本语义，行为不变',
+      '修行号定位错乱（真 bug，比误报更隐蔽）：旧逻辑「逐行累加试解析、第一次失败即报该行」，完全不判断前缀是否把跨行结构截断了。实测三处全错：真错误在第 6 行却报第 3 行、跨行块注释后出错报第 2 行、代码完全正确也报第 2 行（纯误报）',
+      '新增 jsOpenState()：扫描到行末时的括号净深度与所在状态（行注释/块注释/单引号/双引号/模板串），用于识别「这一行前缀本身是被截断的半截代码」，这类前缀解析失败属截断假象，跳过不报',
+      '改后定位精度：真错误在第 6 行 → 报 6；跨行块注释后出错 → 报 5；代码全对 → 通过；未闭合花括号 → 明确说「未能定位，常见原因是括号/引号/块注释未闭合」，不再胡乱指到第 1 行',
+      '栈里的行号若大于源码总行数就丢弃（那是 eval/worker 调用点，不是源码位置），避免报出不存在的行',
+      '修左侧导航栏按钮位置随刷新变化（用户反馈「棋盘页在左栏随机跳位置」）：根因是启动时在 setTimeout 里循环并发 loadPlugin 且不 await，每个插件都在等 VFS.getContent，谁的盘先读完谁先 appendChild，顺序由 IO 完成顺序决定',
+      '新增 AgentAPI.addNavButton({ mode, title, icon, order })：幂等（同 mode 只保留一个按钮）、按 order 升序定位、返回 { el, remove }；内置 7 个按钮永远最前且顺序固定',
+      '宿主对 .nav-rail 挂 MutationObserver 自动重排：即使插件仍用老的 createElement + appendChild，也会被排到确定位置，老插件不改也受益',
+      '新增 AgentAPI.switchPage / removeNavButton / sortNavRail，方便插件切页与卸载时清理',
+      'board-play 与 svg-gallery 改用 addNavButton（order 分别 50 / 40），并保留旧宿主无此 API 时的降级分支',
+      '/plugins/develop.md 新增 13.2.1：写清「别再自己 appendChild」的症状、根因（并发加载 + IO 顺序）与正确写法、onUnload 清理模板'
+    ]
+  },
+  {
+    v: '2026.11.14.23',
+    date: '2026-11-14',
+    title: '标题并发生成加开关，关掉恢复等回答结束再生成的旧行为',
+    items: [
+      '设置 → AI 模型 的「对话自动生成」组新增第三项：cfgTitleGenParallel（与首轮对话并行生成），默认开',
+      '开（默认）：维持上一版行为，消息发出后立刻请求，标题早出现',
+      '关：完全恢复旧行为——本轮开头不发请求，等 agentLoop 全部跑完、在 send() 的 finally 收尾处再调 generateTitle，串行不抢并发',
+      '两处调用点用同一条件互为反面（并行分支 cfg.titleGenParallel !== false、串行分支 === false），不会同时发、也不会都不发',
+      '只改时机不改内容：提示词、开关过滤、按 sid 落地的逻辑与上一版一致；串行模式下 sid 恒等于 currentSessionId，钉住会话的判断照样安全',
+      '字段随 saveCfg 持久化到 localStorage，老配置无该字段时按「开」处理'
+    ]
+  },
+  {
+    v: '2026.11.14.22',
+    date: '2026-11-14',
+    title: '标题/图标生成改为与首轮对话并行，不再等回合结束',
+    items: [
+      '旧行为：generateTitle 挂在 send() 的 finally 收尾处（agentLoop 全部跑完之后）才调用，标题要等整轮任务做完才出现；首轮若带工具循环，等于白等几十秒',
+      '现在在 send() 里「用户消息入队 + 模式判定」之后立刻发出，与主对话、与紧随其后的记忆检索并行；generateTitle 自身本来就只用 firstUserMsg 作输入，不依赖对话结果，提前发不影响生成质量',
+      '调用方式改为不 await 的 _titleGenTask 句柄（catch 打日志 + finally 置空），主对话流程完全不被它拖慢；收尾处删掉原来那句 generateTitle 调用，不会重复请求',
+      '语义修正：并行后用户可能在生成途中切走会话，generateTitle 开头钉住发起时的 currentSessionId（sid），落地时基准标题/图标从该会话对象取、只在 sid 仍等于 currentSessionId 时才改顶栏，避免把 A 对话的标题写到 B 对话头上',
+      '顺带好处：无变化判断保留（s.title/s.icon 相同则既不 saveSessions 也不重绘），并行不会因此多出存档写盘'
+    ]
+  },
+  {
+    v: '2026.11.14.21',
+    date: '2026-11-14',
+    title: '设置里可分别开关「对话标题生成」与「对话图标生成」',
+    items: [
+      '设置 → AI 模型 新增两个开关：cfgTitleGenOn（生成对话标题）、cfgTitleIconGenOn（生成对话图标），默认都开，老配置不受影响',
+      '两项共用首轮后那一次独立请求；只关一项时提示词按开关动态拼——只要标题就不提 <icon>，只要图标就不提 <title>，模型不会白输出一堆随后被丢掉的内容',
+      '两项都关时 generateTitle 直接 return，不再发请求，也不再打印「跳过：未配置 API Key」这类无关提示',
+      '落地按开关分别生效：关掉图标时模型就算回了别名也不会覆盖已有图标，关掉标题时不会把当前标题清成空；两者都没变化则跳过 setChatTitle 与 saveSessions，不做无意义的存档写盘',
+      '关掉只影响自动生成；顶栏悬停标题的铅笔按钮（手动改标题）与点图标挑图标照旧可用',
+      '配置字段随 saveCfg 一起持久化到 localStorage，并随备份/云端同步带走'
+    ]
+  },
+  {
+    v: '2026.11.14.20',
+    date: '2026-11-14',
+    title: '修复输入框下方 Token 计数条一直不显示',
+    items: [
+      '现象：输入框下方的「输入 N tokens / 对话 N tokens」两条计数整个消失，任何操作都唤不回来',
+      '根因：#tokenBar 的 HTML 上写了 hidden 属性（本意是首屏没算完前先别占位），但 updateTokenBar() 只负责改两个 span 的文字，从头到尾没有任何地方把 bar.hidden 置回 false，于是整条永远被 .token-bar[hidden]{display:none} 按住',
+      '修法：updateTokenBar() 开头先取 #tokenBar，若 hidden 则解除；hidden 只当首屏占位开关用，不再需要额外的显示逻辑，流式刷新、切会话、输入变化等所有已存在的调用点都会顺带把它显示出来',
+      '影响面：只有这一个函数，未改动 token 估算与用量口径（estimateTokens / convContextTokens / lastUsage 分支逻辑一律不动）'
+    ]
+  },
+  {
+    v: '2026.11.14.19',
+    date: '2026-11-14',
+    title: '修复对弈插件在线模型「给不出合法下法」：全文抓数字误解析 + 棋盘无坐标标注',
+    items: [
+      '现象：对弈插件选「在线模型」时，AI 几乎每步都提示「没给出合法走法」，随即退回本地引擎',
+      '根因一（主因）：parseMove 用 match(/\\d+/g) 抓全文数字。模型只要顺口写「15×15 的棋盘…我下 7,7」，前两个数字就是 15、15 → 解析成 (15,15) → 越界 → 判非法。棋盘尺寸越大越容易触发',
+      '根因二：提示词里给的是裸字符矩阵，没有任何行列坐标标注，模型只能靠数点猜位置，本身答错率就高',
+      '根因三（隐蔽）：兜底规则会抓正文里「15行15列」这类尺寸数字 → 得到 (14,14)，恰好是空点 → 结果是「静默走错棋」而不是报错，比判非法更难发现',
+      '修法 1：提示词改为带坐标标注的棋盘（左侧行号 1-based、上方列名 A..），并统一约定落点写作「列字母+行号」如 H8，输出 {"move":"H8"}',
+      '修法 2：解析器重写为分层（tier）候选——明确答案(1-3) 优先，兜底猜测(4-5) 只在没有明确答案合法时才用；这样「模型答错」会退化为追问，而不是悄悄走一个无关位置',
+      '修法 3：parseCandidates 新增 stripDimensions，先剔除「15x15」「15行15列」这类棋盘尺寸短语；用「带第字的不删」区分落子（第 15 行第 15 列是右下角落子，不是尺寸描述）',
+      '修法 4：支持多种写法——JSON 对象 {move}/row,col 字段/数组、棋盘坐标 H8、中文第 9 行第 8 列、混合式第 9 行 H 列、代码块包裹，且 1-based 与 0-based 两种基准都试',
+      '修法 5：推理模型的答案可能落在 reasoning_content 而非 content（content 为空），postChat 现在两个字段都返回并分别解析',
+      '修法 6：首次不合规时追加一轮追问（temperature 0、把可选落点全部摊开让它照抄），只追问一次避免和慢模型死循环',
+      '自测：五子棋 15×15 十种写法 10/10 通过；「已被占的 H8」等三个样本正确返回 null 拒绝瞎猜；四子连珠 7×6 三种写法全过；边界「第15行第15列」不再被当尺寸误删',
+      '文件：/plugins/board-play.js（本次只改插件，未动 index.html 逻辑）'
+    ]
+  },
+  {
+    v: '2026.11.14.18',
+    date: '2026-11-14',
+    title: '新增插件 board-play：新开「对弈」页，可与 AI 下五子棋 / 井字棋 / 四子连珠 / 黑白棋',
+    items: [
+      '新插件 /plugins/board-play.js：往左侧导航栏注入「对弈」页（mode=boardplay），四个动作按 13.2 做全——幂等清理三样痕迹、注入 style 显隐并把 sidebar/chat/editor 等面板藏掉、section 挂到 .app、导航按钮带 data-mode 交给宿主的事件委托',
+      '四种棋各自内置完整规则引擎：五子棋 15×15（四方向连 5 判胜）、井字棋 3×3（八线 + 完整 minimax）、四子连珠 7×6（列满判负 + alpha-beta + 窗口打分）、黑白棋 8×8（八方向夹吃翻转、无子可落自动停一手、终局比子数）',
+      'AI 走法双引擎：默认走在线模型（每次落子单次非流式请求，reasoning_effort: \'low\' + thinking.enabled——棋类落子不需要长推理，置 low 换响应速度），也支持本地引擎；在线返回不合法、超时 30s、没配 Key 时自动回落到本地引擎并在状态栏注明原因',
+      '落子提示按棋种生成：五子棋/井字棋/黑白棋用「行,列」ASCII 棋盘 + 坐标说明，四子连珠用列号；解析用宽松正则抽数字，模型不听话也能捞出走法',
+      '新开一页的 UI：棋盘（网格 CSS、落子合法点高亮、最后一手描边）、状态栏、对局信息、棋谱列表、棋种/执子/引擎/强度四个下拉、重新开局与悔棋（悔棋一次退两手，退到 AI 回合会自动重算）',
+      '偏好存 localStorage（不进 VFS，与云同步解耦）；注册工具 boardplay_open 供 AI 打开本页并指定棋种',
+      '规则引擎做过自测：五子棋横/正斜/反斜连 5 判胜、连 4 不判胜；黑白棋初始 4 个合法点与翻转数正确；四子连珠下落行号与满列返回 -1 正确',
+      '插件默认 enabled: false，本次按用户要求直接启用，refresh 后导航栏出现「对弈」按钮'
+    ]
+  },
   {
     v: '2026.11.14.17',
     date: '2026-11-14',
@@ -6378,7 +6519,38 @@ function checkJson(code) {
     return 'JSON 解析错误（第 ' + line + ' 行，第 ' + col + ' 列）：' + String(e.message || e).slice(0, 160);
   }
 }
-function checkJs(code, isModule) {
+/* 扫描到 src 末尾时的「未闭合状态」：depth = 括号净深度，mode = 是否停在注释/字符串里。
+ * 用途：判断「第 i 行前缀解析失败」是真错误，还是仅仅因为前缀把某个跨行结构截断了。
+ * 例：/* 注释 或 function f() { 这种，单独当一段源码必然报错，但它不是 bug。 */
+function jsOpenState(src) {
+  let depth = 0, i = 0, n = src.length, mode = 0;   // 0 普通 / 1 行注释 / 2 块注释 / 3 ' / 4 " / 5 `
+  while (i < n) {
+    const c = src[i], d = src[i + 1];
+    if (mode === 0) {
+      if (c === '/' && d === '/') { mode = 1; i += 2; continue; }
+      if (c === '/' && d === '*') { mode = 2; i += 2; continue; }
+      if (c === "'") { mode = 3; i++; continue; }
+      if (c === '"') { mode = 4; i++; continue; }
+      if (c === '`') { mode = 5; i++; continue; }
+      if (c === '(' || c === '[' || c === '{') depth++;
+      else if (c === ')' || c === ']' || c === '}') depth--;
+      i++; continue;
+    }
+    if (mode === 1) { if (c === '\n') mode = 0; i++; continue; }
+    if (mode === 2) { if (c === '*' && d === '/') { mode = 0; i += 2; } else i++; continue; }
+    if (c === '\\') { i += 2; continue; }
+    if ((mode === 3 && c === "'") || (mode === 4 && c === '"') || (mode === 5 && c === '`')) { mode = 0; i++; continue; }
+    if (mode !== 5 && c === '\n') { mode = 0; i++; continue; }   // 未闭合的普通字符串到行尾即止
+    i++;
+  }
+  return { depth: depth, mode: mode };
+}
+
+/* allowTopAwait：目标文件是否会被包裹在 async 函数体里执行。
+ * 插件由 loadPlugin 用 AsyncFunction 构造（见 `new _AsyncFunction(...)`），顶层 await 合法；
+ * 而 new Function 按脚本语义解析，会把这类完全合法的插件误判成「await is only valid in async functions」。
+ * 这正是 svg-gallery.js（第 100 行 `await reloadFromVfs()`）被误报的根因。 */
+function checkJs(code, isModule, allowTopAwait) {
   let src = String(code);
   let modeNote = '';
   if (isModule || /\b(import|export)\s/.test(src)) {
@@ -6394,17 +6566,40 @@ function checkJs(code, isModule) {
       .replace(/^\s*export\s+default\s+/gm, '')
       .replace(/^\s*import\s[^;\n]*;?\s*$/gm, '');
   }
-  try { new Function(src); return null; }
-  catch (e) {
+  // allowTopAwait 三态：
+  //   true  = 确定会包在 async 函数体里执行（插件 / .mjs），直接用 _AsyncFunction
+  //   false = 按脚本语义（普通 .js，行为与旧版一致）
+  //   'auto'= 直接传 code、没有路径可判断时的策略：先按脚本语义解析（更严格，能抓出真错误），
+  //           仅当失败原因确实是「顶层 await」时才回退 _AsyncFunction，避免把合法代码判错；
+  //           而不是无条件用 async 语义——那样会把「await 写在普通函数里」这类真错误放过去。
+  let Ctor = (allowTopAwait === true) ? _AsyncFunction : Function;
+  try { new Ctor(src); return null; }
+  catch (e0) {
+    let e = e0;
+    if (allowTopAwait === 'auto' && /await is only valid|await is only allowed|await is only permitted/i.test(String((e && e.message) || e))) {
+      try { new _AsyncFunction(src); return null; }   // 顶层 await 本来就合法 → 通过
+      catch (e2) { Ctor = _AsyncFunction; e = e2; }   // 不是 await 的锅，按同一语义继续定位真错误
+    }
     const st = (e && e.stack) || '';
     let m = st.match(/<anonymous>:(\d+):(\d+)/) || st.match(/Function:(\d+):(\d+)/);
+    // 栈里的行号可能是调用点（eval/worker）的，超过源码行数就不可信，宁可不用
+    if (m && Number(m[1]) > src.split('\n').length) m = null;
     if (!m && src.length < 50000) {
       const lines = src.split('\n');
+      let tested = 0;
       for (let i = 1; i <= lines.length; i++) {
-        try { new Function(lines.slice(0, i).join('\n')); }
+        // 前缀停在未闭合的括号/注释/字符串里 → 截断造成的假错误，跳过不报
+        const st2 = jsOpenState(lines.slice(0, i).join('\n'));
+        if (st2.depth > 0 || (st2.mode !== 0 && st2.mode !== 1)) continue;
+        tested++;
+        try { new Ctor(lines.slice(0, i).join('\n')); }
         catch (e2) {
           return 'JS 语法错误（第 ' + i + ' 行附近）：' + String(e2.message || e2).slice(0, 160) + modeNote;
         }
+      }
+      if (!tested) {
+        return 'JS 语法错误（未能定位到具体行，常见原因是括号/引号/块注释未闭合）：'
+          + String((e && e.message) || e).slice(0, 160) + modeNote;
       }
     }
     const pos = m ? '（第 ' + m[1] + ' 行，第 ' + m[2] + ' 列）' : '';
@@ -6525,13 +6720,16 @@ function checkHtml(code) {
   // 注意：此处禁止出现 script/style 标签的尖括号字面量序列（含其闭合写法）——
   // HTML 解析器在脚本块内遇到它们会提前闭合或进入转义状态，导致整个脚本块被截断。
   // 以下用字符串拼接构造正则，源码中不出现任何该序列字面量。
+  // 把 script/style 的内容换成等长空白（保留换行）：替换前后长度与换行位置完全一致，
+  // 后面用 mm.index 在原文上算行号才不会错位。
+  const blank = (m) => m.replace(/[^\n]/g, ' ');
   const htmlOnly = String(code)
-    .replace(new RegExp('<scr' + 'ipt\\b[^>]*>[\\s\\S]*?<\\/scr' + 'ipt>', 'gi'), '<scr' + 'ipt></scr' + 'ipt>')
-    .replace(new RegExp('<sty' + 'le\\b[^>]*>[\\s\\S]*?<\\/sty' + 'le>', 'gi'), '<sty' + 'le></sty' + 'le>');
+    .replace(new RegExp('<scr' + 'ipt\\b[^>]*>[\\s\\S]*?<\\/scr' + 'ipt>', 'gi'), blank)
+    .replace(new RegExp('<sty' + 'le\\b[^>]*>[\\s\\S]*?<\\/sty' + 'le>', 'gi'), blank);
   const doc = new DOMParser().parseFromString(htmlOnly, 'text/html');
   const pe = doc.querySelector('parsererror');
   if (pe) return 'HTML 解析错误：' + (pe.textContent || '').slice(0, 200);
-  const stack = [];
+  const stack = [];   // 存 { tag, idx }：idx 是该开标签在 htmlOnly 里的偏移，用于报准行号
   const VOID_TAG = /^(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/;
   // HTML5 可选闭合标签：不算「未闭合」，遇到父级闭合或同级新开时隐式弹栈
   const OPTIONAL_CLOSE = /^(p|li|tr|td|th|option|optgroup|dt|dd|thead|tbody|tfoot|colgroup|caption|rt|rp)$/;
@@ -6543,30 +6741,37 @@ function checkHtml(code) {
     const tag = mm[1].toLowerCase(), self = mm[2] === '/';
     const isClose = htmlOnly[mm.index] === '<' && htmlOnly[mm.index + 1] === '/';
     if (isClose) {
-      const at = stack.lastIndexOf(tag);
+      let at = -1;
+      for (let k = stack.length - 1; k >= 0; k--) if (stack[k].tag === tag) { at = k; break; }
       // 从该开标签到栈顶之间若全是可选闭合标签，视为隐式闭合；否则也按原样截断（避免误报）
       if (at >= 0) stack.length = at;
     } else if (!self && !VOID_TAG.test(tag)) {
       const top = stack[stack.length - 1];
-      if (top && OPTIONAL_CLOSE.test(top)) {
+      if (top && OPTIONAL_CLOSE.test(top.tag)) {
         const implicitEnd =
-          (top === 'p' && CLOSES_P.test(tag)) ||
-          (top === 'li' && tag === 'li') ||
-          ((top === 'td' || top === 'th') && /^(td|th|tr)$/.test(tag)) ||
-          (top === 'tr' && /^(tr|thead|tbody|tfoot)$/.test(tag)) ||
-          ((top === 'dt' || top === 'dd') && /^(dt|dd)$/.test(tag)) ||
-          ((top === 'thead' || top === 'tbody' || top === 'tfoot') && /^(thead|tbody|tfoot)$/.test(tag)) ||
-          (top === 'option' && /^(option|optgroup)$/.test(tag)) ||
-          (top === 'optgroup' && tag === 'optgroup') ||
-          (top === 'caption' && tag === 'tr');
+          (top.tag === 'p' && CLOSES_P.test(tag)) ||
+          (top.tag === 'li' && tag === 'li') ||
+          ((top.tag === 'td' || top.tag === 'th') && /^(td|th|tr)$/.test(tag)) ||
+          (top.tag === 'tr' && /^(tr|thead|tbody|tfoot)$/.test(tag)) ||
+          ((top.tag === 'dt' || top.tag === 'dd') && /^(dt|dd)$/.test(tag)) ||
+          ((top.tag === 'thead' || top.tag === 'tbody' || top.tag === 'tfoot') && /^(thead|tbody|tfoot)$/.test(tag)) ||
+          (top.tag === 'option' && /^(option|optgroup)$/.test(tag)) ||
+          (top.tag === 'optgroup' && tag === 'optgroup') ||
+          (top.tag === 'caption' && tag === 'tr');
         if (implicitEnd) stack.pop();
       }
-      stack.push(tag);
+      stack.push({ tag: tag, idx: mm.index });
     }
   }
   // 只剩可选闭合标签没闭合，属合法 HTML5，不报错
-  const realLeft = stack.filter(t => !OPTIONAL_CLOSE.test(t));
-  if (realLeft.length) return 'HTML 标签未闭合：' + realLeft.slice(-6).join(' → ') + '（在第 ' + lineAt(code, code.lastIndexOf('<')) + ' 行附近）';
+  const realLeft = stack.filter(t => !OPTIONAL_CLOSE.test(t.tag));
+  // 报行号时指向「真正没闭合的那个开标签」，而不是全文最后一个 '<'
+  // （旧写法用 code.lastIndexOf('<')，实测会偏到 </ul> / <br> 等无关标签上）
+  if (realLeft.length) {
+    const nameList = realLeft.slice(-6).map(t => t.tag).join(' → ');
+    const first = realLeft[0];
+    return 'HTML 标签未闭合：' + nameList + '（最早未闭合的 <' + first.tag + '> 在第 ' + lineAt(code, first.idx) + ' 行）';
+  }
   return null;
 }
 /* ---------- 规范级 HTML 校验：parse5 的 parse error + html-validate 规则集 ----------
@@ -6672,25 +6877,30 @@ async function checkHtmlSpec(code, lang) {
 function checkPy(code) {
   const issues = [];
   const openers = { '(': ')', '[': ']', '{': '}' };
-  const stack = [];
-  let inS = null;
+  const stack = [];   // 存 { ch, idx }：idx 用于报准行号
+  let inS = null, inSIdx = -1;
   for (let i = 0; i < code.length; i++) {
     const ch = code[i];
     if (inS) {
       if (ch === '\\') i++;
-      else if (ch === inS) inS = null;
+      else if (ch === inS) { inS = null; inSIdx = -1; }
       continue;
     }
-    if (ch === "'" || ch === '"' || ch === '`') { inS = ch; continue; }
+    if (ch === "'" || ch === '"' || ch === '`') { inS = ch; inSIdx = i; continue; }
     if (ch === '#') { while (i < code.length && code[i] !== '\n') i++; continue; }
-    if (openers[ch]) stack.push(ch);
+    if (openers[ch]) stack.push({ ch: ch, idx: i });
     else if (ch === ')' || ch === ']' || ch === '}') {
-      const want = openers[stack.pop()];
+      const top = stack.pop();
+      const want = top ? openers[top.ch] : undefined;
       if (want !== ch) issues.push('第 ' + lineAt(code, i) + ' 行括号不匹配：' + ch);
     }
   }
-  if (stack.length) issues.push('存在未闭合的括号：' + stack.join(''));
-  if (inS) issues.push('存在未闭合的字符串引号');
+  // 未闭合也报出所在行，别只说「有未闭合」——否则等于让人自己全文找
+  if (stack.length) {
+    issues.push('存在未闭合的括号：' + stack.map(s => s.ch).join('')
+      + '（最早的在第 ' + lineAt(code, stack[0].idx) + ' 行）');
+  }
+  if (inS) issues.push('存在未闭合的字符串引号 ' + inS + '（起始于第 ' + lineAt(code, inSIdx) + ' 行）');
   const lines = code.split('\n');
   if (lines.some(l => /^\t/.test(l)) && lines.some(l => /^ +/.test(l))) issues.push('Tab 与空格混用缩进（Python 会直接报错）');
   if (!issues.length) return null;
@@ -6721,9 +6931,15 @@ async function toolCheckCode(args) {
   let err = null;
   let htmlSpecNote = '';   // HTML 规范级校验的补充说明（部分库没覆盖到）
   let htmlSpecFail = '';   // 非空 = 规范级校验器没跑起来 → 校验「未完成」，不是通过也不是失败
+  // 插件文件在 loadPlugin 里是用 AsyncFunction 包裹执行的，顶层 await 合法；
+  // 若这里按普通脚本解析就会把合法插件误报成语法错误（svg-gallery.js 那次就是）。
+  // 有路径且不是插件 → 按脚本语义（false）；没有路径（直接传 code）→ 无从判断，交给 checkJs 自动择一（'auto'）
+  const allowTopAwait = (lang === 'mjs' || /^\/plugins\//.test(String(path || '')))
+    ? true
+    : (path ? false : 'auto');
   if (lang === 'json') err = checkJson(raw);
-  else if (['js', 'cjs'].includes(lang)) err = checkJs(raw, false);
-  else if (lang === 'mjs') err = checkJs(raw, true);
+  else if (['js', 'cjs'].includes(lang)) err = checkJs(raw, false, allowTopAwait);
+  else if (lang === 'mjs') err = checkJs(raw, true, allowTopAwait);
   else if (['html', 'htm', 'svg'].includes(lang)) {
     // 1) 先做基础标签闭合检查（本地、无依赖、毫秒级）
     err = checkHtml(raw);
@@ -7675,7 +7891,7 @@ const DEFAULT_SYSTEM = `你是一个运行在浏览器中的 AI Agent，拥有�
     - **判读规则：任何一级「没有报错」，就代表这一级通过了。** 不要因为总标题是「校验未通过」就以为全线崩了——先看报错来自哪一级，只修那一级的问题，另一级已经是好的。
     - 反过来也有两种非失败态，不要当成代码有问题：「校验未完成 ⚠」= 规范级校验器（CDN 上的 parse5 / html-validate）没拉下来，这一级没跑到，既不算通过也不算失败，可重试或调大超时；iframe 实执行超时（默认 6 秒，设置里可调）同理按「没验完」放行。
     - 所以汇报校验结果时说清哪一级过了、哪一级没过，别只复述一句「校验未通过」。`;
-const cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, toolTimeoutMs: 120000, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', fullSync: false, toastProgressPos: 'background', autoPasteLong: true, lazyTools: true, disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true, htmlCheckTimeoutMs: 6000 };
+const cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, toolTimeoutMs: 120000, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', titleGenOn: true, titleIconGenOn: true, titleGenParallel: true, fullSync: false, toastProgressPos: 'background', autoPasteLong: true, lazyTools: true, disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true, htmlCheckTimeoutMs: 6000 };
 /* ---------- 密钥加密（主密码 + PBKDF2 + AES-GCM） ---------- */
 const SECRET_FIELDS = ['apiKey', 'giteeToken', 'wdPass', 'gistToken', 'kbToken', 'searchApiKey', 'csToken', 'csBridgeToken'];
 let masterPassword = '';  // 运行时主密码，不存储
@@ -13548,17 +13764,31 @@ function clearQuote() {
   if (bar) bar.style.display = 'none';
 }
 
-/* 首轮对话后自动生成简短标题（独立请求，不干扰主对话） */
+/* 首轮对话后自动生成简短标题（独立请求，与首轮对话并行，不干扰主对话） */
+let _titleGenTask = null;   // 并行中的标题生成任务句柄，仅用于调试/兜底，正常流程不 await
 async function generateTitle(firstUserMsg) {
+  // 并行执行期间用户可能切走会话：把发起时的会话 id 钉住，落地时以它为准，别写到别人头上
+  const sid = currentSessionId;
   try {
     if (!cfg.apiKey) { toast('标题生成跳过：未配置 API Key', 'err'); return; }
+    // 两个开关都关：直接不发请求（这是唯一能真正省掉这次 API 调用的地方）
+    const wantTitle = cfg.titleGenOn !== false;
+    const wantIcon = cfg.titleIconGenOn !== false;
+    if (!wantTitle && !wantIcon) { console.log('[generateTitle] 标题与图标生成均已关闭，跳过'); return; }
+    // 提示词按开关动态拼：只要标题就不提 <icon>，只要图标就不提 <title>，免得模型白输出一堆会被丢掉的内容
+    const sysPrompt = '你是对话标题生成器。根据用户消息，按下面顺序严格使用标记语言输出：\n'
+      + (wantIcon ? '<icon>语义别名</icon>\n' : '')
+      + (wantTitle ? '<title>不超过15字的简短标题</title>\n' : '')
+      + (wantIcon ? '\n图标别名必须从下面列表里选一个英文词（不要输出 emoji、不要输出 SVG、不要自造新词）：\n' + TITLE_ICON_HINT + '\n' : '')
+      + '\n示例：\n' + (wantIcon ? '<icon>code</icon>\n' : '') + (wantTitle ? '<title>修复登录接口的 500 错误</title>' : '')
+      + '\n\n不要输出任何其他内容，不要加引号、不要解释。';
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20000);
     const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.apiKey };
     const reqBody = {
       model: cfg.model,
       messages: [
-        { role: 'system', content: '你是对话标题生成器。根据用户消息，输出两行，严格使用标记语言：\n第一行：<icon>语义别名</icon>\n第二行：<title>不超过15字的简短标题</title>\n\n图标别名必须从下面列表里选一个英文词（不要输出 emoji、不要输出 SVG、不要自造新词）：\n' + TITLE_ICON_HINT + '\n\n示例：\n<icon>code</icon>\n<title>修复登录接口的 500 错误</title>\n\n不要输出任何其他内容，不要加引号、不要解释。' },
+        { role: 'system', content: sysPrompt },
         { role: 'user', content: String(firstUserMsg).slice(0, 500) }
       ],
       // 标题生成是纯抽取任务，不需要思考：开思考会让模型先"想"再输出，
@@ -13637,13 +13867,23 @@ async function generateTitle(firstUserMsg) {
       .replace(/^["'「『]+|["'」』]+$/g, '').slice(0, 30);
     console.log('[generateTitle] 收到标题:', JSON.stringify(title), '图标别名:', JSON.stringify(iconAlias), '→', resolveTitleIcon(iconAlias));
     if (title) {
-      currentTitle = title;
-      currentTitleIcon = iconAlias;
-      setChatTitle(title, iconAlias);
-      const s = sessions.find(x => x.id === currentSessionId);
-      if (s) { s.title = title; s.icon = iconAlias; s.updatedAt = Date.now(); saveSessions(); }
-    } else {
-      console.warn('[generateTitle] 完整响应:', JSON.stringify(j).slice(0, 500));
+      // 按开关分别落地：关掉的那一项保持原值，不会因为「用户关了图标」把已有图标清成默认气泡。
+      // 并行执行后用户可能已经切到别的会话，所以基准值从发起时捕获的会话对象里取，
+      // 只有它仍等于 currentSessionId 时才动顶栏的标题与图标。
+      const s = sessions.find(x => x.id === sid);
+      const baseTitle = s ? (s.title || '') : currentTitle;
+      const baseIcon = s ? (s.icon || '') : currentTitleIcon;
+      const nextTitle = (wantTitle && title) ? title : baseTitle;
+      const nextIcon = (wantIcon && iconAlias) ? iconAlias : baseIcon;
+      if (s && (s.title !== nextTitle || s.icon !== nextIcon)) {
+        s.title = nextTitle; s.icon = nextIcon; s.updatedAt = Date.now(); saveSessions();
+      }
+      if (sid === currentSessionId) {
+        currentTitle = nextTitle;
+        currentTitleIcon = nextIcon;
+        setChatTitle(nextTitle, nextIcon);
+      }
+    } else if (wantTitle) {
       toast('标题生成失败：API 返回空内容（完整响应已打印到 Console）', 'err');
     }
   } catch (e) {
@@ -14373,6 +14613,16 @@ async function sendMessage() {
   planningHint = (agentThisRound && isFirstRound && (NEED_TOOL_RE.test(fullText) || NEED_TOOL_PATH_RE.test(fullText)))
     ? '[规划提示] 本任务较复杂，请先调用 todo_add 列出 3-8 步计划，再逐步执行，不要边想边做。'
     : '';
+  // 标题/图标生成的时机由 cfg.titleGenParallel 决定：
+  //   开（默认）= 与首轮对话并行，这里直接发出去，不等 agentLoop 跑完；
+  //   关 = 恢复旧行为，等本轮回答全部结束后在收尾处再调用（见下面的 finally）。
+  // 并行时它的耗时基本固定（几秒），串行挂在回合末尾会让标题整整晚一轮任务才出现；
+  // 并行后也能顺便与下面的记忆检索、以及主对话首个 token 的等待重叠。
+  if (isFirstRound && fullText && cfg.titleGenParallel !== false) {
+    _titleGenTask = generateTitle(fullText)
+      .catch(e => console.warn('[generateTitle] 并行执行失败', e))
+      .finally(() => { _titleGenTask = null; });
+  }
   // 长期记忆检索：把与本次提问最相关的历史记忆注入给 AI
   if (cfg.memoryOn !== false) {
     try { pendingMemHits = await memSearch(fullText, 4); } catch (e) { pendingMemHits = []; }
@@ -14415,7 +14665,9 @@ async function sendMessage() {
       }
     } catch (e) {}
     updateTokenBar();
-    if (isFirstRound && fullText) generateTitle(fullText);
+    // 并行模式：本轮开头已经发过，这里不再调用。
+    // 串行模式（用户关掉 cfg.titleGenParallel）：恢复旧行为，等本轮回答结束后再生成。
+    if (isFirstRound && fullText && cfg.titleGenParallel === false) generateTitle(fullText);
     const s = sessions.find(x => x.id === currentSessionId);
     if (s) { s.updatedAt = Date.now(); saveSessions(); }
   }
@@ -14546,6 +14798,9 @@ async function openSettings() {
     $('cfgMaxInputTokens').value = cfg.maxInputTokens || 0; $('cfgMaxOutputTokens').value = cfg.maxOutputTokens || 0;
     $('cfgMaxCost').value = cfg.maxCost || 0;
     const am = $('cfgAgentMode'); if (am) am.value = cfg.agentMode || 'auto';
+    const tgo = $('cfgTitleGenOn'); if (tgo) tgo.checked = cfg.titleGenOn !== false;
+    const tigo = $('cfgTitleIconGenOn'); if (tigo) tigo.checked = cfg.titleIconGenOn !== false;
+    const tgp = $('cfgTitleGenParallel'); if (tgp) tgp.checked = cfg.titleGenParallel !== false;
     $('cfgCloudBackend').value = cfg.cloudBackend || 'gitee';
     const cb = $('cfgCustomBackupUrl'); if (cb) cb.value = cfg.customBackupUrl || '';
     $('cfgWdServer').value = cfg.wdServer || 'https://dav.jianguoyun.com/dav/';
@@ -14710,6 +14965,8 @@ function convContextTokens() {
 }
 function updateTokenBar() {
   const inp = $('input'); const inputText = inp ? inp.value : '';
+  const bar = $('tokenBar');
+  if (bar && bar.hidden) bar.hidden = false;   // HTML 上留 hidden 只为防首屏闪占位，真正显示在此处解除
   const ti = $('tokenInput'); const tc = $('tokenContext');
   if (ti) ti.textContent = '输入 ' + estimateTokens(inputText) + ' tokens';
   if (tc) {
@@ -15464,6 +15721,100 @@ const _loadedPlugins = new Map();   // id -> { unloadFns: [] }
 let _editingPluginId = null;
 const _AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
+/* ---------- 左侧导航栏按钮的确定性排序 ----------
+ * 背景：插件在加载期自己 appendChild 一个按钮到 .nav-rail，而启动时 loadPlugin 是并发
+ * 发起的（见底部 boot 段，用的是循环 + 不 await）。每个插件都在等 VFS.getContent 的 IO，
+ * 谁先返回谁就先插到末尾 —— 于是「棋盘页在左栏的位置」每次刷新都可能不同。
+ * 解法：内置按钮固定在最前（按 BUILTIN_NAV_MODES 顺序），插件按钮按 data-nav-order
+ * 升序、同权重再按 mode 字典序。排序由 MutationObserver 自动触发，插件不必配合；
+ * 想让按钮靠前就传 order: 10 这样的小数字。 */
+const BUILTIN_NAV_MODES = ['chat', 'tools', 'vfs', 'settings', 'plugins', 'autotask', 'codespace'];
+
+function navSortKey(btn) {
+  const m = btn.dataset.mode || '';
+  const i = BUILTIN_NAV_MODES.indexOf(m);
+  if (i >= 0) return [0, i, m];
+  const o = parseInt(btn.dataset.navOrder, 10);
+  return [1, isFinite(o) ? o : 1000, m];
+}
+
+let _navSortQueued = false;
+function sortNavRail() {
+  const rail = document.querySelector('.nav-rail');
+  if (!rail) return;
+  const btns = Array.prototype.slice.call(rail.querySelectorAll('.nav-rail-btn'))
+    .filter(b => b.parentNode === rail);
+  if (btns.length < 2) return;
+  const sorted = btns.map((el, i) => ({ el: el, key: navSortKey(el), i: i }))
+    .sort((a, b) => (a.key[0] - b.key[0]) || (a.key[1] - b.key[1]) ||
+      String(a.key[2]).localeCompare(String(b.key[2])) || (a.i - b.i));
+  // 已经是目标顺序就别动 DOM：否则 MutationObserver 会被自己触发的重排再唤醒
+  if (!sorted.some((s, i) => s.el !== btns[i])) return;
+  const frag = document.createDocumentFragment();
+  sorted.forEach(s => frag.appendChild(s.el));
+  rail.appendChild(frag);
+}
+
+function queueNavSort() {
+  if (_navSortQueued) return;
+  _navSortQueued = true;
+  queueMicrotask(() => { _navSortQueued = false; sortNavRail(); });
+}
+
+/* 给插件用的导航按钮 API（幂等：同一个 mode 重复调用只会有一个按钮） */
+function addPluginNavButton(opts) {
+  opts = opts || {};
+  const mode = String(opts.mode || '').trim();
+  if (!mode) throw new Error('addNavButton 需要 mode');
+  if (!/^[a-zA-Z0-9_-]+$/.test(mode)) throw new Error('addNavButton 的 mode 只能包含字母、数字、下划线、横线：' + mode);
+  if (BUILTIN_NAV_MODES.indexOf(mode) >= 0) throw new Error('addNavButton 的 mode 不能用内置页面名：' + mode);
+  const rail = document.querySelector('.nav-rail');
+  if (!rail) return { el: null, remove: function () {} };
+  const sel = '.nav-rail-btn[data-mode="' + mode + '"]';
+  let btn = rail.querySelector(sel);
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'nav-rail-btn';
+    btn.dataset.mode = mode;
+    btn.dataset.navOrder = '1000';
+    rail.appendChild(btn);
+  }
+  if (opts.title !== undefined) {
+    btn.title = String(opts.title);
+    btn.setAttribute('aria-label', String(opts.title));
+  }
+  if (opts.icon !== undefined) btn.innerHTML = String(opts.icon);
+  if (opts.order !== undefined) {
+    const n = parseInt(opts.order, 10);
+    btn.dataset.navOrder = String(isFinite(n) ? n : 1000);
+  }
+  queueNavSort();
+  return {
+    el: btn,
+    remove: function () { if (btn && btn.parentNode) btn.parentNode.removeChild(btn); }
+  };
+}
+
+function removePluginNavButton(mode) {
+  const rail = document.querySelector('.nav-rail');
+  if (!rail) return false;
+  const b = rail.querySelector('.nav-rail-btn[data-mode="' + String(mode) + '"]');
+  if (!b) return false;
+  b.parentNode.removeChild(b);
+  return true;
+}
+
+// 自动接管：插件不管自己 appendChild 还是走 addNavButton，插完都会被排到确定位置
+(function watchNavRail() {
+  const rail = document.querySelector('.nav-rail');
+  if (!rail) return;
+  try {
+    new MutationObserver(queueNavSort).observe(rail, { childList: true });
+  } catch (e) { console.warn('[nav] MutationObserver 不可用，插件按钮顺序可能不稳：', e); }
+  sortNavRail();
+})();
+
 // 插件可用的 API（只给必要入口；VFS / cfg 是活引用，插件可改动，这是设计取舍）
 window.AgentAPI = {
   get VFS() { return VFS; },
@@ -15476,7 +15827,16 @@ window.AgentAPI = {
   defineTool: (name, spec, handler) => registerPluginTool(name, spec, handler),
   // 别名：老文档/示例里可能写成 registerTool，两者等价
   registerTool: (name, spec, handler) => registerPluginTool(name, spec, handler),
-  get pluginId() { return _loadingPluginId; }
+  get pluginId() { return _loadingPluginId; },
+  // 切页：等价于点左侧导航栏上对应的按钮（插件按钮与内置页面都能切）
+  switchPage: (mode) => { if (typeof switchPage === 'function' && mode) switchPage(String(mode)); },
+  // 加导航按钮：幂等 + 按 order 自动定位，返回 { el, remove }
+  // opts = { mode, title, icon, order }，order 越小越靠前，默认 1000
+  addNavButton: (opts) => addPluginNavButton(opts),
+  // 移除导航按钮（卸载时用；如果当前正停在要移除的那页，先 switchPage('chat')）
+  removeNavButton: (mode) => removePluginNavButton(mode),
+  // 手动触发一次导航栏排序（一般不需要，MutationObserver 已经自动做）
+  sortNavRail: () => sortNavRail()
 };
 
 async function listPlugins() {
@@ -16467,6 +16827,9 @@ function bindEvents() {
     cfg.apiKey = $('cfgApiKey').value.trim(); cfg.model = $('cfgModel').value.trim() || 'gpt-4o-mini';
     cfg.temperature = parseFloat($('cfgTemp').value) || 0; cfg.reasoningEffort = $('cfgReasonEffort').value || ''; cfg.maxLoops = Math.max(1, parseInt($('cfgLoops').value) || 20); cfg.toolTimeoutMs = Math.max(1, Math.min(600, parseInt(($('cfgToolTimeout') || {}).value) || 120)) * 1000; cfg.htmlCheckTimeoutMs = Math.max(1, Math.min(120, parseInt(($('cfgHtmlCheckTimeout') || {}).value) || 6)) * 1000; cfg.maxToolCalls = Math.max(0, parseInt($('cfgMaxToolCalls').value) || 0); cfg.maxWallTime = Math.max(0, parseInt($('cfgMaxWallTime').value) || 0); cfg.maxInputTokens = Math.max(0, parseInt($('cfgMaxInputTokens').value) || 0); cfg.maxOutputTokens = Math.max(0, parseInt($('cfgMaxOutputTokens').value) || 0); cfg.maxCost = Math.max(0, parseFloat($('cfgMaxCost').value) || 0); cfg.corsProxy = ($('cfgCorsProxy').value || '').trim(); cfg.kbPlatform = $('cfgKbPlatform').value || 'github'; cfg.kbRepo = ($('cfgKbRepo').value || '').trim(); cfg.kbToken = ($('cfgKbToken').value || '').trim(); cfg.kbBranch = ($('cfgKbBranch').value || '').trim() || 'master'; cfg.searchApiKey = ($('cfgSearchApiKey').value || '').trim();
     const am = $('cfgAgentMode'); if (am) cfg.agentMode = am.value;
+    const tgo = $('cfgTitleGenOn'); if (tgo) cfg.titleGenOn = tgo.checked;
+    const tigo = $('cfgTitleIconGenOn'); if (tigo) cfg.titleIconGenOn = tigo.checked;
+    const tgp = $('cfgTitleGenParallel'); if (tgp) cfg.titleGenParallel = tgp.checked;
     cfg.systemPrompt = $('cfgSystem').value || DEFAULT_SYSTEM;
     cfg.cloudBackend = $('cfgCloudBackend').value || 'gitee';
     cfg.customBackupUrl = ($('cfgCustomBackupUrl').value || '').trim();
