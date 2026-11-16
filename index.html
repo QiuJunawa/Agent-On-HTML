@@ -3098,8 +3098,22 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 // 别手工改三处：插件 release-log 提供 release_bump —— 自动算版本号（同日末位 +1）+ 插日志 + 改 APP_VERSION + 回读自检；
 // 另有 release_check 只读体检（版本是否一致、日期是否对齐、有无重复版本、残留 TODO），发版前后各跑一次。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.16.5';
+const APP_VERSION = '2026.11.16.6';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.16.6',
+    date: '2026-11-16',
+    title: '修复 AI 消息里的 [ref:] 占位符不渲染成文件卡片',
+    items: [
+      '根因：getMsgHtml 的 role===\'assistant\' 分支直接调 mdToHtml(m.content)，而只有 user 分支走了 mdWithRefCards——所以用户消息里的 [ref:] 早就成卡片了，AI 自己写的 [ref:] 却一直当纯文本显示',
+      'assistant 分支改为 mdWithRefCards(m.content)，AI 正文里的 [ref:/path] 现在渲染成和用户消息一致的卡片',
+      '流式渲染路径（renderBubble）同步修正：原先 bodyEl.innerHTML = mdToHtml(text)，改为含 [ref:] 时走 mdWithRefCards',
+      '非流式响应收尾路径同步修正，并补 hydrateRefCards(bubble) 让图片卡片取到 dataURL',
+      '流式结束后补一次 hydrateRefCards：流式期间正文反复重建 innerHTML，图片卡片拖到流结束统一取一次，避免每个 chunk 都重取',
+      '性能保护：两处流式调用用 text.indexOf(\'[ref:\') >= 0 做短路，正文不含占位符时不付出额外的卡片替换与前缀扫描成本',
+      '代码块内的 [ref:] 仍保持原样文字（mdWithRefCards 按 ``` 切段），反斜杠转义的 [ref:] 也仍按字面量显示，不受影响'
+    ]
+  },
   {
     v: '2026.11.16.5',
     date: '2026-11-16',
@@ -11917,7 +11931,7 @@ function getMsgHtml(m) {
     if (thinkText && thinkText.trim()) {
       html += '<div class="thinking-block"><div class="thinking-label">思考过程</div><div class="thinking-text">' + escapeHtml(thinkText) + '</div></div>';
     }
-    if (m.content && m.content.trim()) html += mdToHtml(m.content);
+    if (m.content && m.content.trim()) html += mdWithRefCards(m.content);
   }
   m._html = html;
   return html;
@@ -13601,7 +13615,8 @@ async function streamChat(run) {
     // 正文：首次创建容器，之后更新 innerHTML
     if (text) {
       if (!bodyEl) { bodyEl = document.createElement('div'); bodyEl.className = 'msg-body'; bubble.appendChild(bodyEl); }
-      bodyEl.innerHTML = mdToHtml(text);
+      // 流式期间文本可能含 [ref:]，只有在真出现时才多付一次卡片替换成本
+      bodyEl.innerHTML = text.indexOf('[ref:') >= 0 ? mdWithRefCards(text) : mdToHtml(text);
       renderMathIn(bodyEl);
     }
     if (!thinking && !text) bubble.innerHTML = '<span style="color:var(--text-muted)">正在连接…</span>';
@@ -13858,7 +13873,8 @@ async function streamChat(run) {
     const tail = toolFilterFlush();
     if (tail.text) text += tail.text;
     tail.calls.forEach(tc => { toolAcc[toolAcc.length] = tc; });
-    bubble.innerHTML = mdToHtml(text);
+    bubble.innerHTML = text.indexOf('[ref:') >= 0 ? mdWithRefCards(text) : mdToHtml(text);
+    hydrateRefCards(bubble);
     if (!text.trim() && toolAcc.filter(Boolean).length === 0) {
       msgEl.remove();
       throw new Error('API 返回了空响应（无内容、无工具调用）。请检查模型名称和 Base URL 是否正确。');
@@ -14025,6 +14041,8 @@ async function streamChat(run) {
     }
   }
   if (thinking || text) renderBubble();   // 结束前确保最终内容已渲染（含被 rAF 合并的尾部）
+  // 流式期间正文反复重建 innerHTML，[ref:] 图片卡片拖到流结束再统一取一次 dataURL
+  if (text && text.indexOf('[ref:') >= 0) { try { hydrateRefCards(bubble); } catch (e) {} }
   scrollBottom();
   _dbg.status = 'ok';
   _dbg.response = text || '';
