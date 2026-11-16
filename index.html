@@ -3107,10 +3107,54 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 /* ---------- 更新通知 ---------- */
 // 每次发版必须把 APP_VERSION 改成新值，并把本次更新内容作为数组最前面的条目写进 APP_CHANGELOG。
 // 别手工改三处：插件 release-log 提供 release_bump —— 自动算版本号（同日末位 +1）+ 插日志 + 改 APP_VERSION + 回读自检；
-// 另有 release_check 只读体检（版本是否一致、日期是否对齐、有无重复版本、残留 TODO），发版前后各跑一次。
+// 另有 release_check 只读体检（版本是否一致、日期是否对齐、有无重复版本、待办区还剩哪些未完成），发版前后各跑一次。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.16.8';
+const APP_VERSION = '2026.11.16.11';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.16.11',
+    date: '2026-11-16',
+    title: 'release_check 改为读真实待办区，不再靠匹配 TODO 字面误报',
+    items: [
+      '用户要求：release_check 的残留待办别再靠匹配 TODO 字面，改成读真实的待办内存区',
+      '根因：旧实现用 /\\b(TODO|FIXME|HACK|XXX)\\b/ 逐行扫整份 index.html，把 APP_CHANGELOG 条目、知识库文案、代码注释里「提到 TODO 这个词」的句子全算成残留待办，每次体检都报 5 处假阳性，得人肉逐条分辨',
+      '改为插件新增 checkTodos()：读 /config/todos.json（与侧栏待办面板同一份数据），按 done 字段筛出真正未完成的项',
+      '三态分明：读不到（不存在 / 正文不可用 / 非法 JSON / 不是数组 / 读文件抛异常）一律报「待办区读取失败（具体原因），这一项没验到」，既不当成空也不当成通过',
+      '有数据时说数据：全空报「待办区为空」，全完成报「N 项全部已完成」，有未完成则逐条列出（最多 12 条后折叠）',
+      '未完成只作 ⚠ 提示不计入 bad 阻塞计数——待办没做完不代表发版本身有问题',
+      'release_check 改为先跑 checkText(text) 再 await checkTodos()，两者结果拼接、bad 相加，工具描述同步改为「待办区还剩哪些未完成」',
+      '/index.html 第 3110 行那句注释里「残留 TODO」的旧说法同步改成「待办区还剩哪些未完成」',
+      '插件版本 1.1.0 → 1.2.0，check_code 校验通过；实测 mark 掉全部待办后立刻显示「待办区为空」，未标记时正确列出 4 项未完成，证明读的是实时数据而非字面'
+    ]
+  },
+  {
+    v: '2026.11.16.10',
+    date: '2026-11-16',
+    title: 'check_code 的 HTML 模式明确写出第二级运行时检查结论',
+    items: [
+      '用户要求：check_code 查 HTML 时把「没有运行时错误」这句话写进结果，不再只有一个笼统的「校验通过」或「校验未通过」',
+      '新增 htmlRuntimeOk 标记：HTML 分支在 checkHtmlWithIframe 实执行之后记录第二级结论，其余语言分支恒为 false，互不干扰',
+      '判定从严：必须是既没抓到错误、也没超时、且 document.body 存在（无 DOM 环境等于压根没跑），三条同时满足才算「确实跑过且有结论」',
+      '校验通过分支追加「（第一级规范检查与第二级运行时检查均无报错）」，把两级都过了这件事说清楚',
+      '规范级报错、但脚本本身干净时追加「（第二级运行时检查：没有运行时错误，内联 JS 已在沙箱 iframe 中真实执行）」——a11y 与写法规则（no-inline-style 等）常拖着一长串报错，容易被误读成 JS 崩了，这句话把二者分开',
+      '「校验未完成 ⚠」（规范级校验器 CDN 拉不到）分支的文案同步改成条件式：只有运行时确实跑过才写「与内联 JS 实执行（没有运行时错误）已通过」，没跑过就不写，不制造假绿灯',
+      '超时一律不追加这句话：超时属于「没验完」，此时声称没有运行时错误就是编造，软提示照旧单独说明已跳过',
+      '实测本次校验 /index.html 第二级超时（整页应用放进 iframe 要跑超过 6 秒），因此返回里正确没有出现该说明，行为符合预期'
+    ]
+  },
+  {
+    v: '2026.11.16.9',
+    date: '2026-11-16',
+    title: '移除关闭页面 / 切后台时的自动云端上传',
+    items: [
+      '删除 autoSyncCloud()：原先 visibilitychange=hidden（切后台）、pagehide、beforeunload（关页面）三处都会顺手推一次云',
+      '原因：关页面那一刻网络随时断，整包上传传到一半失败会在云端留下半截备份，比没传更糟——正是用户说的「一个不小心传一半坏了」',
+      '上云现在只由「☁ 同步」按钮和设置里的「自动同步间隔（定时上传）」显式触发，两者都是完整 await 到结束才做后续（如 Gitee 传完才清空本地正文）',
+      '切后台不再上传，只保留原来的本地兜底：pagehide / beforeunload 里清掉防抖计时器并同步 saveSessions() 落一次盘（仅写 localStorage，不联网）',
+      '抽成 flushSessionsLocal() 供两个事件共用，行为与改动前的本地保存部分完全一致，会话记录不会因此丢失最近一次改动',
+      '定时上传（setupAutoSync）与手动「☁ 同步」按钮未受影响，两者仍在用户显式触发或到点时执行'
+    ]
+  },
   {
     v: '2026.11.16.8',
     date: '2026-11-16',
@@ -7135,6 +7179,7 @@ async function toolCheckCode(args) {
   let err = null;
   let htmlSpecNote = '';   // HTML 规范级校验的补充说明（部分库没覆盖到）
   let htmlSpecFail = '';   // 非空 = 规范级校验器没跑起来 → 校验「未完成」，不是通过也不是失败
+  let htmlRuntimeOk = false;   // HTML 第二级：内联 JS 真的跑过且没抓到错误（超时不算，那时是「没验完」）
   // 插件文件在 loadPlugin 里是用 AsyncFunction 包裹执行的，顶层 await 合法；
   // 若这里按普通脚本解析就会把合法插件误报成语法错误（svg-gallery.js 那次就是）。
   // 有路径且不是插件 → 按脚本语义（false）；没有路径（直接传 code）→ 无从判断，交给 checkJs 自动择一（'auto'）
@@ -7163,6 +7208,10 @@ async function toolCheckCode(args) {
     //    一旦用它短路，就会把「脚本根本跑不起来」这类致命错误整层藏掉
     const iframeErr = await checkHtmlWithIframe(raw);
     if (iframeErr) err = err ? (err + '\n' + iframeErr) : iframeErr;
+    // 第二级的结论单独记一笔：既没抓到错误、也没超时，才算「运行时确实跑过且干净」。
+    // 超时属于「没验完」（softNote 里已说明），此时不能说没有运行时错误；无 document 时也压根没跑。
+    htmlRuntimeOk = !iframeErr && !checkHtmlWithIframe.timedOut
+      && typeof document !== 'undefined' && !!(document && document.body);
   }
   else if (lang === 'py') err = checkPy(raw);
   else if (['md', 'txt', 'log', 'css'].includes(lang)) return '该类型（.' + lang + '）无需语法校验。';
@@ -7171,14 +7220,19 @@ async function toolCheckCode(args) {
   const softNote = (lang === 'html' || lang === 'htm' || lang === 'svg') && checkHtmlWithIframe.timedOut
     ? '（注：HTML 实际执行超过 ' + Math.round(htmlCheckTimeoutMs() / 1000) + ' 秒已跳过，不计入失败——成因通常是外链资源或长循环，与代码对错无关；可在设置里调大「HTML 校验超时」）'
     : '';
-  if (err) return '校验未通过 ❌ ' + err + note;
+  // 运行时结论单独写出来：规范级（a11y / 写法规则）报错时，也要让人一眼看清脚本本身跑不跑得通，
+  // 避免把「标签写法不合规」误读成「JS 崩了」
+  const runtimeNote = htmlRuntimeOk ? '（第二级运行时检查：没有运行时错误，内联 JS 已在沙箱 iframe 中真实执行）' : '';
+  if (err) return '校验未通过 ❌ ' + err + note + runtimeNote;
   // 第三态：校验器没跑起来 —— 既不能说「通过」（假绿灯），也不能说「未通过」（代码未必有错）
   if (htmlSpecFail) {
     return '校验未完成 ⚠ ' + (path || '代码') + '：HTML 规范级校验器加载失败（' + htmlSpecFail + '）。\n'
-      + '本地标签闭合检查与内联 JS 实执行已通过，但规范级检查（parse5 / html-validate）这一层没跑到，'
+      + '本地标签闭合检查' + (htmlRuntimeOk ? '与内联 JS 实执行（没有运行时错误）' : '') + '已通过，但规范级检查（parse5 / html-validate）这一层没跑到，'
       + '所以这**不等于**校验通过。常见原因：CDN 不可达、被代理拦、版本号不存在。' + softNote;
   }
-  return '校验通过 ✓ ' + (path || '代码') + note + softNote + htmlSpecNote + (lang === 'py' ? '（前端无法真正执行 Python，仅基础结构检查）' : '');
+  return '校验通过 ✓ ' + (path || '代码') + note + softNote + htmlSpecNote
+    + (htmlRuntimeOk ? '（第一级规范检查与第二级运行时检查均无报错）' : '')
+    + (lang === 'py' ? '（前端无法真正执行 Python，仅基础结构检查）' : '');
 }
 
 /* ---------- AI TODO（待办清单，存 /config/todos.json，用户侧栏可见） ---------- */
@@ -11903,18 +11957,32 @@ function unmaskRefEscape(html) {
   return str.indexOf(REF_ESC_UI_SENTINEL) === -1 ? str : str.split(REF_ESC_UI_SENTINEL).join('[ref:');
 }
 // 只在代码块外把 [ref:] 换成卡片：按 ``` 切段，代码段原样保留
+// 把文本切成普通段与「转义域」段：围栏代码块（三反引号）和行内代码（反引号包裹）都算转义域，
+// 里面的 ref 占位符不展开成卡片，保持原样显示。行内代码的判定与 mdToHtml 的 /`([^`\n]+)`/ 保持一致，
+// 否则占位符会被 mdToHtml 包进 <code> 里，回填后卡片就挤在行内代码中间。
+function splitRefSafeSegments(text) {
+  const out = [];
+  text.split(/(```[\s\S]*?```)/).forEach((seg, i) => {
+    if (i % 2 === 1) { if (seg) out.push({ seg, code: true }); return; }   // 围栏代码块整段是转义域
+    seg.split(/(`[^`\n]+`)/).forEach((p, j) => {
+      if (p) out.push({ seg: p, code: j % 2 === 1 });   // 奇数位是行内代码
+    });
+  });
+  return out;
+}
 function expandRefsOutsideCode(text) {
-  const parts = maskRefEscape(text).split(/(```[\s\S]*?```)/);
-  return unmaskRefEscape(parts.map((seg, i) => (i % 2 === 1) ? seg : seg.replace(REF_MARK_RE, (mm, p) => refCardHtml(p))).join(''));
+  return unmaskRefEscape(splitRefSafeSegments(maskRefEscape(text))
+    .map(({ seg, code }) => code ? seg : seg.replace(REF_MARK_RE, (mm, p) => refCardHtml(p)))
+    .join(''));
 }
 // [ref:] 卡片 + Markdown 的正确组合：先把卡片换成占位符，交给 mdToHtml 渲染，
 // 再把占位符回填成卡片 HTML。否则 mdToHtml 内部的 escapeHtml 会把卡片标签转义成源码。
 function mdWithRefCards(text) {
   const src = maskRefEscape(text);   // 反斜杠转义的不展开，保持字面量
   const cards = [];
-  const segs = src.split(/(```[\s\S]*?```)/);
-  const withPh = segs.map((seg, i) => {
-    if (i % 2 === 1) return seg;   // 代码块内保持原样
+  // 转义域（围栏代码块 + 行内代码）内的 [ref:] 一律不换占位符，留给 mdToHtml 原样转成 <code> 文本
+  const withPh = splitRefSafeSegments(src).map(({ seg, code }) => {
+    if (code) return seg;
     return seg.replace(REF_MARK_RE, (mm, p) => {
       cards.push(refCardHtml(p));
       return '\u0000R' + (cards.length - 1) + '\u0000';
@@ -15029,32 +15097,17 @@ async function sendMessage() {
   }
 }
 
-/* ---------- 对话结束自动同步（页面关闭/切后台时尽力推送到云端） ---------- */
-let lastAutoSync = 0;
-function autoSyncCloud() {
-  const now = Date.now();
-  if (now - lastAutoSync < 30000) return;   // 30 秒内去重
-  if (isRunning) return;                     // 正在对话，等结束
-  if (!VFS.allFiles().length) return;
-  const be = cfg.cloudBackend || 'gitee';
-  const ready = be === 'webdav' ? !!(cfg.wdUser && cfg.wdPass)
-    : be === 'gitee' ? !!(cfg.giteeRepo && cfg.giteeToken)
-    : !!cfg.gistToken;
-  if (!ready) return;
-  lastAutoSync = now;
-  cloudUpload().then(ok => { if (ok !== false) console.log('[自动同步] 已推送 ' + be); }).catch(e => console.warn('[自动同步] 失败', e));
-}
+/* ---------- 关闭页面 / 切后台：只做本地落盘，不做任何云端上传 ---------- */
+/* 原先这里会在 visibilitychange=hidden（切后台）/ pagehide / beforeunload（关页面）时调 autoSyncCloud()
+ * 顺手推一次云。关页面那一刻网络随时会断，整包上传中途失败会在云端留下半截备份——比没传更糟，
+ * 所以整段移除：上云改为只由「☁ 同步」按钮和设置里的「自动同步间隔（定时上传）」显式触发。 */
 if (typeof document !== 'undefined') {
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') autoSyncCloud(); });
-  window.addEventListener('pagehide', () => {
-    // 防抖保存不能在页面隐藏时还挂着：同步落一次盘，再走云端同步
+  const flushSessionsLocal = () => {
+    // 防抖保存不能在页面隐藏时还挂着：同步落一次盘（仅写 localStorage，不联网）
     try { if (_saveSessionsTimer) { clearTimeout(_saveSessionsTimer); _saveSessionsTimer = null; } saveSessions(); } catch (e) {}
-    autoSyncCloud();
-  });
-  window.addEventListener('beforeunload', () => {
-    try { if (_saveSessionsTimer) { clearTimeout(_saveSessionsTimer); _saveSessionsTimer = null; } saveSessions(); } catch (e) {}
-    autoSyncCloud();
-  });
+  };
+  window.addEventListener('pagehide', flushSessionsLocal);
+  window.addEventListener('beforeunload', flushSessionsLocal);
 }
 
 /* ---------- 定时上传 + 清空本地内容（Gitee 预览时按需拉取） ---------- */
