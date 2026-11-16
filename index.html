@@ -164,6 +164,10 @@
      不再用 --kb-inset 做键盘自适应：那套逻辑已整体移除（详见 init 里对应的注释）。
      键盘弹出由浏览器自己处理，.app 保持 100% 满高。 */
   .app { display: flex; height: 100%; overflow: hidden; }
+  /* overflow:clip 不建立滚动容器、不参与滚动链（支持 clip 的浏览器用这条压过上一行的 hidden）。
+     否则 .app 作为第二道滚动容器，会把 .messages 放行的横向手势再拦一次，横滑依旧死在这里。
+     老浏览器不认 clip 会自动忽略，退回 hidden，裁剪效果不变。 */
+  .app { overflow: clip; }
 
   /* ---------- 侧边栏 ---------- */
   .sidebar {
@@ -318,8 +322,15 @@
   .ghost-btn:active { background: var(--border); }
   .ghost-btn.danger:hover { background: var(--bg-error); border-color: var(--bg-error); color: var(--text-error); }
 
-  /* overflow-x:hidden 必写：只写 overflow-y:auto 时 overflow-x 会被强制成 auto，宽内容一出现就长出横向滚动条 */
-  .messages { flex: 1; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 20px 18px 8px; }
+  /* overflow-x:hidden 必写：只写 overflow-y:auto 时 overflow-x 会被强制成 auto，宽内容一出现就长出横向滚动条。
+     但 hidden 只禁「用户滚」、仍算滚动容器：手指横滑时它先认领手势，横向又没有可滚余量 → 变成越界滚动。
+     所以横纵都必须允许越界时把滚动链传给外层（auto 就是默认值，这里显式写出来防被改回 contain）：
+       - 写 contain（不分轴）会把横向一起掐断，手势凭空消失、表现为「无效操作」；
+       - 写 overscroll-behavior-y:contain 只放开横向，纵向滚到顶/底仍会卡住不外传；
+     现在两轴都放开，放大网页后横滑/竖滑都能继续推动外层平移。
+     代价（用户明确接受）：对话区滚到顶或底继续滑，会把整页带着一起动。若日后想只防纵向带动，
+     改回 overscroll-behavior-y: contain 即可，横向依旧是通的。 */
+  .messages { flex: 1; overflow-y: auto; overflow-x: hidden; overscroll-behavior: auto; padding: 20px 18px 8px; }
   /* 超长对话：浏览器跳过屏幕外内容的布局与绘制 */
   .messages.cv-auto .msg {
     content-visibility: auto;
@@ -3098,8 +3109,32 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 // 别手工改三处：插件 release-log 提供 release_bump —— 自动算版本号（同日末位 +1）+ 插日志 + 改 APP_VERSION + 回读自检；
 // 另有 release_check 只读体检（版本是否一致、日期是否对齐、有无重复版本、残留 TODO），发版前后各跑一次。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.16.6';
+const APP_VERSION = '2026.11.16.8';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.16.8',
+    date: '2026-11-16',
+    title: '对话区滚动链改为横纵两向全部放行',
+    items: [
+      '按用户要求把 .messages 的 overscroll-behavior-y:contain 改为 overscroll-behavior:auto，横纵两向都允许向外传递',
+      '纵向也放行的效果：对话区滚到顶/底继续滑会把整页带着一起动（用户明确接受此取舍）',
+      '横向本就已通，本次把纵向那道闸也撤掉，放大网页后横滑/竖滑都能继续推动外层平移',
+      '.app 上一版已改为 overflow:clip，不参与滚动链，纵向手势可一路传到 document',
+      '注释里写明取舍与回退方式：若日后只想防纵向带动，改回 overscroll-behavior-y: contain 即可，横向依旧通'
+    ]
+  },
+  {
+    v: '2026.11.16.7',
+    date: '2026-11-16',
+    title: '修复对话区吞掉横向滑动导致放大后网页无法左右平移',
+    items: [
+      '修「双指放大后网页无法横向平移」：.messages 的 overscroll-behavior 改为 overscroll-behavior-y',
+      '根因：overflow-x:hidden 仍算滚动容器，会认领横向手势，原来不带的 contain 把越界滚动链一起掐断，手势凭空消失（表现为无效操作）',
+      '原意只是「纵向滚到顶/底别带动整页」，限定为 -y 后纵向行为不变，横向放行给外层',
+      '第二道闸 .app 补 overflow: clip：clip 不建立滚动容器、不参与滚动链，否则放行的横向手势会在这里被再拦一次',
+      '老浏览器不认 clip 会自动忽略，退回 hidden，裁剪效果不变'
+    ]
+  },
   {
     v: '2026.11.16.6',
     date: '2026-11-16',
