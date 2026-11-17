@@ -111,6 +111,148 @@
   body.theme-light .tool-switch-item,
   body.theme-light .profile-row { background: var(--bg-card); }
   body.theme-light .tool-card:hover { background: var(--bg-elevated-2); }
+  /* ===== 浮窗主题（theme-float） =====
+     设计口径：只换外壳，不动容器内部的按钮 / 图标 / 字号 / 内边距。
+     5 个容器（nav-rail / sidebar / chat-head / composer / editor）从「连片分栏」
+     改成「各自独立的圆角浮空面板」，中间消息区保持通透、露出背景层。
+     参数（模糊 / 透明度 / 圆角 / 间距 / 背景图）由 JS 写入下方 --float-* 变量，
+     设置 → 界面 里可实时调；本块只负责把它们套到外壳上。 */
+  :root {
+    --float-blur: 18px;      /* 高斯模糊半径 */
+    --float-tint: 0.55;      /* 面板底色不透明度 0-1 */
+    --float-white: 0.06;     /* 叠加上去那层白 0-1 */
+    --float-radius: 14px;    /* 圆角 */
+    --float-gap: 10px;       /* 浮窗间距 */
+    --float-border: rgba(255,255,255,0.10);
+    --float-shadow: 0 8px 28px rgba(0,0,0,0.35);
+    --float-bg: #07090c;     /* 默认底色：--bg-main 加深一档 */
+    --float-bg-img: none;    /* 用户背景图（data URL） */
+    --float-bg-size: cover;
+    --float-bg-repeat: no-repeat;
+    --float-dim: 0;          /* 背景图压暗 0-1 */
+    --float-solid-dim: 0.16; /* 代码块 / 表格额外加暗量：全透会让代码难以辨认，压一点点回来 */
+  }
+  /* 背景层：纯色打底 + 可选的用户图 + 压暗层。
+     原先用 body::before + z-index:-1 画，有两个坑：
+       1) 固定定位 + 负 z-index 的伪元素，在 body 未建立层叠上下文时会退到 canvas 背景之后，
+          反而把整片区域露成白底（`html, body` 都没设背景，canvas 默认白）；
+       2) body 自己若带不透明背景，又会和伪元素抢同一块区域，背景图容易被盖掉。
+     改成直接画在 body 上最稳：body 背景会传播到 canvas，天然铺满视口；
+     用 background-attachment: fixed 让图相对视口固定，滚动不跟着跑。
+     注意 background-size 与 background-repeat 是两个独立变量 —— repeat 不是 background-size 的
+     合法值，多层值里只要一层非法，整条声明会被浏览器丢弃，尺寸与重复规则会一起失效。 */
+  body.theme-float {
+    padding-left: 0;
+    background-color: var(--float-bg);
+    background-image:
+      linear-gradient(rgba(0,0,0,var(--float-dim)), rgba(0,0,0,var(--float-dim))),
+      var(--float-bg-img);
+    background-size: cover, var(--float-bg-size);
+    background-position: center, center;
+    background-repeat: no-repeat, var(--float-bg-repeat);
+    background-attachment: fixed, fixed;
+  }
+  /* 布局：四周留白，让底色从缝隙里露出来；左侧额外让出固定定位的导航栏 */
+  body.theme-float .app {
+    gap: var(--float-gap);
+    padding: var(--float-gap);
+    padding-left: calc(var(--float-gap) * 2 + 56px);
+  }
+  body.theme-float .chat { background: transparent; gap: var(--float-gap); }
+  /* 四个流式容器的统一玻璃外壳（nav-rail 是 fixed，单独写在下面） */
+  body.theme-float .sidebar,
+  body.theme-float .chat-head,
+  body.theme-float .composer,
+  body.theme-float .editor {
+    background-color: rgba(24,28,36, var(--float-tint));
+    background-image: linear-gradient(rgba(255,255,255,var(--float-white)), rgba(255,255,255,var(--float-white)));
+    -webkit-backdrop-filter: blur(var(--float-blur)) saturate(1.2);
+    backdrop-filter: blur(var(--float-blur)) saturate(1.2);
+    border: 1px solid var(--float-border);
+    border-radius: var(--float-radius);
+    box-shadow: var(--float-shadow);
+  }
+  /* 导航栏：贴边改成留白浮岛；overflow 保持 visible，否则 ::after 悬停文字会被裁掉 */
+  body.theme-float .nav-rail {
+    left: var(--float-gap); top: var(--float-gap); bottom: var(--float-gap);
+    border-radius: var(--float-radius);
+    background-color: rgba(24,28,36, var(--float-tint));
+    background-image: linear-gradient(rgba(255,255,255,var(--float-white)), rgba(255,255,255,var(--float-white)));
+    -webkit-backdrop-filter: blur(var(--float-blur)) saturate(1.2);
+    backdrop-filter: blur(var(--float-blur)) saturate(1.2);
+    border: 1px solid var(--float-border);
+    box-shadow: var(--float-shadow);
+  }
+  /* 编辑器正文默认是不透明深底，浮窗下要透出玻璃底 */
+  body.theme-float #editor { background: transparent; }
+  /* 设置内联页跟着留白走，否则会错开或盖住导航栏 */
+  body.theme-float[data-mode="settings"] #settingsModal {
+    left: calc(var(--float-gap) * 2 + 56px);
+    top: var(--float-gap); right: var(--float-gap); bottom: var(--float-gap);
+    border-radius: var(--float-radius); overflow: hidden;
+  }
+
+  /* ===== 浮窗主题：消息区 / 欢迎页的实心块改半透明 =====
+     .chat 已经是 transparent，背景能透上来；但这些子元素各自带着不透明的 --bg-* 色值，
+     等于在透明窗口上又贴了一张实心纸，背景图会被它们整块糊掉。
+     AI 回复气泡（.msg .bubble）和工具卡片原本就是 transparent，无需处理。 */
+  body.theme-float .welcome-screen { background: transparent; }
+  body.theme-float .msg.user .bubble {
+    background-color: rgba(24,28,36, var(--float-tint));
+    border-color: var(--float-border);
+    -webkit-backdrop-filter: blur(var(--float-blur));
+    backdrop-filter: blur(var(--float-blur));
+  }
+  body.theme-float .msg .bubble blockquote {
+    background-color: rgba(24,28,36, var(--float-tint));
+  }
+  body.theme-float .welcome-input-wrap textarea,
+  body.theme-float .welcome-suggestion,
+  body.theme-float .welcome-profile-bar select {
+    background-color: rgba(24,28,36, var(--float-tint));
+    border-color: var(--float-border);
+    -webkit-backdrop-filter: blur(var(--float-blur));
+    backdrop-filter: blur(var(--float-blur));
+  }
+  /* 代码块 / 行内代码 / 表格头：半透明，但额外压一层暗 + 加一层糊。
+     这三类内容对对比度最敏感，纯透会看不清代码与表格分隔，所以留一点底色兜住。 */
+  body.theme-float .msg .bubble pre,
+  body.theme-float .code-block pre,
+  body.theme-float .msg .bubble code,
+  body.theme-float .msg .bubble th {
+    background-color: rgba(24,28,36, var(--float-tint));
+    background-image: linear-gradient(rgba(0,0,0,var(--float-solid-dim)), rgba(0,0,0,var(--float-solid-dim)));
+    -webkit-backdrop-filter: blur(var(--float-blur));
+    backdrop-filter: blur(var(--float-blur));
+  }
+  /* pre 内部的 code 不能再叠一层，否则代码块会比周围明显更暗（原有规则是 background:none） */
+  body.theme-float .msg .bubble pre code {
+    background-color: transparent; background-image: none;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  /* 代码块顶部的语言/复制条：它与 pre 是一体的，若只让主体半透、头部还留实心 --bg-deep，
+     就会出现「头实心、身子透」的割裂感，所以必须同套处理 */
+  body.theme-float .code-header {
+    background-color: rgba(24,28,36, var(--float-tint));
+    background-image: linear-gradient(rgba(0,0,0,var(--float-solid-dim)), rgba(0,0,0,var(--float-solid-dim)));
+    -webkit-backdrop-filter: blur(var(--float-blur));
+    backdrop-filter: blur(var(--float-blur));
+  }
+  /* 右侧编辑器的 md 预览面板：它本身坐在 .editor 玻璃面板里，却自带实心 --bg-main，
+     会把玻璃底整块盖住；里面的 code / pre 同理。按与消息区一致的规那么处理。 */
+  body.theme-float .preview-pane { background: transparent; }
+  body.theme-float .md-preview code,
+  body.theme-float .md-preview pre,
+  body.theme-float .md-preview th {
+    background-color: rgba(24,28,36, var(--float-tint));
+    background-image: linear-gradient(rgba(0,0,0,var(--float-solid-dim)), rgba(0,0,0,var(--float-solid-dim)));
+    -webkit-backdrop-filter: blur(var(--float-blur));
+    backdrop-filter: blur(var(--float-blur));
+  }
+  body.theme-float .md-preview pre code {
+    background-color: transparent; background-image: none;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
   * { box-sizing: border-box; }
   /* 视口铺满：只保留高度约束，不再锁死 overflow。
      原先写 overflow: hidden/clip 是为了修「页面莫名上滚」，但顺带把 document 滚动一起禁掉，
@@ -659,6 +801,32 @@
   }
   .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg-strong); }
   .field textarea { resize: vertical; min-height: 120px; line-height: 1.6; }
+  /* ===== 浮窗主题参数区（设置 → 界面） ===== */
+  .float-opts[hidden] { display: none; }
+  .float-opts {
+    margin: 2px 0 16px; padding: 12px 13px 4px;
+    background: var(--bg-elevated-1); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .float-opts .field:first-child { margin-bottom: 10px; }
+  .float-opts .fhint {
+    font-size: 11.5px; color: var(--text-muted); line-height: 1.65; margin-top: 6px;
+  }
+  .float-opts .fhint code {
+    background: var(--code-bg); border: 1px solid var(--code-border);
+    border-radius: 4px; padding: 1px 4px; font-family: ui-monospace, monospace; font-size: 11px;
+  }
+  .float-opts .fv {
+    color: var(--text-link); font-weight: 500; font-family: ui-monospace, monospace; font-size: 11.5px;
+  }
+  /* 滑块：覆盖 .field input 的宽内边距与边框，改用浏览器原生外观 */
+  .float-opts .field input[type=range] {
+    width: 100%; padding: 0; background: transparent; border: none;
+    accent-color: var(--accent); cursor: pointer; height: 20px;
+  }
+  .float-opts .field input[type=range]:focus { box-shadow: none; }
+  .float-bg-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .float-bg-row .ghost-btn { padding: 4px 11px; font-size: 11.5px; }
+  .float-bg-row .fhint { margin-top: 0; }
   .row2 { display: flex; gap: 12px; }
   .row2 .field { flex: 1; }
   .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
@@ -1760,7 +1928,59 @@
         <select id="cfgTheme">
           <option value="dark">深色（默认）</option>
           <option value="light">浅色</option>
+          <option value="float">浮窗（毛玻璃）</option>
         </select>
+      </div>
+      <!-- 浮窗主题参数：仅 theme=float 时显示（显隐由 applyTheme 控制）。
+           只影响 5 个容器的外壳，不改内部控件；拖动即时预览，点「保存设置」才落盘。 -->
+      <div id="floatThemeOpts" class="float-opts" hidden>
+        <div class="field">
+          <label>浮窗毛玻璃（仅浮窗主题生效）</label>
+          <div class="fhint">拖动即时预览，点「保存设置」才写入配置。模糊强度归零可当低端机降级用。</div>
+        </div>
+        <div class="field">
+          <label>模糊强度 <span class="fv" id="fvBlur">18px</span></label>
+          <input id="cfgGlassBlur" type="range" min="0" max="40" step="1" value="18">
+        </div>
+        <div class="field">
+          <label>面板不透明度 <span class="fv" id="fvTint">55%</span></label>
+          <input id="cfgGlassTint" type="range" min="0" max="100" step="1" value="55">
+        </div>
+        <div class="field">
+          <label>叠加白度 <span class="fv" id="fvWhite">6%</span></label>
+          <input id="cfgGlassWhite" type="range" min="0" max="40" step="1" value="6">
+        </div>
+        <div class="field">
+          <label>圆角 <span class="fv" id="fvRadius">14px</span></label>
+          <input id="cfgGlassRadius" type="range" min="0" max="28" step="1" value="14">
+        </div>
+        <div class="field">
+          <label>浮窗间距 <span class="fv" id="fvGap">10px</span></label>
+          <input id="cfgGlassGap" type="range" min="0" max="24" step="1" value="10">
+        </div>
+        <div class="field">
+          <label>背景图</label>
+          <div class="float-bg-row">
+            <button class="ghost-btn" id="btnFloatBgUpload" type="button">上传图片</button>
+            <button class="ghost-btn danger" id="btnFloatBgClear" type="button">清除</button>
+            <span class="fhint" id="floatBgStatus">未设置（默认纯色底）</span>
+          </div>
+          <input type="file" id="floatBgFile" accept="image/*" hidden>
+          <div class="fhint">以 data URL 存进 VFS <code>/config/theme-bg.img</code>。注意：它会随 <code>/config/</code> 一起进云端同步与导出备份，大图会明显撑大备份体积（建议 800KB 以内，超过会提示）。</div>
+        </div>
+        <div class="field">
+          <label>背景图适配</label>
+          <select id="cfgFloatBgFit">
+            <option value="cover">铺满并裁切（cover）</option>
+            <option value="contain">完整显示（contain）</option>
+            <option value="repeat">平铺（repeat）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>背景压暗 <span class="fv" id="fvDim">35%</span></label>
+          <input id="cfgFloatBgDim" type="range" min="0" max="80" step="1" value="35">
+          <div class="fhint">压暗背景图，保证面板与文字可读。</div>
+        </div>
       </div>
       <div class="field">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
@@ -3109,8 +3329,55 @@ const VFS_SEED_KEY = 'vfs_seed_done';   // 首次种子标记：置位后不再�
 // 别手工改三处：插件 release-log 提供 release_bump —— 自动算版本号（同日末位 +1）+ 插日志 + 改 APP_VERSION + 回读自检；
 // 另有 release_check 只读体检（版本是否一致、日期是否对齐、有无重复版本、待办区还剩哪些未完成），发版前后各跑一次。
 // 打开页面时用 localStorage 记录的上次版本对比：不同（或从未记录）→ 弹自定义更新通知，内容显示自上次以来新增的更新条目。
-const APP_VERSION = '2026.11.16.11';
+const APP_VERSION = '2026.11.17.3';
 const APP_CHANGELOG = [
+  {
+    v: '2026.11.17.3',
+    date: '2026-11-17',
+    title: '浮窗主题：消息气泡/欢迎页/代码块/表格全部改半透明玻璃，代码与表格额外加暗加糊',
+    items: [
+      '上轮遗漏的根因：.chat 虽已设为 transparent，但子元素各自带着不透明的 --bg-* 实心色，等于在透明窗口上又贴了一张实心纸。本次把消息区与欢迎页的实心块统一改为半透明玻璃',
+      '用户消息气泡 .msg.user .bubble：由实心 --bg-card 改为 rgba(24,28,36,var(--float-tint)) + backdrop-filter，与 5 个容器同一套玻璃参数，拖动滑块时同步变化',
+      '欢迎页 .welcome-screen 背景改 transparent（原为实心 --bg-main，把整屏背景图完全盖死）；欢迎页输入框 / 建议按钮 / 预设下拉同步改为半透明玻璃',
+      '代码块 pre、行内 code、表格 th：按用户要求「加暗一点点 + 加糊」——底色仍半透明，另叠一层 linear-gradient(rgba(0,0,0,var(--float-solid-dim))) 压暗（新增 --float-solid-dim: 0.16），并保留 blur。这三类内容对对比度最敏感，纯透会让代码与表格分隔难以辨认，压一点点回来正好',
+      '补齐三处容易漏的地方：① .code-header（代码块顶部语言/复制条）原本实心 --bg-deep，若只让主体半透会出现「头实心、身子透」的割裂；② pre 内部的 code 必须清空背景，否则内外叠两层会明显比周围更暗；③ 右侧编辑器 .preview-pane 自带实心 --bg-main 会把 .editor 的玻璃底整块盖住，连同 .md-preview 的 code/pre/th 一并按同套规则处理',
+      '引用块 blockquote 也由 --bg-panel 改为半透明，但未加 blur：它是行内小块，大面积毛玻璃反而拖累渲染，且带模糊会与相邻正文产生视觉断层',
+      'AI 回复气泡（.msg .bubble）与工具卡片原本就是 transparent，无需改动；本次只处理真正不透明的元素，避免无意义地重写已有样式',
+      'check_code 第二级运行时检查无报错（内联 JS 已在隐藏 iframe 真实执行）；第一级剩余 6 条仍是文件既有问题（inline style 与 img 缺 src），本次改动为纯 CSS 追加，未新增任何规范级问题'
+    ]
+  },
+  {
+    v: '2026.11.17.2',
+    date: '2026-11-17',
+    title: '修复浮窗主题背景图不生效：读取时机早于 VFS.init、repeat 是非法 background-size、负 z-index 伪元素被 canvas 盖住',
+    items: [
+      '根因一（致命，时机错）：applyFloatBg 走 VFS.getContent，而 getContent 开头就是 if (!m || m.type !== \'file\') return null —— 查的是 VFS.meta。原实现把 applyFloatBg 排在初始化链靠前位置（applyTheme 之后），那时 VFS.init() 还没跑，meta 是空对象，必然返回 null，背景图永远读不到。已把它移到 VFS.init() 之后（vfsReady 置位之后），并用 applyFloatBg().catch() 包一层：safe() 只能兜同步异常，抓不住 async 函数内部抛错',
+      '根因二（隐形杀手）：适配方式下拉原本把 cover / contain / repeat 三选一全塞进 --float-bg-size。而 repeat 不是 background-size 的合法值 —— CSS 多层背景里只要有一层值非法，整条声明会被浏览器整体丢弃，后果是尺寸与重复规则一起失效。现拆成 --float-bg-size 与 --float-bg-repeat 两个独立变量，repeat 对应 size:auto + repeat:repeat',
+      '根因三（层级陷阱）：背景原用 body::before + position:fixed + z-index:-1 绘制。body 未建立层叠上下文时，负 z-index 的伪元素会退到 canvas 背景之后，而 html/body 都没设背景（canvas 默认白），于是整片区域反而露白；同时 body 若自带不透明背景，又会与伪元素抢同一块区域把图盖掉。现改为直接画在 body 上：body 背景会传播到 canvas，天然铺满视口，配 background-attachment: fixed 让图相对视口固定不随滚动跑',
+      'cfgFloatBgFit 的 change 监听里也有一份同样的 repeat 错误写法（把 repeat 直接 setProperty 给 --float-bg-size），若只修 applyGlassVars 会导致「保存后正常、下拉一改又坏」。两处已统一成同一套拆法，避免修复不彻底',
+      '背景图恢复「以文件在不在为唯一判定」后，cfg.floatBgPath 实际已成为冗余字段（且 saveCfg 不收集它、刷新后恒为空），行为上不参与任何判断，不影响功能，留待后续清理',
+      'check_code 第二级运行时检查无报错（内联 JS 已在隐藏 iframe 真实执行）；第一级剩余 6 条仍为文件既有问题（inline style 与 img 缺 src，行号因本次增行从 1399 位移到 1409 等），本次改动未新增规范级问题'
+    ]
+  },
+  {
+    v: '2026.11.17.1',
+    date: '2026-11-17',
+    title: '新增第三套「浮窗」主题：5 个容器改圆角浮岛 + 毛玻璃参数可调 + 可上传背景图',
+    items: [
+      '保留深色 / 浅色两套原样不动，新增 body.theme-float 第三套主题；设置 → 界面 的主题下拉扩为三选一，三态互斥（float 与 light 不会同时挂类，避免浅色补丁规则污染浮窗样式）',
+      '改动口径严格限定在「只换外壳」：nav-rail / sidebar / chat-head / composer / editor 五个容器从连片分栏改为各自独立的圆角浮空面板，容器内部所有按钮、图标、字号、内边距、VFS ▾ 下拉、⋯ 菜单、标题铅笔、+ 上传、模型选择器、发送键、token 条位置样式一律未动',
+      '毛玻璃用 background-color + linear-gradient 叠白 + backdrop-filter: blur() saturate() 实现，nav-rail 因是 position:fixed 单独写一份（且保持 overflow:visible，否则 ::after 悬停文字会被圆角裁掉）；圆角、间距、模糊、底色不透明度、叠加白全部走 --float-* CSS 变量',
+      '为让面板真正「浮」起来连带调整三处几何：body.theme-float 去 padding-left 改四周留白、.app 加 gap、.chat 背景改透明并加 gap（否则标题栏和输入区浮在同色底上分不出边界）；设置内联页 #settingsModal 的 left 跟着留白走，不然会错开或盖住导航栏',
+      '参数存成 cfg 上的 8 个扁平字段（glassBlur / glassTint / glassWhite / glassRadius / glassGap / floatBgPath / floatBgFit / floatBgDim）而非嵌套对象：loadCfg 用的是 Object.assign(cfg, JSON.parse(...)) 浅合并，嵌套对象会被整体覆盖、丢失默认值',
+      '所有数值过 _num(v, def, min, max) 兜底后再写 CSS：NaN 进到 CSS 会让整条属性失效（NaNpx），非法值一律退回默认，绝不把 NaN 写进变量',
+      '背景图走 FileReader.readAsDataURL 转 data URL 文本存进 VFS /config/theme-bg.img（与 download_url 落二进制的方式一致，VFS 存得下），固定路径覆盖写，重复上传不产生垃圾文件，MIME 由 data URL 自带所以不必管扩展名；超过 800KB 弹提示，因为它会随 /config/ 一起进云端同步与导出备份，大图会撑大体积且 Gitee 单文件 1MB 限制照样适用',
+      '修掉一个自己引入的一致性缺陷：背景图原本既看 VFS 文件、又要求 cfg.floatBgPath 有值（而该字段只有点「保存设置」才写入），会出现「文件明明还在、刷新后背景却没了」的割裂状态；改为以「文件在不在」为唯一判定，与 setter 解耦',
+      '修掉实时预览的残留问题：closeSettings 补一段按已落盘 cfg 回滚 —— 浮窗参数是拖动即时预览的，若用户拖完直接点遮罩关闭或取消，原实现会把预览样式留在界面上，与下次刷新看到的不一致；回滚同时还原主题下拉值、body 上的类与参数区显隐',
+      '滑块 input 用表单快照调 applyGlassVars(src) 做预览，不写 cfg（取消即无效）；主题下拉 change 时立即切换参数区显隐并预览，CustomSelect 会 dispatchEvent(new Event(\'change\'))，自定义下拉下同样生效',
+      '浮窗参数区 #floatThemeOpts 默认 hidden，仅在 theme=float 时由 applyTheme 显示，避免用户在深色 / 浅色下调一堆不生效的滑块；新增 .float-opts 系列样式，滑块覆盖 .field input 的宽内边距与边框改用原生外观',
+      'check_code 第二级运行时检查无报错（内联 JS 已在隐藏 iframe 中真实执行）；第一级剩余 6 条均为文件既有问题（1399/1401/1406/1415/1423/1431 行的 inline style 与 img 缺 src），本次新增代码未引入新的规范级问题，新加的 file input 也刻意用 hidden 属性而非 style="display:none" 避开同类告警'
+    ]
+  },
   {
     v: '2026.11.16.11',
     date: '2026-11-16',
@@ -8138,7 +8405,18 @@ const DEFAULT_SYSTEM = `你拥有一个虚拟文件系统（VFS）并运行在�
 12. 一轮结束前汇报当前状态、下一步，因为会丢思考过程，得从头思考。
 13. **插件能给你加新工具**：详细内容见/plugins/develop.md。
 14. 意义不明的要求必须用 ask_user 询问，不可擅自动工。`;
-const cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, toolTimeoutMs: 120000, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', titleGenOn: true, titleIconGenOn: true, titleGenParallel: true, fullSync: false, toastProgressPos: 'background', autoPasteLong: true, lazyTools: true, disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true, htmlCheckTimeoutMs: 6000 };
+const cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3, reasoningEffort: '', maxLoops: 20, toolTimeoutMs: 120000, systemPrompt: DEFAULT_SYSTEM, cloudBackend: 'gitee', wdServer: 'https://dav.jianguoyun.com/dav/', wdUser: '', wdPass: '', wdPath: '/apps/agent_vfs/backup.json', giteeRepo: '', giteeToken: '', giteePath: '', gistToken: '', gistId: '', gistFilename: 'vfs-backup.json', customBackupUrl: '', autoSyncMinutes: 0, hidePreview: false, hideSidebar: false, theme: 'dark', allowRouteAI: true, mcpRepoUrl: '', corsProxy: '', memoryOn: true, agentMode: 'auto', titleGenOn: true, titleIconGenOn: true, titleGenParallel: true, fullSync: false, toastProgressPos: 'background', autoPasteLong: true, lazyTools: true, disabledTools: ['kb_write', 'kb_delete', 'kb_commit'], kbPlatform: 'gitee', kbRepo: 'qiujunawa/mcp-library', kbToken: '', kbBranch: 'master', searchApiKey: '', maxToolCalls: 60, maxWallTime: 300, maxInputTokens: 200000, maxOutputTokens: 16000, maxCost: 0, csToken: '', csName: '', csBridgePort: 8787, csBridgeToken: '', csBridgeUrl: '', csWorkdir: '', csTimeoutSec: 120, csDomain: 'app.github.dev', csRequireConfirm: true, htmlCheckTimeoutMs: 6000,
+  // ---- 浮窗主题（theme='float'）参数 ----
+  // 扁平字段而非嵌套对象：loadCfg 用 Object.assign(cfg, JSON.parse(...)) 合并，嵌套对象会被整体覆盖、丢默认值。
+  glassBlur: 18,        // 高斯模糊半径 px，0 = 退化为纯半透明（低端机降级）
+  glassTint: 55,        // 面板底色不透明度 %
+  glassWhite: 6,        // 叠加白层不透明度 %
+  glassRadius: 14,      // 圆角 px
+  glassGap: 10,         // 浮窗之间的间距 px
+  floatBgPath: '',      // 背景图在 VFS 里的路径，空 = 用默认纯色底
+  floatBgFit: 'cover',  // 背景适配 cover / contain / repeat
+  floatBgDim: 35        // 背景图压暗 %
+};
 /* ---------- 密钥加密（主密码 + PBKDF2 + AES-GCM） ---------- */
 const SECRET_FIELDS = ['apiKey', 'giteeToken', 'wdPass', 'gistToken', 'kbToken', 'searchApiKey', 'csToken', 'csBridgeToken'];
 let masterPassword = '';  // 运行时主密码，不存储
@@ -15228,6 +15506,16 @@ async function openSettings() {
     $('cfgAutoSync').value = Number(cfg.autoSyncMinutes) || 0;
     $('cfgAllowRouteAI').checked = cfg.allowRouteAI !== false;
     $('cfgTheme').value = cfg.theme || 'dark';
+    // 浮窗主题参数回填（缺元素时静默跳过，兼容老版本被裁剪的 DOM）
+    const _fill = (id, v) => { const el = $(id); if (el) el.value = v; };
+    _fill('cfgGlassBlur', _num(cfg.glassBlur, GLASS_DEFAULTS.blur, 0, 40));
+    _fill('cfgGlassTint', _num(cfg.glassTint, GLASS_DEFAULTS.tint, 0, 100));
+    _fill('cfgGlassWhite', _num(cfg.glassWhite, GLASS_DEFAULTS.white, 0, 40));
+    _fill('cfgGlassRadius', _num(cfg.glassRadius, GLASS_DEFAULTS.radius, 0, 28));
+    _fill('cfgGlassGap', _num(cfg.glassGap, GLASS_DEFAULTS.gap, 0, 24));
+    _fill('cfgFloatBgDim', _num(cfg.floatBgDim, GLASS_DEFAULTS.dim, 0, 80));
+    _fill('cfgFloatBgFit', cfg.floatBgFit || 'cover');
+    applyGlassVars();
     const hp = $('cfgHidePreview'); if (hp) hp.checked = !!cfg.hidePreview;
     const hs = $('cfgHideSidebar'); if (hs) hs.checked = !!cfg.hideSidebar;
     const mo = $('cfgMemoryOn'); if (mo) mo.checked = cfg.memoryOn !== false;
@@ -15250,6 +15538,17 @@ async function openSettings() {
 }
 function closeSettings() {
   const m = $('settingsModal'); if (m) m.classList.remove('open');
+  // 浮窗主题参数是「拖动即时预览」的：关掉设置时若没点保存，必须按已落盘的 cfg 回滚，
+  // 否则用户点取消/点遮罩关闭后，界面上还留着预览出来的样式，和下次刷新看到的不一致。
+  try {
+    const themeSel = $('cfgTheme');
+    if (themeSel) themeSel.value = cfg.theme || 'dark';
+    document.body.classList.toggle('theme-light', cfg.theme === 'light');
+    document.body.classList.toggle('theme-float', cfg.theme === 'float');
+    const opts = $('floatThemeOpts');
+    if (opts) opts.hidden = (cfg.theme || 'dark') !== 'float';
+    applyGlassVars();   // 不传参 = 按 cfg 回滚
+  } catch (e) { console.warn('[settings] 浮窗参数回滚失败', e); }
   // 设置若是「内联页」形式打开的（data-mode="settings"），关闭时退回对话页，避免停在空白设置模式
   if (document.body.dataset.mode === 'settings') {
     document.body.dataset.mode = 'chat';
@@ -15302,7 +15601,112 @@ function applySidebarVisibility() {
   }
 }
 function applyTheme() {
-  document.body.classList.toggle('theme-light', cfg.theme === 'light');
+  // 三态互斥：float 与 light 不能同时挂，否则浅色主题的补丁规则会污染浮窗样式
+  const theme = cfg.theme || 'dark';
+  document.body.classList.toggle('theme-light', theme === 'light');
+  document.body.classList.toggle('theme-float', theme === 'float');
+  // 参数区显隐：只在浮窗主题下露出来，避免用户在深色/浅色下调了一堆没用的滑块
+  const opts = $('floatThemeOpts');
+  if (opts) opts.hidden = theme !== 'float';
+  applyGlassVars();
+}
+
+/* ---------- 浮窗主题：把 cfg 里的参数写进 CSS 变量 ----------
+ * 全部走 documentElement.style 上的 --float-* 变量，改成实时预览的实现方式：
+ * 滑块 input 事件调这三个函数即可，不必重建样式表，也不必落盘。
+ * 任何一项读不到合法值时都退回默认值，绝不让 NaN 进到 CSS（NaNpx 会让整条属性失效）。 */
+const GLASS_DEFAULTS = { blur: 18, tint: 55, white: 6, radius: 14, gap: 10, dim: 35 };
+function _num(v, def, min, max) {
+  const n = Number(v);
+  if (!isFinite(n)) return def;
+  return Math.min(max, Math.max(min, n));
+}
+function applyGlassVars(src) {
+  // src 可传：拖动滑块时传表单快照做实时预览，不污染 cfg（用户点取消仍是原值）
+  const c = src || cfg;
+  const r = document.documentElement.style;
+  const blur = _num(c.glassBlur, GLASS_DEFAULTS.blur, 0, 40);
+  const tint = _num(c.glassTint, GLASS_DEFAULTS.tint, 0, 100);
+  const white = _num(c.glassWhite, GLASS_DEFAULTS.white, 0, 40);
+  const radius = _num(c.glassRadius, GLASS_DEFAULTS.radius, 0, 28);
+  const gap = _num(c.glassGap, GLASS_DEFAULTS.gap, 0, 24);
+  const dim = _num(c.floatBgDim, GLASS_DEFAULTS.dim, 0, 80);
+  r.setProperty('--float-blur', blur + 'px');
+  r.setProperty('--float-tint', (tint / 100).toFixed(3));
+  r.setProperty('--float-white', (white / 100).toFixed(3));
+  r.setProperty('--float-radius', radius + 'px');
+  r.setProperty('--float-gap', gap + 'px');
+  r.setProperty('--float-dim', (dim / 100).toFixed(3));
+  // 适配方式要拆成两个变量写：cover/contain 属于 background-size，repeat 属于 background-repeat。
+  // 原实现把三选一全塞进 --float-bg-size，选「平铺」时会写出 background-size: repeat（非法值），
+  // 而多层背景里只要有一层非法，整条声明就被丢弃 —— 表现就是背景图尺寸与重复规则一起失效。
+  const fit = c.floatBgFit === 'repeat' ? 'repeat' : (c.floatBgFit === 'contain' ? 'contain' : 'cover');
+  r.setProperty('--float-bg-size', fit === 'repeat' ? 'auto' : fit);
+  r.setProperty('--float-bg-repeat', fit === 'repeat' ? 'repeat' : 'no-repeat');
+  // 同步滑块旁的数值文字，保证「点保存后」与「拖动时」显示一致
+  _setFloatLabel('fvBlur', blur + 'px');
+  _setFloatLabel('fvTint', tint + '%');
+  _setFloatLabel('fvWhite', white + '%');
+  _setFloatLabel('fvRadius', radius + 'px');
+  _setFloatLabel('fvGap', gap + 'px');
+  _setFloatLabel('fvDim', dim + '%');
+}
+function _setFloatLabel(id, text) {
+  const el = $(id);
+  if (el) el.textContent = text;
+}
+
+/* ---------- 浮窗主题：背景图 ----------
+ * 存成 data URL 文本放进 VFS（与 download_url 落二进制的方式一致，VFS 存得下）。
+ * 固定路径、覆盖写：重复上传不产生垃圾文件，也不用管扩展名（MIME 由 data URL 自带）。 */
+const FLOAT_BG_PATH = '/config/theme-bg.img';
+async function applyFloatBg() {
+  const r = document.documentElement.style;
+  let url = 'none';
+  // 判定依据是「文件在不在」，而不是 cfg.floatBgPath 开关：
+  // 图片是上传即落盘到 VFS 的，若再要求 cfg 里也有值（只有点「保存设置」才写入），
+  // 就会出现「文件明明还在、刷新后背景却没了」的割裂状态。文件为准最简单也最不会有歧义。
+  try {
+    const raw = await VFS.getContent(FLOAT_BG_PATH);
+    // getContent 在「无正文且云端拉取失败」时返回空串，与「真的是空文件」无法区分 —— 当作没有背景处理
+    if (raw && /^data:image\//i.test(raw)) url = 'url("' + raw.replace(/"/g, '%22') + '")';
+  } catch (e) { console.warn('[float bg] 读取背景图失败', e); }
+  r.setProperty('--float-bg-img', url);
+  const st = $('floatBgStatus');
+  if (st) st.textContent = url === 'none' ? '未设置（默认纯色底）' : '已设置（' + FLOAT_BG_PATH + '）';
+}
+
+/* 把选中的图片文件读成 data URL 并写进 VFS，然后立刻应用 */
+async function uploadFloatBg(file) {
+  if (!file) return;
+  if (!/^image\//.test(file.type)) { toast('只能上传图片文件', 'err'); return; }
+  const dataUrl = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ''));
+    fr.onerror = () => reject(new Error('读取文件失败'));
+    fr.readAsDataURL(file);
+  });
+  if (!dataUrl) { toast('图片读取失败', 'err'); return; }
+  // 体积提醒：背景图会随 /config/ 一起进云端同步与导出备份，大图会明显撑大备份
+  const bytes = Math.round(dataUrl.length * 0.75);
+  if (bytes > 800 * 1024) {
+    toast('背景图约 ' + Math.round(bytes / 1024) + 'KB，偏大：会撑大备份体积，Gitee 同步可能因单文件 1MB 限制失败', 'err');
+  }
+  await VFS.writeFile(FLOAT_BG_PATH, dataUrl);
+  cfg.floatBgPath = FLOAT_BG_PATH;
+  await applyFloatBg();
+  try { await refreshFS(); } catch (e) {}
+  toast('背景图已保存到 ' + FLOAT_BG_PATH + '（点「保存设置」写入配置）');
+}
+
+async function clearFloatBg() {
+  try { await VFS.deletePath(FLOAT_BG_PATH); } catch (e) {}
+  cfg.floatBgPath = '';
+  document.documentElement.style.setProperty('--float-bg-img', 'none');
+  const st = $('floatBgStatus');
+  if (st) st.textContent = '未设置（默认纯色底）';
+  try { await refreshFS(); } catch (e) {}
+  toast('背景图已清除');
 }
 /* 粗略估算 token 数：中文约 1.5 字符/token，英文约 4 字符/token，取混合估算 */
 /* ---------- 输入体验：机械注入检测 + 超长自动转存 ---------- */
@@ -17191,6 +17595,51 @@ function bindEvents() {
   on('btnQuoteCancel', 'click', clearQuote);
   const cfgTempEl = $('cfgTemp');
   if (cfgTempEl) cfgTempEl.addEventListener('input', () => { const v = $('cfgTempVal'); if (v) v.textContent = cfgTempEl.value; });
+  // ===== 浮窗主题：参数区事件 =====
+  // 滑块 input → 用表单快照实时预览（不写 cfg，用户点取消时配置仍是原值）
+  const _readGlassForm = () => ({
+    glassBlur: ($('cfgGlassBlur') || {}).value,
+    glassTint: ($('cfgGlassTint') || {}).value,
+    glassWhite: ($('cfgGlassWhite') || {}).value,
+    glassRadius: ($('cfgGlassRadius') || {}).value,
+    glassGap: ($('cfgGlassGap') || {}).value,
+    floatBgDim: ($('cfgFloatBgDim') || {}).value,
+    floatBgFit: ($('cfgFloatBgFit') || {}).value
+  });
+  ['cfgGlassBlur', 'cfgGlassTint', 'cfgGlassWhite', 'cfgGlassRadius', 'cfgGlassGap', 'cfgFloatBgDim'].forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener('input', () => applyGlassVars(_readGlassForm()));
+  });
+  const bgFitEl2 = $('cfgFloatBgFit');
+  if (bgFitEl2) bgFitEl2.addEventListener('change', () => {
+    // 适配方式直接写进变量预览（下拉是一次性选择，不需要撤销语义）。
+    // 必须和 applyGlassVars 里同一套拆法：repeat 归 background-repeat，size 只接受 cover/contain/auto，
+    // 否则下拉一选「平铺」就写出非法的 background-size，整条多层背景声明会被丢弃。
+    const fit = bgFitEl2.value === 'repeat' ? 'repeat' : (bgFitEl2.value === 'contain' ? 'contain' : 'cover');
+    const st = document.documentElement.style;
+    st.setProperty('--float-bg-size', fit === 'repeat' ? 'auto' : fit);
+    st.setProperty('--float-bg-repeat', fit === 'repeat' ? 'repeat' : 'no-repeat');
+  });
+  // 主题下拉改选时立刻切换参数区显隐并预览，用户不必先点保存才能看到效果
+  const themeSelEl = $('cfgTheme');
+  if (themeSelEl) themeSelEl.addEventListener('change', () => {
+    const t = themeSelEl.value || 'dark';
+    document.body.classList.toggle('theme-light', t === 'light');
+    document.body.classList.toggle('theme-float', t === 'float');
+    const opts = $('floatThemeOpts');
+    if (opts) opts.hidden = t !== 'float';
+    applyGlassVars(_readGlassForm());
+    // 切到浮窗时要读一次背景图（读 VFS 是异步的）；切走时不清理，变量留着无害，下次切回来无需重读
+    if (t === 'float') applyFloatBg().catch(e => console.warn('[float bg] 预览失败', e));
+  });
+  on('btnFloatBgUpload', 'click', () => { const f = $('floatBgFile'); if (f) f.click(); });
+  const bgFileEl = $('floatBgFile');
+  if (bgFileEl) bgFileEl.addEventListener('change', async () => {
+    const f = bgFileEl.files && bgFileEl.files[0];
+    bgFileEl.value = '';   // 清空，选同一张图也能再次触发 change
+    try { await uploadFloatBg(f); } catch (e) { toast('背景图保存失败：' + e.message, 'err'); }
+  });
+  on('btnFloatBgClear', 'click', async () => { try { await clearFloatBg(); } catch (e) { toast('清除失败：' + e.message, 'err'); } });
   const cfgBaseUrlEl = $('cfgBaseUrl');
   if (cfgBaseUrlEl) cfgBaseUrlEl.addEventListener('change', () => refreshModelSuggestions(detectProvider(cfgBaseUrlEl.value)));
   const cfgProviderQuickEl = $('cfgProviderQuick');
@@ -17364,6 +17813,15 @@ function bindEvents() {
     cfg.autoSyncMinutes = Math.max(0, parseInt($('cfgAutoSync').value) || 0);
     cfg.allowRouteAI = $('cfgAllowRouteAI').checked;
     cfg.theme = $('cfgTheme').value || 'dark';
+    // 浮窗主题参数（扁平字段）：滑块值一律过一遍 _num，防止非法值写进配置
+    cfg.glassBlur = _num(($('cfgGlassBlur') || {}).value, GLASS_DEFAULTS.blur, 0, 40);
+    cfg.glassTint = _num(($('cfgGlassTint') || {}).value, GLASS_DEFAULTS.tint, 0, 100);
+    cfg.glassWhite = _num(($('cfgGlassWhite') || {}).value, GLASS_DEFAULTS.white, 0, 40);
+    cfg.glassRadius = _num(($('cfgGlassRadius') || {}).value, GLASS_DEFAULTS.radius, 0, 28);
+    cfg.glassGap = _num(($('cfgGlassGap') || {}).value, GLASS_DEFAULTS.gap, 0, 24);
+    cfg.floatBgDim = _num(($('cfgFloatBgDim') || {}).value, GLASS_DEFAULTS.dim, 0, 80);
+    const bgFitEl = $('cfgFloatBgFit');
+    if (bgFitEl) cfg.floatBgFit = bgFitEl.value || 'cover';
     const hp = $('cfgHidePreview'); if (hp) cfg.hidePreview = hp.checked;
     const hs = $('cfgHideSidebar'); if (hs) cfg.hideSidebar = hs.checked;
     const mo = $('cfgMemoryOn'); if (mo) cfg.memoryOn = mo.checked;
@@ -17747,6 +18205,9 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
   safe('applySidebarVisibility', applySidebarVisibility);
   safe('applySideScope', () => applySideScope('vfs'));
   safe('applyTheme', applyTheme);
+  // 注：背景图不在这里读。applyFloatBg 走 VFS.getContent，而 VFS.init() 排在下面，
+  // 此刻 VFS.meta 还是空的，getContent 必然返回 null —— 那正是「背景图不生效」的根因。
+  // 正确时机在 VFS.init() 之后，见下方 vfsReady 之后的调用。
   safe('updateTokenBar', updateTokenBar);
   // 首次使用隐私提示（localStorage 标记，看过不再弹）
   try {
@@ -17759,6 +18220,11 @@ async function requireVfs() { if (!vfsReady) await vfsReadyPromise; }
   try { await VFS.init(); }
   catch (e) { console.error('[init] VFS.init 失败：', e); memoryOnly = true; memoryReason = (e && e.message) ? e.message : String(e); }
   finally { vfsReady = true; vfsReadyResolve(); }
+  // 浮窗主题背景图：必须排在 VFS.init() 之后。applyFloatBg 走 VFS.getContent，
+  // 而 getContent 开头就查 VFS.meta —— 初始化完成前 meta 是空对象，必然返回 null，
+  // 表现就是「背景图设置了却不生效」。这是本次修复的核心：时机错误，而非逻辑错误。
+  // 用 .catch 包一层：safe() 只兜同步异常，async 函数抛错它抓不到。
+  if (cfg.theme === 'float') safe('applyFloatBg', () => applyFloatBg().catch(e => console.warn('[float bg] 加载失败', e)));
   safe('loadProfiles', () => loadProfiles().catch(e => console.error('[init] loadProfiles', e)));
   // 跨设备会话同步：合并 VFS 里的 /config/sessions.json 与 /conversations/*.md 到本地会话列表
   safe('mergeSessionsFromVfs', () => mergeSessionsFromVfs().catch(e => console.warn('[init] mergeSessions', e)));
