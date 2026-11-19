@@ -6,8 +6,8 @@
 
 ```bash
 # 任选其一
-python3 -m http.server 8080     # 然后打开 http://localhost:8080
-# 或直接双击 index.html（Chrome / Edge 下 file:// 也可用；部分浏览器会限制 file:// 的 IndexedDB）
+python3 -m http.server 8080     # 然后打开 http://localhost:8080/index-v2.html
+# 或直接双击 index-v2.html（Chrome / Edge 下 file:// 也可用；部分浏览器会限制 file:// 的 IndexedDB）
 ```
 
 首次打开 → 左下角设置 → 填 **API Base URL / API Key / 模型名** → 测试连接 → 开始对话。
@@ -18,7 +18,7 @@ python3 -m http.server 8080     # 然后打开 http://localhost:8080
 ## 文件结构
 
 ```
-index.html        页面骨架（导航 / 侧栏 / 聊天 / 编辑器 / 任务页 / 设置弹窗）
+index-v2.html     页面骨架（导航 / 侧栏 / 聊天 / 编辑器 / 任务页 / 设置弹窗）
 app.css           全部样式（深/浅主题、响应式、动效可被 reduced-motion 关闭）
 js/util.js        路径、格式化、token 估算、文件读写、剪贴板等纯函数
 js/store.js       IndexedDB 封装 + VFS（元数据常驻内存、正文 LRU、内存降级）
@@ -115,5 +115,6 @@ js/app.js         启动、文件树、编辑器、待办、任务页、导航�
 
 ## 交付说明
 
-- 本版是**多文件结构**（`index.html` + `js/*.js` + `app.css`），没有推送到 `QiuJunawa/Agent-On-HTML`；避免在未验收前改动线上 main。若要上线，把整个目录覆盖到仓库根即可，GitHub Pages 直接可用。
+- 本版是**多文件结构**（`index-v2.html` + `js/*.js` + `app.css`），已推送到 `QiuJunawa/Agent-On-HTML` 的 `main`；旧 `index.html` 保持原样，方便对照与回滚。
+- 线上地址：<https://qiujunawa.github.io/Agent-On-HTML/index-v2.html>。
 - 没有使用你的真实 API Key；上面的验收全部走本地 mock。需要我做真实服务商兼容性实测时，把 Key 发我，测完立即销毁。
