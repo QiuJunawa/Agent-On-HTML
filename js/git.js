@@ -52,7 +52,7 @@
       const msg = (data && (data.message || data.error || data.error_description)) || text.slice(0, 200) || ('HTTP ' + resp.status);
       throw new Error('Git ' + resp.status + '：' + msg);
     }
-    return { data, text, headers: resp.headers };
+    return { data, text, status: resp.status, headers: resp.headers };
   }
 
   function ghHeaders(t) {
@@ -73,13 +73,16 @@
     if (c.branch) return c.branch;
     if (c.platform === 'github') {
       const r = await req('https://api.github.com/repos/' + c.repo, { headers: ghHeaders(c.token) });
-      c.branch = r.data.default_branch || 'main';
+      const d = asObj(r);
+      c.branch = (d && d.default_branch) || 'main';
     } else if (c.platform === 'gitlab') {
       const r = await req('https://gitlab.com/api/v4/projects/' + encodeURIComponent(c.repo), { headers: glHeaders(c.token) });
-      c.branch = r.data.default_branch || 'main';
+      const d = asObj(r);
+      c.branch = (d && d.default_branch) || 'main';
     } else {
       const r = await req(giteeUrl('/repos/' + c.repo, c.token));
-      c.branch = r.data.default_branch || 'master';
+      const d = asObj(r);
+      c.branch = (d && d.default_branch) || 'master';
     }
     return c.branch;
   }
@@ -119,7 +122,8 @@
       content = r.text;
     } else {
       const r = await req(giteeUrl('/repos/' + c.repo + '/contents' + (path ? '/' + path : ''), c.token, { ref }));
-      content = dec(r.data.content);
+      if (Array.isArray(r.data)) throw new Error('目标路径是目录，不能按文件读取：' + path);
+      content = dec(pick(r, ['content'], '读取文件内容（' + path + '）'));
     }
     const lines = content.split('\n');
     const s = Math.max(1, Number(a.start_line) || 1);
@@ -127,24 +131,50 @@
     return lines.slice(s - 1, e).map((l, i) => String(s + i).padStart(4) + ' | ' + l).join('\n');
   };
 
+  /* 安全取对象：接口返回空体、HTML 或数组时不让调用方崩在 .sha 上 */
+  function asObj(r) {
+    const d = r && r.data;
+    if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+    return d;
+  }
+
+  /* 按路径取必需字段；取不到就抛出带上下文和响应片段的错误，而不是 TypeError */
+  function pick(r, keys, what) {
+    let cur = asObj(r);
+    for (const k of keys) cur = cur && cur[k];
+    if (!cur) {
+      throw new Error('Git 响应异常：' + what + ' 未返回 ' + keys.join('.') +
+        '（HTTP ' + ((r && r.status) || 200) + '）' +
+        (r && r.text ? '，响应片段：' + String(r.text).slice(0, 120) : '，响应为空'));
+    }
+    return cur;
+  }
+
   /* ---------- 取文件 sha（更新/删除需要） ---------- */
   async function shaOf(c, path, ref) {
     try {
       if (c.platform === 'github') {
         const r = await req('https://api.github.com/repos/' + c.repo + '/contents' + (path ? '/' + path : '') + '?ref=' + encodeURIComponent(ref), { headers: ghHeaders(c.token) });
-        return r.data.sha || null;
+        // path 指向目录时 GitHub 返回数组：没有 sha，且不能当文件写
+        if (Array.isArray(r.data)) throw new Error('目标路径是目录，不能按文件写入：' + path);
+        if (!r.data && r.text) throw new Error('GitHub 返回了非 JSON 响应（HTTP ' + (r.status || 200) + '）：' + r.text.slice(0, 120));
+        const d = asObj(r);
+        return (d && d.sha) || null;
       }
       if (c.platform === 'gitlab') {
         try {
           const r = await req('https://gitlab.com/api/v4/projects/' + encodeURIComponent(c.repo) + '/repository/files/' + encodeURIComponent(path) + '?ref=' + encodeURIComponent(ref), { headers: glHeaders(c.token) });
-          return r.data && r.data.file_path ? 'exists' : null;
+          const d = asObj(r);
+          return d && d.file_path ? 'exists' : null;
         } catch (e) {
           if (/Git 404/.test(e.message)) return null;
           throw e;
         }
       }
       const r = await req(giteeUrl('/repos/' + c.repo + '/contents' + (path ? '/' + path : ''), c.token, { ref }));
-      return r.data.sha || null;
+      if (Array.isArray(r.data)) throw new Error('目标路径是目录，不能按文件写入：' + path);
+      const d = asObj(r);
+      return (d && d.sha) || null;
     } catch (e) {
       if (/Git 404/.test(e.message)) return null;
       throw e;
@@ -240,9 +270,9 @@
     const message = String(a.message || ('batch update ' + actions.length + ' files'));
     if (c.platform === 'github') {
       const head = await req('https://api.github.com/repos/' + c.repo + '/git/ref/heads/' + encodeURIComponent(ref), { headers: ghHeaders(c.token) });
-      const parent = head.data.object.sha;
+      const parent = pick(head, ['object', 'sha'], '读取分支 ' + ref + ' 的头指针');
       const commit = await req('https://api.github.com/repos/' + c.repo + '/git/commits/' + parent, { headers: ghHeaders(c.token) });
-      const baseTree = commit.data.tree.sha;
+      const baseTree = pick(commit, ['tree', 'sha'], '读取父提交树');
       const entries = [];
       for (const act of actions) {
         const path = cleanPath(act.path);
@@ -255,7 +285,7 @@
           method: 'POST', headers: Object.assign(ghHeaders(c.token), { 'Content-Type': 'application/json' }),
           body: JSON.stringify({ content: enc(String(act.content == null ? '' : act.content)), encoding: 'base64' })
         });
-        entries.push({ path, mode: '100644', type: 'blob', sha: blob.data.sha });
+        entries.push({ path, mode: '100644', type: 'blob', sha: pick(blob, ['sha'], '创建 blob（' + path + '）') });
       }
       const tree = await req('https://api.github.com/repos/' + c.repo + '/git/trees', {
         method: 'POST', headers: Object.assign(ghHeaders(c.token), { 'Content-Type': 'application/json' }),
@@ -263,13 +293,14 @@
       });
       const newCommit = await req('https://api.github.com/repos/' + c.repo + '/git/commits', {
         method: 'POST', headers: Object.assign(ghHeaders(c.token), { 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ message, tree: tree.data.sha, parents: [parent] })
+        body: JSON.stringify({ message, tree: pick(tree, ['sha'], '创建 tree'), parents: [parent] })
       });
+      const newSha = pick(newCommit, ['sha'], '创建 commit');
       await req('https://api.github.com/repos/' + c.repo + '/git/refs/heads/' + encodeURIComponent(ref), {
         method: 'PATCH', headers: Object.assign(ghHeaders(c.token), { 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ sha: newCommit.data.sha })
+        body: JSON.stringify({ sha: newSha })
       });
-      return '已批量提交 ' + entries.length + ' 项 → ' + newCommit.data.sha;
+      return '已批量提交 ' + entries.length + ' 项 → ' + newSha;
     }
     if (c.platform === 'gitlab') {
       const acts = actions.map((x) => ({
@@ -281,7 +312,8 @@
         method: 'POST', headers: Object.assign(glHeaders(c.token), { 'Content-Type': 'application/json' }),
         body: JSON.stringify({ branch: ref, commit_message: message, actions: acts })
       });
-      return '已批量提交 ' + acts.length + ' 项 → ' + (r.data.id || 'ok');
+      const d = asObj(r);
+      return '已批量提交 ' + acts.length + ' 项 → ' + ((d && d.id) || 'ok');
     }
     // Gitee 没有 batch API：顺序执行，失败即停并报告已完成部分
     let done = 0;
