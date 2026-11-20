@@ -364,7 +364,7 @@
       bubble.appendChild(md);
       wrap.appendChild(bubble);
     }
-    if (parsed.data) wrap.appendChild(buildDeliverCard(parsed.data));
+    (parsed.datas || []).forEach((d) => wrap.appendChild(buildDeliverCard(d)));
 
     if (m.tool_calls && m.tool_calls.length) {
       const cards = document.createElement('div');
@@ -506,39 +506,94 @@
     return box;
   }
 
+  /*
+   * 解析正文里的 [deliver:标题 | 描述 | /文件1, /文件2] 标记。
+   * 与旧版的区别（旧版只认「整行、且不含 ]」的写法，导致标记被原样显示）：
+   *  1) 先扫描出所有完整标记（方括号按层配对，描述里可含 [ref:] 之类的方括号）；
+   *  2) 标记可以出现在行内、列表项、加粗里，不再要求独占一行；
+   *  3) 跳过围栏代码块与行内代码，避免把示例当指令执行；
+   *  4) 全角冒号「：」、全角竖线「｜」与半角等价；
+   *  5) 一行/一段里出现多个标记时全部收集，交给渲染层逐张出卡。
+   * 返回 { text, data, datas }：text 为剔除标记后的正文，data 为首张（兼容旧调用方）。
+   */
   function parseDeliver(text) {
     const src = String(text == null ? '' : text);
-    let inFence = false;
-    const kept = [];
-    let body = null;
-    for (const line of src.split('\n')) {
-      if (/^\s*```/.test(line)) { inFence = !inFence; kept.push(line); continue; }
-      if (!inFence) {
-        const m = line.match(/^\s*\[deliver(?::([^\]]*))?\]\s*$/i);
-        if (m) { body = String(m[1] || '').trim(); continue; }
-      }
-      kept.push(line);
-    }
-    if (body == null) return { text: src, data: null };
-    const parts = body.split('|').map((x) => x.trim()).filter((x, i) => i === 0 || x !== '');
-    let title = '交付', description = '', files = [];
-    if (parts.length && parts[0]) {
-      if (parts[0].startsWith('/')) files = parts;
-      else {
-        title = parts[0];
-        if (parts[1]) {
-          if (parts[1].startsWith('/')) files = parts.slice(1);
-          else { description = parts[1]; files = parts.slice(2); }
+    const spans = [];
+    let i = 0;
+    let fence = null;
+    while (i < src.length) {
+      const lineStart = i === 0 || src[i - 1] === '\n';
+      if (lineStart) {
+        const fm = /^[ \t]*(```|~~~)/.exec(src.slice(i, i + 8));
+        if (fm) {
+          if (!fence) fence = fm[1];
+          else if (fence === fm[1]) fence = null;
+          const nl = src.indexOf('\n', i);
+          i = nl === -1 ? src.length : nl + 1;
+          continue;
         }
       }
+      if (fence) { i++; continue; }
+      if (src[i] === '`') {
+        let n = 0;
+        while (src[i + n] === '`') n++;
+        const close = src.indexOf('`'.repeat(n), i + n);
+        i = close === -1 ? i + n : close + n;
+        continue;
+      }
+      if (src[i] === '[' && src.slice(i, i + 8).toLowerCase() === '[deliver') {
+        let k = i + 8;
+        while (src[k] === ' ' || src[k] === '\t') k++;
+        if (src[k] === ':' || src[k] === '：') k++;
+        else if (src[k] !== ']') { i++; continue; }  // [deliverXYZ] 不是标记
+        let depth = 1;
+        let j = k;
+        while (j < src.length && depth > 0) {
+          if (src[j] === '[') depth++;
+          else if (src[j] === ']') depth--;
+          j++;
+        }
+        if (depth === 0) {
+          spans.push({ start: i, end: j, body: src.slice(k, j - 1) });
+          i = j;
+          continue;
+        }
+      }
+      i++;
     }
-    if (files.length === 1 && files[0].indexOf(',') >= 0) files = files[0].split(',');
-    files = files.map((x) => x.trim()).filter(Boolean).map((x) => U.normPath(x));
-    files = [...new Set(files)];
-    return {
-      text: kept.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
-      data: { type: 'deliver', title, description, files }
-    };
+    if (!spans.length) return { text: src, data: null, datas: [] };
+
+    let keep = '';
+    let last = 0;
+    for (const s of spans) { keep += src.slice(last, s.start); last = s.end; }
+    keep += src.slice(last);
+    // 标记独占列表项时，留下一个空条目，清掉
+    keep = keep.split('\n')
+      .map((l) => l.replace(/^([ \t]*)([-*+]|\d+\.)[ \t]*$/, ''))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    const datas = spans.map((s) => {
+      const parts = String(s.body || '').trim().split(/[|｜]/)
+        .map((x) => x.trim())
+        .filter((x, idx) => idx === 0 || x !== '');
+      let title = '交付', description = '', files = [];
+      if (parts.length && parts[0]) {
+        if (parts[0].startsWith('/')) files = parts;
+        else {
+          title = parts[0];
+          if (parts[1]) {
+            if (parts[1].startsWith('/')) files = parts.slice(1);
+            else { description = parts[1]; files = parts.slice(2); }
+          }
+        }
+      }
+      if (files.length === 1 && files[0].indexOf(',') >= 0) files = files[0].split(',');
+      files = [...new Set(files.map((x) => x.trim()).filter(Boolean).map((x) => U.normPath(x)))];
+      return { type: 'deliver', title, description, files };
+    });
+    return { text: keep, data: datas[0], datas };
   }
 
   /* 交付 / 提问 / 图表卡片 */
@@ -918,8 +973,9 @@
         state.bodyEl.innerHTML = '<div class="md">' + AH.md.toHtml(state.text) + '</div>';
         AH.md.renderMathIn(state.bodyEl);
       }
-      if (parsed.data && !state.deliverEl) {
-        state.deliverEl = buildDeliverCard(parsed.data);
+      if ((parsed.datas || []).length && !state.deliverEl) {
+        state.deliverEl = document.createDocumentFragment();
+        parsed.datas.forEach((d) => state.deliverEl.appendChild(buildDeliverCard(d)));
         wrap.appendChild(state.deliverEl);
       }
       attachMsgActions(state, state.text);
@@ -1033,7 +1089,7 @@
       }
       const nm = document.createElement('span');
       nm.className = 'nm';
-      nm.textContent = a.name + (a.isDir ? '（' + a.count + ' 个文件）' : '');
+      nm.textContent = a.name;
       el.appendChild(nm);
       const rm = document.createElement('button');
       rm.className = 'rm';
@@ -1048,16 +1104,6 @@
   Chat.addUpload = async function (file) {
     if (!file) return;
     const name = String(file.name || 'file').replace(/[\\/:*?"<>|]/g, '_');
-    if (U.extName(name) === 'zip') {
-      if (file.size > 25 * 1024 * 1024) { AH.ui.toast('ZIP 超过 25MB，未上传', 'warn'); return; }
-      try {
-        const r = await AH.zip.toVfs(file, '/uploads', name);
-        attachments.push({ name: r.name.replace(/\.zip$/i, '') + '/', path: r.root, isDir: true, count: r.files, isImage: false });
-        renderAttachments();
-        AH.ui.toast('已解压 ' + r.files + ' 个文件到 ' + r.root, 'ok', 3200);
-      } catch (e) { AH.ui.error('解压失败：' + e.message); }
-      return;
-    }
     const isImage = /^image\//.test(file.type) || U.isImagePath(name);
     const path = '/uploads/' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 6) + '-' + name;
     try {
@@ -1161,7 +1207,7 @@
       }
       content = parts;
     } else if (atts.length) {
-      const lines = atts.map((a) => '- ' + a.path + (a.isDir ? '（目录，' + a.count + ' 个文件，可 list_files）' : a.isImage ? '（图片，当前模型无法直接查看）' : ''));
+      const lines = atts.map((a) => '- ' + a.path + (a.isImage ? '（图片，当前模型无法直接查看）' : ''));
       content = (text ? text + '\n\n' : '') + '附带文件（已存入 VFS）：\n' + lines.join('\n');
     }
 
