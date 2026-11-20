@@ -19,6 +19,7 @@
 
 ## 插件
 - 插件页 → 新建插件，写 JS，`AgentAPI.defineTool` 注册工具；默认禁用，启用前确认。
+- 「官方插件库」可从 `qiujunawa.github.io/AOH_Plugins` 拉清单并安装，安装前会展示来源与代码摘录。
 - 插件文件在 `/plugins/`，可随时禁用/删除。
 
 ## 知识库

@@ -3,7 +3,7 @@
 ## 写文档
 1. 明确读者、长度、格式。
 2. 需要资料先 `list_files` / `read_file` / `fetch_url`。
-3. 列提纲 → 写 `/projects/<项目>/...md` → 读回检查 → `deliver`。
+3. 列提纲 → 写 `/projects/<项目>/...md` → 读回检查 → 正文写 `[deliver:标题 | /文件]` 收尾。
 
 ## 改代码
 1. `read_file` 目标文件（大文件分段）。
@@ -21,4 +21,4 @@
 1. `todo_add` 拆 3-8 步。
 2. 每完成一步 `todo_done`。
 3. 中途需要决策用 `ask_user`。
-4. 收尾 `deliver`。
+4. 收尾在正文写 `[deliver:标题 | /文件]`，不要再调用工具。

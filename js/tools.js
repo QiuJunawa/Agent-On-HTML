@@ -95,11 +95,6 @@
       question: { type: 'string', description: '问题' },
       options: { type: 'array', items: { type: 'string' }, description: '可选：2-4 个选项' }
     }, ['question']),
-    deliver: S('deliver', '展示交付卡片（收尾时用，不要中途调用）。', {
-      title: { type: 'string', description: '标题' },
-      description: { type: 'string', description: '可选：简述' },
-      files: { type: 'array', items: { type: 'string' }, description: '可选：交付文件路径' }
-    }, ['title']),
 
     calculator: S('calculator', '安全计算数学表达式，支持 + - * / % ^、括号、sqrt/sin/cos/log 等函数与 pi/e。', {
       expression: { type: 'string', description: '表达式，如 sqrt(144)+2^3' }
@@ -175,6 +170,16 @@
     }, ['actions']),
 
     plugin_list: S('plugin_list', '列出 /plugins 下的插件、启用状态与已注册工具。', {}),
+    plugin_lib_list: S('plugin_lib_list', '列出官方插件库（qiujunawa.github.io/AOH_Plugins）里的插件、版本、注册工具与是否已安装。', {
+      query: { type: 'string', description: '可选：按名称/描述/标签/工具过滤' }
+    }),
+    plugin_lib_install: S('plugin_lib_install', '从官方插件库或 .js 直链安装插件到 /plugins。执行前展示来源与代码摘录，默认不启用。', {
+      id: { type: 'string', description: '插件库里的 id（与 url 二选一）' },
+      url: { type: 'string', description: '可选：.js 直链（与 id 二选一）' },
+      name: { type: 'string', description: '可选：直链安装时的显示名' },
+      enable: { type: 'boolean', description: '装完是否立即启用，默认 false' },
+      overwrite: { type: 'boolean', description: '同名已存在时是否覆盖，默认 false' }
+    }),
     plugin_create: S('plugin_create', '新建插件（默认禁用）。代码在 AsyncFunction 中执行，用 AgentAPI.defineTool 注册工具；启用前需用户确认。', {
       id: { type: 'string', description: '插件 id（字母数字下划线横线点）' },
       code: { type: 'string', description: '插件 JS 代码' },
@@ -205,12 +210,12 @@
   const GROUPS = {
     fs: { label: '文件系统', tools: ['list_files', 'read_file', 'write_file', 'append_file', 'edit_file', 'delete_path', 'move_path', 'create_dir', 'search_files'] },
     net: { label: '网络', tools: ['fetch_url'] },
-    task: { label: '任务与交互', tools: ['todo_add', 'todo_done', 'todo_remove', 'todo_list', 'ask_user', 'deliver'] },
+    task: { label: '任务与交互', tools: ['todo_add', 'todo_done', 'todo_remove', 'todo_list', 'ask_user'] },
     compute: { label: '计算与代码', tools: ['calculator', 'statistics', 'run_js', 'check_code', 'wait'] },
     media: { label: '可视化', tools: ['render_chart'] },
     system: { label: '撤销、记忆与后台任务', tools: ['undo_last', 'undo_list', 'task_status', 'task_cancel', 'remember'] },
     git: { label: 'Git 仓库', tools: ['git_list', 'git_read', 'git_write', 'git_delete', 'git_commit_batch'] },
-    plugin: { label: '插件', tools: ['plugin_list', 'plugin_create', 'plugin_update', 'plugin_delete', 'plugin_toggle'] }
+    plugin: { label: '插件与插件库', tools: ['plugin_list', 'plugin_create', 'plugin_update', 'plugin_delete', 'plugin_toggle', 'plugin_lib_list', 'plugin_lib_install'] }
   };
   const GROUP_ORDER = ['fs', 'net', 'task', 'compute', 'media', 'system', 'git', 'plugin'];
   const CORE = ['list_files', 'read_file', 'write_file', 'edit_file'];
@@ -943,15 +948,6 @@
     return '@@card:' + JSON.stringify({ type: 'ask', ...payload });
   };
 
-  H.deliver = async (a) => {
-    return '@@card:' + JSON.stringify({
-      type: 'deliver',
-      title: String(a.title || '交付'),
-      description: String(a.description || ''),
-      files: Array.isArray(a.files) ? a.files.map((f) => U.normPath(f)) : []
-    });
-  };
-
   H.calculator = async (a) => {
     const v = calc(a.expression);
     return String(a.expression) + ' = ' + (Number.isInteger(v) ? v : v.toFixed(10).replace(/0+$/, '').replace(/\.$/, ''));
@@ -1142,6 +1138,11 @@
 
   H.plugin_delete = async (a, ctx) => AH.plugins.remove(String(a.id || ''), ctx);
   H.plugin_toggle = async (a, ctx) => AH.plugins.setEnabled(String(a.id || ''), !!a.enabled, ctx);
+
+  H.plugin_lib_list = async (a) => AH.plugins.libListText(String(a.query || ''));
+  H.plugin_lib_install = async (a, ctx) => AH.plugins.libInstall({
+    id: a.id, url: a.url, name: a.name, enable: !!a.enable, overwrite: !!a.overwrite
+  }, ctx);
 
   H.tools_expand = async (a, ctx) => {
     const session = ctx.run && ctx.run.session;

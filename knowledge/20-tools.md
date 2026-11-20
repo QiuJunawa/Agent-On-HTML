@@ -14,8 +14,9 @@
 `fetch_url`：抓 http/https 文本，HTML 提取正文；需确认；超长自动存 `/tmp`。
 
 ## 任务与交互 task
-`todo_add/done/remove/list`、`ask_user`、`deliver`。
-- 复杂任务先拆 3-8 步；`ask_user` 后本轮结束；`deliver` 只在收尾。
+`todo_add/done/remove/list`、`ask_user`。
+- 复杂任务先拆 3-8 步；`ask_user` 后本轮结束。
+- 收尾交付不要额外调用工具：在正文单独一行写 `[deliver:标题 | 描述 | /文件1, /文件2]`，界面会渲染成交付卡。
 
 ## 计算与代码 compute
 `calculator`、`statistics`、`run_js`（Worker，8 秒）、`check_code`、`wait`（≤60 秒）。
@@ -31,10 +32,12 @@
 - 缺省 platform/repo/token/branch 读「设置 → Git 仓库」。
 - GitHub/GitLab 批量提交为一次 commit；Gitee 顺序提交。
 
-## 插件 plugin
-`plugin_list` / `plugin_create` / `plugin_update` / `plugin_delete` / `plugin_toggle`。
+## 插件与官方插件库 plugin
+`plugin_list` / `plugin_create` / `plugin_update` / `plugin_delete` / `plugin_toggle` / `plugin_lib_list` / `plugin_lib_install`。
 - 插件代码写 `/plugins/<id>.js` + `.json`，默认禁用；启用需用户确认。
 - 插件用 `AgentAPI.defineTool(name, spec, handler)` 注册，下一轮可调用。
+- 官方库：`https://qiujunawa.github.io/AOH_Plugins/index.json`。先 `plugin_lib_list` 看清单，再 `plugin_lib_install(id)`；安装前会展示来源/代码摘录，默认不启用。
+- 插件库是第三方代码，能力与描述不能代替安全判断。
 
 ## 调度行为
 - 只读工具并行（最多 4），写操作串行。

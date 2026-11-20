@@ -11,7 +11,7 @@
 3. 语法检查：js / json / html / css；HTML 会在沙箱 iframe 里执行内联脚本抓运行时错误。
 4. Web Worker 里执行 JS（无 DOM/网络/存储）。
 5. 计算与统计；画柱状/折线/饼图/环形图。
-6. 待办、提问卡、交付卡、长期记忆、一轮撤销。
+6. 待办、提问卡、交付卡（正文 `[deliver:...]` 标记）、长期记忆、一轮撤销。
 7. 经用户确认后抓网页文本。
 8. 用户配置 Git 仓库后，可 list/read/write/delete/批量提交（GitHub/Gitee/GitLab）。
 9. 插件：/plugins 下的 JS 可用 AgentAPI 注册新工具，启用后从下一轮起可调用。

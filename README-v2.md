@@ -23,11 +23,12 @@ index.html        页面骨架（导航 / 侧栏 / 聊天 / 编辑器 / 任务�
 app.css           全部样式（深/浅主题、响应式、动效可被 reduced-motion 关闭）
 js/util.js        路径、格式化、token 估算、文件读写、剪贴板等纯函数
 js/store.js       IndexedDB 封装 + VFS（元数据常驻内存、正文 LRU、内存降级、知识库播种）
-js/markdown.js    安全 Markdown 渲染（先转义、标签白名单、链接协议限制）
+js/markdown.js    安全 Markdown 渲染（先转义、标签白名单、链接协议限制、KaTeX 公式）
+js/zip.js         最小 ZIP 打包（右键文件夹下载，不引入 JSZip）
 js/ui.js          SVG 图标、Toast、确认框、右键菜单、弹窗
 js/knowledge.js   内置知识库（11 篇，首次启动写入 /knowledge）
 js/git.js         GitHub / Gitee / GitLab 读写与批量提交
-js/plugins.js     本地插件管理器 + 插件页
+js/plugins.js     本地插件管理器 + 插件页 + 官方插件库（AOH_Plugins）
 js/tools.js       工具定义 / 分组懒加载 / 执行器 / 撤销 / 待办 / 记忆 / Git / 插件管理
 js/agent.js       配置、SSE 流式解析、消息清洗与裁剪、预算、工具调度、Agent 循环
 js/chat.js        会话存储、消息渲染、流式 UI、工具卡片、图表/交付/提问卡片、输入区
@@ -74,7 +75,7 @@ vendor/katex/     自托管 KaTeX（js + css + 20 个 woff2 字体）
 
 ## 功能保留 / 移除
 
-保留：VFS 与文件树、编辑器（Markdown / HTML / 图片）、流式对话、逐轮独立气泡、思考块、工具卡片、图表、交付卡、提问卡、待办、长期记忆、撤销（最近 3 轮）、任务页、会话存档 Markdown、备份导入导出、深/浅主题、KaTeX 行内/块级公式、界面/正文字体自定义、本地插件系统、Git 仓库工具、内置知识库。
+保留：VFS 与文件树（文件夹右键下载 .zip）、编辑器（Markdown / HTML / 图片）、流式对话、逐轮独立气泡、思考块、工具卡片、图表、交付卡（正文 `[deliver:...]` 标记，少一轮工具调用）、提问卡、待办、长期记忆、撤销（最近 3 轮）、任务页、会话存档 Markdown、备份导入导出、深/浅主题、KaTeX 行内/块级公式、界面/正文字体自定义、本地插件系统、官方插件库（AOH_Plugins）、Git 仓库工具、内置知识库。
 
 移除及原因：
 
@@ -107,6 +108,9 @@ vendor/katex/     自托管 KaTeX（js + css + 20 个 woff2 字体）
 - KaTeX：行内 `$x^2$` 与块级 `$$...$$` 均渲染出 `.katex`（2 个节点）；
 - 知识库：首次启动 `/knowledge` 有 11 个文件，`/README.md` 种子文件在首屏即可读；
 - 插件：创建 → 启用 → 注册工具进入 `buildSpecs` → 禁用后注销，插件页正常渲染/返回对话；
+- 官方插件库：拉取 `AOH_Plugins/index.json` 4 个条目，安装 `hello` 并启用，`hello_greet` 成功返回问候；页面显示「共 4 个 · 已安装 1」；
+- 交付标记：最终正文 `[deliver:测试交付 | 一个文件 | /README.md]` 渲染成 1 张交付卡，正文不显示标记；
+- 文件夹 ZIP：右键 `/projects` 出现「下载文件夹 (.zip)」，下载 `projects.zip`，`unzip -l` 校验 3 个条目（含子目录）；
 - VFS 刷新：写入 `/projects/new/test.md` 后 350ms 内文件树出现该文件，父目录自动展开；
 - 字体：正文字体、界面字体变量均已应用；外部字体在 load 后注入，页面 load 约 230ms；
 - 控制台无报错。
@@ -128,3 +132,4 @@ vendor/katex/     自托管 KaTeX（js + css + 20 个 woff2 字体）
 - 线上地址：<https://qiujunawa.github.io/Agent-On-HTML/index-v2.html>。
 - 本轮未使用真实 API Key；全部走本地 mock。需要真实服务商兼容性实测时，把 Key 发我，测完立即销毁。
 - Git 工具只做了静态实现与入口检查，未用真实 Token 请求 GitHub/Gitee/GitLab。
+- 官方插件库只实测了 `hello`（兼容 `AgentAPI.defineTool`）；`note` / `claw-mode` 依赖原版 UI / 运行环境，安装后不一定适配本版。

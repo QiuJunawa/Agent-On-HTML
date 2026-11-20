@@ -140,6 +140,17 @@
     </div>
     <button class="chip-btn" id="btnPluginNew" type="button">新建插件</button>
   </header>
+  <div class="plugin-lib">
+    <div class="plugin-lib-head">
+      <div><b>官方插件库</b><span id="pluginLibHint">点「刷新插件库」加载清单</span></div>
+      <div class="plugin-lib-tools">
+        <input id="pluginLibSearch" placeholder="搜索名称 / 工具 / 标签" spellcheck="false">
+        <button class="chip-btn" id="btnLibRefresh" type="button">刷新</button>
+      </div>
+    </div>
+    <div class="plugin-lib-grid" id="pluginLibGrid"></div>
+  </div>
+  <div class="plugin-subhead">本地插件</div>
   <div class="plugin-list" id="pluginList"></div>
   <div class="plugin-editor" id="pluginEditor" hidden>
     <div class="field two-col">
@@ -393,6 +404,7 @@
 
 <script src="vendor/katex/katex.min.js"></script>
 <script src="js/util.js"></script>
+<script src="js/zip.js"></script>
 <script src="js/knowledge.js"></script>
 <script src="js/store.js"></script>
 <script src="js/markdown.js"></script>

@@ -172,6 +172,149 @@
   };
 
   /* ============================================================
+     官方插件库（GitHub Pages）
+     清单：https://qiujunawa.github.io/AOH_Plugins/index.json
+     ============================================================ */
+  const LIB = (P.lib = {
+    base: 'https://qiujunawa.github.io/AOH_Plugins/',
+    manifest: 'index.json',
+    ttl: 5 * 60 * 1000,
+    maxBytes: 1024 * 1024,
+    cache: null,
+    filter: '',
+    autoTried: false
+  });
+
+  function libBase() { return LIB.base.replace(/\/+$/, '') + '/'; }
+  function libResolve(file) {
+    const f = String(file || '');
+    return /^https?:\/\//i.test(f) ? f : libBase() + f.replace(/^\/+/, '');
+  }
+  function libNormalize(e) {
+    if (!e || typeof e !== 'object') return null;
+    const id = String(e.id || '').trim();
+    if (!validId(id)) return null;
+    return {
+      id,
+      name: String(e.name || id).trim() || id,
+      version: String(e.version || '0.0.0').trim() || '0.0.0',
+      description: String(e.description || '').trim(),
+      author: String(e.author || '').trim(),
+      tags: Array.isArray(e.tags) ? e.tags.map(String).slice(0, 8) : [],
+      file: String(e.file || (id + '.js')).trim() || (id + '.js'),
+      tools: Array.isArray(e.tools) ? e.tools.map(String).slice(0, 20) : [],
+      homepage: String(e.homepage || '').trim()
+    };
+  }
+
+  async function fetchLib(force) {
+    const now = Date.now();
+    if (!force && LIB.cache && now - LIB.cache.at < LIB.ttl) return LIB.cache;
+    const url = libBase() + LIB.manifest + (force ? '?t=' + now : '');
+    let resp;
+    try { resp = await fetch(url, { cache: force ? 'no-store' : 'default' }); }
+    catch (e) { throw new Error('无法连接插件库（网络/CORS）：' + (e && e.message ? e.message : e)); }
+    if (!resp.ok) throw new Error('插件库清单 HTTP ' + resp.status + '：' + url);
+    let j;
+    try { j = await resp.json(); } catch (e) { throw new Error('插件库清单不是合法 JSON：' + url); }
+    const raw = Array.isArray(j) ? j : (j && Array.isArray(j.plugins) ? j.plugins : []);
+    LIB.cache = { at: now, url, plugins: raw.map(libNormalize).filter(Boolean), rawCount: raw.length };
+    return LIB.cache;
+  }
+
+  async function fetchLibCode(entry, bust) {
+    const base = libResolve(entry.file);
+    if (!/^https?:\/\//i.test(base)) throw new Error('插件地址不合法：' + base);
+    const url = bust ? base + (base.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now() : base;
+    let resp;
+    try { resp = await fetch(url, bust ? { cache: 'no-store' } : undefined); }
+    catch (e) { throw new Error('下载插件失败（网络/CORS）：' + (e && e.message ? e.message : e)); }
+    if (!resp.ok) throw new Error('下载插件失败 HTTP ' + resp.status + '：' + base);
+    const code = await resp.text();
+    if (!code.trim()) throw new Error('插件代码为空：' + base);
+    if (code.length > LIB.maxBytes) throw new Error('插件代码 ' + code.length + ' 字节，超过 1MB 上限');
+    return { code, url: base };
+  }
+
+  P.libEntries = async function (query, force) {
+    const lib = await fetchLib(force);
+    const q = String(query || '').trim().toLowerCase();
+    const items = q ? lib.plugins.filter((p) =>
+      (p.id + ' ' + p.name + ' ' + p.description + ' ' + p.tags.join(' ') + ' ' + p.tools.join(' ')).toLowerCase().includes(q)
+    ) : lib.plugins;
+    const local = await P.list();
+    return { lib, items, local, q };
+  };
+
+  P.libListText = async function (query) {
+    try {
+      const { lib, items, local, q } = await P.libEntries(query, false);
+      if (!items.length) {
+        return q ? '插件库里没有匹配「' + q + '」的插件（共 ' + lib.plugins.length + ' 个）' : '插件库清单为空：' + lib.url;
+      }
+      const lines = items.map((p) => {
+        const inst = local.find((x) => x.id === p.id);
+        return '- ' + p.id + ' | ' + p.name + ' | v' + p.version +
+          (p.tools.length ? ' | 工具: ' + p.tools.join(', ') : '') +
+          (p.tags.length ? ' | #' + p.tags.join(' #') : '') +
+          ' | ' + (inst ? ('已安装' + (inst.enabled ? '·已启用' : '·未启用')) : '未安装') +
+          (p.description ? '\n    ' + p.description : '');
+      });
+      return '插件库共 ' + lib.plugins.length + ' 个' + (q ? ('（匹配「' + q + '」' + items.length + ' 个）') : '') +
+        '，清单：' + lib.url + '\n' + lines.join('\n') +
+        '\n\n安装用 plugin_lib_install（id=上面的 id）。装完默认未启用，要调用还需 plugin_toggle。';
+    } catch (e) { return '读取插件库失败：' + (e && e.message ? e.message : e); }
+  };
+
+  P.libInstall = async function (opts, ctx) {
+    const a = opts || {};
+    const libId = String(a.id || '').trim();
+    const rawUrl = String(a.url || '').trim();
+    if (!libId && !rawUrl) throw new Error('id 和 url 至少给一个');
+    const ask = ctx && ctx.confirm ? ctx.confirm : (o) => AH.ui.confirm(o);
+    let id, name, version, description = '', sourceUrl, code;
+
+    if (libId) {
+      if (!validId(libId)) throw new Error('插件 id 只能用字母、数字、下划线、横线、点');
+      const { lib } = await P.libEntries('', true);
+      const entry = lib.plugins.find((p) => p.id === libId);
+      if (!entry) throw new Error('插件库里没有 ' + libId + '，请先刷新插件库');
+      const src = await fetchLibCode(entry, true);
+      id = entry.id; name = entry.name; version = entry.version; description = entry.description;
+      sourceUrl = src.url; code = src.code;
+    } else {
+      if (!/^https?:\/\//i.test(rawUrl)) throw new Error('url 必须是 http(s) 直链');
+      const guessed = (rawUrl.split('?')[0].split('/').pop() || '').replace(/\.js$/i, '');
+      if (!validId(guessed)) throw new Error('无法从 URL 推断插件 id，请改用插件库 id');
+      id = guessed;
+      name = String(a.name || id).trim() || id;
+      version = '0.0.0';
+      const src = await fetchLibCode({ file: rawUrl }, true);
+      sourceUrl = rawUrl; code = src.code;
+    }
+
+    const exists = !!(await readMeta(id));
+    if (exists && !a.overwrite) throw new Error('插件 ' + id + ' 已存在。要覆盖请传 overwrite=true');
+    const enable = !!a.enable;
+    const ok = await ask({
+      title: '从官方插件库安装',
+      text: '插件：' + name + '（' + id + ' v' + version + '）' + (enable ? '\n安装后立即启用' : '\n安装后默认未启用') +
+        (exists ? '\n将覆盖已有的同名插件' : '') +
+        '\n\n来源：' + sourceUrl +
+        (description ? '\n说明：' + description : '') +
+        '\n\n插件拥有页面全部权限（读写 VFS、读取配置、发网络请求）。\n\n代码摘录：\n' + U.cut(code, 900),
+      rememberKey: 'plugin-lib-install'
+    });
+    if (!ok) return '用户取消了插件安装';
+
+    await P.save(id, code, { name, version, description, enabled: enable }, enable);
+    const tools = P.toolNames(id);
+    return '已' + (exists ? '覆盖安装' : '安装') + '插件 ' + id + '（' + (enable ? '已启用' : '未启用') + '）' +
+      (tools.length ? '，注册工具：' + tools.join(', ') : '') +
+      (enable ? '' : '。要用它的工具请先启用');
+  };
+
+  /* ============================================================
      插件页 UI
      ============================================================ */
   const $ = (id) => document.getElementById(id);
@@ -183,6 +326,7 @@
     list.innerHTML = '';
     if (!metas.length) {
       list.innerHTML = '<div class="empty-tip">还没有插件。插件是运行在页面里的 JS，可注册自己的工具给 Agent 调用。</div>';
+      P.renderLib(metas);
       return;
     }
     for (const m of metas) {
@@ -215,6 +359,100 @@
       actions.append(toggle, edit, del);
       list.appendChild(card);
     }
+    P.renderLib(metas);
+  };
+
+  P.renderLib = async function (metas) {
+    const grid = $('pluginLibGrid');
+    if (!grid) return;
+    if (!LIB.cache) {
+      grid.innerHTML = '<div class="empty-tip">' + (P._libLoading ? '正在加载官方插件库…' : '点「刷新插件库」加载官方清单') + '</div>';
+      return;
+    }
+    const local = Array.isArray(metas) ? metas : await P.list();
+    const q = LIB.filter.trim().toLowerCase();
+    const items = LIB.cache.plugins.filter((p) => {
+      if (!q) return true;
+      return (p.id + ' ' + p.name + ' ' + p.description + ' ' + p.tags.join(' ') + ' ' + p.tools.join(' ')).toLowerCase().includes(q);
+    });
+    if (!items.length) {
+      grid.innerHTML = '<div class="empty-tip">' + (LIB.cache.plugins.length ? '没有匹配的插件' : '官方插件库是空的') + '</div>';
+      return;
+    }
+    const hint = $('pluginLibHint');
+    if (hint && !P._libLoading) {
+      const installed = local.filter((x) => LIB.cache.plugins.some((y) => y.id === x.id)).length;
+      const skipped = LIB.cache.rawCount - LIB.cache.plugins.length;
+      hint.textContent = '共 ' + LIB.cache.plugins.length + ' 个 · 已安装 ' + installed + (skipped > 0 ? ' · 跳过 ' + skipped + ' 条非法条目' : '');
+    }
+
+    grid.innerHTML = '';
+    for (const p of items) {
+      const inst = local.find((x) => x.id === p.id);
+      const card = document.createElement('div');
+      card.className = 'lib-card' + (inst ? ' installed' : '');
+      card.innerHTML = '<div class="lib-top"><b>' + U.esc(p.name) + '</b><span class="lib-ver">v' + U.esc(p.version) + '</span></div>' +
+        '<div class="lib-desc">' + U.esc(p.description || '（无描述）') + '</div>' +
+        (p.tools.length ? '<div class="lib-meta">' + p.tools.map((t) => '<span class="lib-tag">' + U.esc(t) + '</span>').join('') + '</div>' : '') +
+        '<div class="lib-acts"></div>';
+      const acts = card.querySelector('.lib-acts');
+      const btn = document.createElement('button');
+      btn.className = 'chip-btn';
+      btn.textContent = inst ? '重新安装' : '安装';
+      btn.addEventListener('click', async () => {
+        try {
+          const r = await P.libInstall({ id: p.id, overwrite: !!inst }, { confirm: AH.ui.confirm });
+          AH.ui.toast(r, 'ok', 3800);
+          await P.render();
+        } catch (e) { AH.ui.toast(e.message, 'err', 5000); }
+      });
+      acts.appendChild(btn);
+      if (p.homepage) {
+        const home = document.createElement('button');
+        home.className = 'chip-btn';
+        home.textContent = '主页';
+        home.addEventListener('click', () => window.open(p.homepage, '_blank', 'noopener'));
+        acts.appendChild(home);
+      }
+      if (inst) {
+        const st = document.createElement('span');
+        st.className = 'lib-state';
+        st.textContent = inst.enabled ? '已安装 · 已启用' : '已安装';
+        acts.appendChild(st);
+      }
+      grid.appendChild(card);
+    }
+  };
+
+  P.refreshLib = async function (force) {
+    const hint = $('pluginLibHint');
+    P._libLoading = true;
+    if (hint) hint.textContent = '正在加载…';
+    await P.renderLib();
+    try {
+      const lib = await fetchLib(!!force);
+      await P.renderLib();
+      if (hint) {
+        const local = await P.list();
+        const installed = local.filter((p) => lib.plugins.some((x) => x.id === p.id)).length;
+        const skipped = lib.rawCount - lib.plugins.length;
+        hint.textContent = '共 ' + lib.plugins.length + ' 个 · 已安装 ' + installed + (skipped > 0 ? ' · 跳过 ' + skipped + ' 条非法条目' : '');
+      }
+    } catch (e) {
+      if (hint) hint.textContent = '加载失败';
+      const grid = $('pluginLibGrid');
+      if (grid) grid.innerHTML = '<div class="empty-tip">' + U.esc(e.message || String(e)) + '</div>';
+    } finally {
+      P._libLoading = false;
+    }
+  };
+
+  P.open = function () {
+    P.render();
+    if (!LIB.cache && !LIB.autoTried) {
+      LIB.autoTried = true;
+      P.refreshLib(false);
+    }
   };
 
   P.openEditor = async function (meta) {
@@ -234,6 +472,11 @@
     const page = $('pluginsPage');
     if (!page) return;
     $('btnPluginNew').addEventListener('click', () => P.openEditor(null));
+    $('btnLibRefresh').addEventListener('click', () => P.refreshLib(true));
+    $('pluginLibSearch').addEventListener('input', () => {
+      LIB.filter = $('pluginLibSearch').value;
+      P.renderLib();
+    });
     $('btnPluginCancel').addEventListener('click', () => { $('pluginEditor').hidden = true; });
     $('btnPluginSave').addEventListener('click', async () => {
       try {
@@ -246,6 +489,7 @@
       } catch (e) { AH.ui.toast(e.message, 'err'); }
     });
     P.render();
+    P.renderLib();
   };
 
   P.EXAMPLE = [

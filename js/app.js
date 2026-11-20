@@ -120,7 +120,10 @@
       icon: 'file-plus',
       onClick: () => isDir ? App.newFile(node.path) : App.duplicate(node.path)
     });
-    if (isDir) items.push({ label: '新建文件夹', icon: 'folder-plus', onClick: () => App.newDir(node.path) });
+    if (isDir) {
+      items.push({ label: '新建文件夹', icon: 'folder-plus', onClick: () => App.newDir(node.path) });
+      items.push({ label: '下载文件夹 (.zip)', icon: 'download', onClick: () => App.downloadFolder(node.path) });
+    }
     if (!isDir) items.push({ label: '下载', icon: 'download', onClick: () => App.download(node.path) });
     items.push({ sep: true });
     items.push({
@@ -184,6 +187,15 @@
         a.download = U.baseName(path);
         a.click();
       } else U.downloadText(content, U.baseName(path), 'text/plain;charset=utf-8');
+    } catch (e) { AH.ui.error(e); }
+  };
+
+  App.downloadFolder = async function (path) {
+    try {
+      AH.ui.toast('正在打包 ' + path + ' …', 'info', 1800);
+      const { blob, name, count } = await AH.zip.folder(path);
+      U.downloadBlob(blob, name);
+      AH.ui.toast('已打包 ' + count + ' 个文件：' + name, 'ok', 2600);
     } catch (e) { AH.ui.error(e); }
   };
 
@@ -398,7 +410,7 @@
     if (page === 'tasks') renderTasks();
     if ($('pluginsPage')) {
       $('pluginsPage').hidden = page !== 'plugins';
-      if (page === 'plugins') AH.plugins.render();
+      if (page === 'plugins') AH.plugins.open();
     }
     if (page === 'chat') setTimeout(() => AH.chat.autoHeight && AH.chat.autoHeight(), 0);
   }

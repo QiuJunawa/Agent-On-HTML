@@ -778,3 +778,24 @@ body.compact .msg { margin-bottom: 12px; }
   max-height: 52vh; overflow: auto;
 }
 .plugin-editor textarea { font: 12.5px/1.55 var(--mono); }
+
+/* 官方插件库 */
+.plugin-lib { flex: none; max-height: 40vh; overflow: auto; padding: 14px 26px 12px; border-bottom: 1px solid var(--line-soft); }
+.plugin-lib-head { display: flex; align-items: center; gap: 12px; }
+.plugin-lib-head > div:first-child { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.plugin-lib-head b { font-size: 13px; color: var(--text); }
+.plugin-lib-head span { font-size: 11.5px; color: var(--text-3); }
+.plugin-lib-tools { display: flex; align-items: center; gap: 6px; flex: none; }
+.plugin-lib-tools input { width: 210px; height: 30px; font-size: 12px; }
+.plugin-lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin-top: 11px; }
+.lib-card { border: 1px solid var(--line-soft); background: var(--panel); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.lib-card.installed { border-color: var(--accent-line); }
+.lib-top { display: flex; align-items: baseline; gap: 8px; }
+.lib-top b { font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-ver { margin-left: auto; font: 10.5px var(--mono); color: var(--text-3); }
+.lib-desc { margin-top: 5px; font-size: 11.5px; line-height: 1.55; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.lib-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.lib-tag { font: 10.5px var(--mono); color: var(--text-3); border: 1px solid var(--line-soft); border-radius: 4px; padding: 1px 5px; }
+.lib-acts { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.lib-state { margin-left: auto; font-size: 10.5px; color: var(--ok); }
+.plugin-subhead { flex: none; padding: 10px 26px 0; font-size: 11px; letter-spacing: .08em; color: var(--text-3); }

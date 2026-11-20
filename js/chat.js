@@ -353,16 +353,18 @@
 
     if (m._thinking) wrap.appendChild(buildThinking(m._thinking, false));
 
-    if (m.content) {
+    const parsed = parseDeliver(m.content || '');
+    if (parsed.text) {
       const bubble = document.createElement('div');
       bubble.className = 'bubble assistant';
       const md = document.createElement('div');
       md.className = 'md';
-      md.innerHTML = AH.md.toHtml(m.content);
+      md.innerHTML = AH.md.toHtml(parsed.text);
       AH.md.renderMathIn(md);
       bubble.appendChild(md);
       wrap.appendChild(bubble);
     }
+    if (parsed.data) wrap.appendChild(buildDeliverCard(parsed.data));
 
     if (m.tool_calls && m.tool_calls.length) {
       const cards = document.createElement('div');
@@ -379,10 +381,10 @@
     if (m._usage) meta.innerHTML = '<span>' + m._usage.in + ' 入 / ' + m._usage.out + ' 出' + (m._usage.cost ? ' · $' + m._usage.cost.toFixed(4) : '') + '</span>';
     const actions = document.createElement('div');
     actions.className = 'msg-actions';
-    if (m.content) {
+    if (parsed.text) {
       const copy = document.createElement('button');
       copy.textContent = '复制';
-      copy.addEventListener('click', async () => { const ok = await U.copyText(m.content); AH.ui.copied(ok); });
+      copy.addEventListener('click', async () => { const ok = await U.copyText(parsed.text); AH.ui.copied(ok); });
       actions.appendChild(copy);
     }
     if (index === Chat.conv.length - 1 || (Chat.conv[index + 1] && Chat.conv[index + 1].role === 'tool' && index + 1 === Chat.conv.length - 1)) {
@@ -482,29 +484,70 @@
     return /^(工具执行失败：|错误：|⚠️|⚠ )/.test(t) || /^API 返回/.test(t);
   }
 
+  /* 交付卡：统一给工具结果与 [deliver:...] 标记复用 */
+  function buildDeliverCard(data) {
+    const box = document.createElement('div');
+    box.className = 'card-wrap';
+    const dc = document.createElement('div');
+    dc.className = 'deliver-card';
+    dc.innerHTML = '<h4>' + U.esc(data.title || '交付') + '</h4>' +
+      (data.description ? '<p>' + U.esc(data.description) + '</p>' : '');
+    const files = document.createElement('div');
+    files.className = 'deliver-files';
+    (data.files || []).forEach((p) => {
+      const b = document.createElement('button');
+      b.className = 'deliver-file';
+      b.innerHTML = AH.ui.icon('file') + '<span>' + U.esc(p) + '</span>';
+      b.addEventListener('click', () => AH.app && AH.app.openFile(p));
+      files.appendChild(b);
+    });
+    dc.appendChild(files);
+    box.appendChild(dc);
+    return box;
+  }
+
+  function parseDeliver(text) {
+    const src = String(text == null ? '' : text);
+    let inFence = false;
+    const kept = [];
+    let body = null;
+    for (const line of src.split('\n')) {
+      if (/^\s*```/.test(line)) { inFence = !inFence; kept.push(line); continue; }
+      if (!inFence) {
+        const m = line.match(/^\s*\[deliver(?::([^\]]*))?\]\s*$/i);
+        if (m) { body = String(m[1] || '').trim(); continue; }
+      }
+      kept.push(line);
+    }
+    if (body == null) return { text: src, data: null };
+    const parts = body.split('|').map((x) => x.trim()).filter((x, i) => i === 0 || x !== '');
+    let title = '交付', description = '', files = [];
+    if (parts.length && parts[0]) {
+      if (parts[0].startsWith('/')) files = parts;
+      else {
+        title = parts[0];
+        if (parts[1]) {
+          if (parts[1].startsWith('/')) files = parts.slice(1);
+          else { description = parts[1]; files = parts.slice(2); }
+        }
+      }
+    }
+    if (files.length === 1 && files[0].indexOf(',') >= 0) files = files[0].split(',');
+    files = files.map((x) => x.trim()).filter(Boolean).map((x) => U.normPath(x));
+    files = [...new Set(files)];
+    return {
+      text: kept.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
+      data: { type: 'deliver', title, description, files }
+    };
+  }
+
   /* 交付 / 提问 / 图表卡片 */
   function renderCardExtras(card, result) {
     if (!String(result).startsWith('@@card:')) return;
     let data;
     try { data = JSON.parse(String(result).slice(7)); } catch (e) { return; }
     if (data.type === 'deliver') {
-      const box = document.createElement('div');
-      box.className = 'card-wrap';
-      const dc = document.createElement('div');
-      dc.className = 'deliver-card';
-      dc.innerHTML = '<h4>' + U.esc(data.title) + '</h4>' + (data.description ? '<p>' + U.esc(data.description) + '</p>' : '');
-      const files = document.createElement('div');
-      files.className = 'deliver-files';
-      (data.files || []).forEach((p) => {
-        const b = document.createElement('button');
-        b.className = 'deliver-file';
-        b.innerHTML = AH.ui.icon('file') + '<span>' + U.esc(p) + '</span>';
-        b.addEventListener('click', () => AH.app && AH.app.openFile(p));
-        files.appendChild(b);
-      });
-      dc.appendChild(files);
-      box.appendChild(dc);
-      card.appendChild(box);
+      card.appendChild(buildDeliverCard(data));
     } else if (data.type === 'ask') {
       const box = document.createElement('div');
       box.className = 'card-wrap';
@@ -859,7 +902,8 @@
       state.finished = true;
       if (!run.visible) return;
       if (state.statusEl && state.statusEl.parentElement) state.statusEl.remove();
-      state.text = content || state.text;
+      const parsed = parseDeliver(content || state.text || '');
+      state.text = parsed.text;
       state.thinking = thinking || state.thinking;
       if (state.thinkingEl) {
         const lbl = state.thinkingEl.querySelector('.lbl');
@@ -874,7 +918,11 @@
         state.bodyEl.innerHTML = '<div class="md">' + AH.md.toHtml(state.text) + '</div>';
         AH.md.renderMathIn(state.bodyEl);
       }
-      attachMsgActions(state, content);
+      if (parsed.data && !state.deliverEl) {
+        state.deliverEl = buildDeliverCard(parsed.data);
+        wrap.appendChild(state.deliverEl);
+      }
+      attachMsgActions(state, state.text);
       scrollBottomSmart();
     };
     state.attachMeta = (usage) => {
