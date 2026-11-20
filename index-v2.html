@@ -263,7 +263,11 @@
           <div class="field">
             <label>系统提示词</label>
             <textarea id="cfgSystem" rows="9" spellcheck="false"></textarea>
-            <div class="row-end"><button class="chip-btn" id="btnResetSystem" type="button">恢复默认</button></div>
+            <div class="row-end">
+              <button class="chip-btn" id="btnApplySystem" type="button">覆盖提示词</button>
+              <button class="chip-btn" id="btnResetSystem" type="button">恢复默认</button>
+            </div>
+            <div class="hint" style="margin-top:6px">自定义内容会整段覆盖默认提示词；需要交付卡时请保留 <code>[deliver:...]</code> 规则。</div>
           </div>
           <div class="field">
             <label>工具懒加载</label>

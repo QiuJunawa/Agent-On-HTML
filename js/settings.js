@@ -173,6 +173,13 @@
     $('cfgMaxWall').addEventListener('change', () => cfg.set('maxWall', Math.max(0, parseInt($('cfgMaxWall').value, 10) || 0)));
     $('cfgMemory').addEventListener('change', () => cfg.set('memory', $('cfgMemory').checked));
     $('cfgTitleGen').addEventListener('change', () => cfg.set('titleGen', $('cfgTitleGen').checked));
+    $('btnApplySystem').addEventListener('click', () => {
+      const v = $('cfgSystem').value.trim();
+      if (!v) { AH.ui.toast('系统提示词不能为空', 'warn'); return; }
+      cfg.set('systemPrompt', v);
+      const hasDeliver = /\[deliver(?::|\])/i.test(v);
+      AH.ui.toast(hasDeliver ? '已覆盖系统提示词' : '已覆盖系统提示词（未包含 [deliver] 交付规则）', hasDeliver ? 'ok' : 'warn', 2600);
+    });
     $('btnResetSystem').addEventListener('click', async () => {
       const ok = await AH.ui.confirm({ title: '恢复默认提示词', text: '当前自定义的系统提示词会被覆盖。', danger: true });
       if (!ok) return;

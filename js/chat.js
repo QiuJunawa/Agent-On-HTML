@@ -13,7 +13,9 @@
   const cfg = AH.cfg;
 
   const RENDER_LIMIT = 60;
-  const LOAD_MORE = 40;
+  const RENDER_CHARS = 180000;
+  const MIN_RENDER = 8;
+  const LOAD_MORE = 20;
 
   const Chat = (AH.chat = {
     sessions: [],
@@ -100,16 +102,16 @@
     if (!meta) return;
     meta.updatedAt = Date.now();
     meta.count = conv.length;
-    const last = [...conv].reverse().find((m) => m.role === 'user' || m.role === 'assistant');
+    let last = null;
+    for (let i = conv.length - 1; i >= 0; i--) {
+      if (conv[i].role === 'user' || conv[i].role === 'assistant') { last = conv[i]; break; }
+    }
     meta.preview = last ? U.clip(typeof last.content === 'string' ? last.content : '（图文消息）', 90) : '';
     Chat.sessions.sort((a, b) => b.updatedAt - a.updatedAt);
     await AH.db.put('kv', { k: 'conv:' + id, v: conv });
     await Chat._saveIndex();
     renderHistory();
-    if (id === Chat.currentId) {
-      scheduleMarkdown();
-      if (opts && opts.now) await flushMarkdown();
-    }
+    scheduleMarkdown(id, conv);
   };
 
   Chat.save = async function (opts) {
@@ -122,19 +124,20 @@
     Chat._saveTimer = setTimeout(() => { Chat._saveTimer = null; Chat.save().catch((e) => console.warn(e)); }, 450);
   };
 
-  async function flushMarkdown() {
-    if (Chat._mdTimer) { clearTimeout(Chat._mdTimer); Chat._mdTimer = null; }
-    const meta = Chat.sessions.find((s) => s.id === Chat.currentId);
-    if (!meta || !Chat.conv.length) return;
+  async function flushMarkdown(id, conv) {
+    const meta = Chat.sessions.find((s) => s.id === id);
+    if (!meta || !conv || !conv.length) return;
+    const toolResults = new Map();
+    for (const m of conv) if (m.role === 'tool' && m.tool_call_id) toolResults.set(m.tool_call_id, m.content);
     const lines = ['# ' + (meta.title || '对话'), '', '> 保存于 ' + U.nowText(), ''];
-    for (const m of Chat.conv) {
+    for (const m of conv) {
       if (m.role === 'user') {
         lines.push('## 用户', '', typeof m.content === 'string' ? m.content : (m.images ? '（含图片）' : ''), '');
       } else if (m.role === 'assistant') {
         lines.push('## 小匣', '', m.content || '（无正文）', '');
         if (m.tool_calls) {
           for (const tc of m.tool_calls) {
-            const res = Chat.conv.find((x) => x.role === 'tool' && x.tool_call_id === tc.id);
+            const res = toolResults.get(tc.id);
             lines.push('### 工具：' + tc.function.name, '', '```json', tc.function.arguments || '{}', '```', '');
             lines.push('结果：', '', '```', U.clip(res ? res.content : '（无）', 2000), '```', '');
           }
@@ -145,9 +148,22 @@
     catch (e) { console.warn('[chat] 存档写入失败', e); }
   }
 
-  function scheduleMarkdown() {
+  async function flushPendingMarkdown() {
+    Chat._mdTimer = null;
+    const pending = Chat._mdPending;
+    Chat._mdPending = new Map();
+    for (const [id, conv] of pending) {
+      try { await flushMarkdown(id, conv); }
+      catch (e) { console.warn('[chat] 存档写入失败', e); }
+    }
+  }
+
+  function scheduleMarkdown(id, conv) {
+    if (!id || !conv) return;
+    if (!Chat._mdPending) Chat._mdPending = new Map();
+    Chat._mdPending.set(id, conv);
     if (Chat._mdTimer) clearTimeout(Chat._mdTimer);
-    Chat._mdTimer = setTimeout(flushMarkdown, 2500);
+    Chat._mdTimer = setTimeout(flushPendingMarkdown, 3000);
   }
 
   Chat.switchSession = async function (id, opts) {
@@ -161,7 +177,7 @@
     await AH.db.put('kv', { k: 'last_session', v: id });
     Chat.conv = await Chat.loadConv(id);
     Chat._loaded.add(id);
-    Chat._renderStart = Math.max(0, Chat.conv.length - RENDER_LIMIT);
+    Chat._renderStart = renderStartFor(Chat.conv);
     Chat.toolLog = [];
     renderHeader();
     renderConversation();
@@ -274,6 +290,33 @@
     return '';
   }
 
+  function msgWeight(m) {
+    let n = 0;
+    if (typeof m.content === 'string') n = m.content.length;
+    else if (Array.isArray(m.content)) {
+      for (const p of m.content) if (p && p.type === 'text') n += String(p.text || '').length;
+    }
+    if (m.tool_calls) for (const tc of m.tool_calls) n += String(tc.function && tc.function.arguments || '').length;
+    return n;
+  }
+
+  function normRenderStart(conv, start) {
+    start = Math.max(0, Math.min(start, conv.length));
+    while (start > 0 && conv[start] && conv[start].role === 'tool') start--;
+    return start;
+  }
+
+  /* 不只按条数，还按正文字符预算截断，避免长回答把 60 条全部解析进 DOM */
+  function renderStartFor(conv) {
+    const hard = Math.max(0, conv.length - RENDER_LIMIT);
+    let start = hard, chars = 0;
+    for (let i = conv.length - 1; i >= hard; i--) {
+      chars += msgWeight(conv[i]);
+      if (chars > RENDER_CHARS && conv.length - i >= MIN_RENDER) { start = i; break; }
+    }
+    return normRenderStart(conv, start);
+  }
+
   function toolResultFor(tc, startIndex) {
     const conv = Chat.conv;
     for (let i = startIndex; i < Math.min(conv.length, startIndex + 60); i++) {
@@ -283,21 +326,22 @@
     return null;
   }
 
-  function renderConversation() {
+  function renderConversation(opts) {
     if (!els.messages) return;
     els.messages.innerHTML = '';
     const conv = Chat.conv;
     renderWelcome();
     if (!conv.length) return;
-    const start = Math.max(0, Chat._renderStart || 0);
+    const start = normRenderStart(conv, Chat._renderStart || 0);
     if (start > 0) {
       const btn = document.createElement('button');
       btn.className = 'load-earlier chip-btn';
       btn.textContent = '加载更早的 ' + Math.min(LOAD_MORE, start) + ' 条';
       btn.style.cssText = 'display:block;margin:0 auto 14px';
       btn.addEventListener('click', () => {
-        Chat._renderStart = Math.max(0, start - LOAD_MORE);
-        renderConversation();
+        const next = normRenderStart(conv, start - LOAD_MORE);
+        Chat._renderStart = next;
+        renderConversation({ anchor: next });
       });
       els.messages.appendChild(btn);
     }
@@ -305,7 +349,7 @@
     while (i < conv.length) {
       const m = conv[i];
       if (m.role === 'user') {
-        els.messages.appendChild(buildUserEl(m));
+        els.messages.appendChild(buildUserEl(m, i));
         i++;
       } else if (m.role === 'assistant') {
         els.messages.appendChild(buildAssistantEl(m, i));
@@ -317,13 +361,46 @@
         } else i++;
       } else i++;
     }
-    scrollToBottom(true);
+    if (opts && Number.isFinite(opts.anchor)) {
+      const target = els.messages.querySelector('.msg[data-i="' + opts.anchor + '"]');
+      if (target) target.scrollIntoView({ block: 'start', inline: 'nearest' });
+      else scrollToBottom(true);
+    } else scrollToBottom(true);
   }
   Chat.renderConversation = renderConversation;
 
-  function buildUserEl(m) {
+  /* 长会话新增消息时同步裁掉预算外的旧 DOM，避免越聊越卡 */
+  function trimConversationDom(conv) {
+    if (!els.messages) return;
+    const start = renderStartFor(conv);
+    const box = els.messages;
+    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140;
+    for (const el of [...box.querySelectorAll('.msg')]) {
+      const i = Number(el.dataset.i);
+      if (Number.isFinite(i) && i < start) el.remove();
+    }
+    let btn = box.querySelector('.load-earlier');
+    if (start > 0) {
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.className = 'load-earlier chip-btn';
+        btn.style.cssText = 'display:block;margin:0 auto 14px';
+        box.prepend(btn);
+      }
+      btn.textContent = '加载更早的 ' + Math.min(LOAD_MORE, start) + ' 条';
+      btn.onclick = () => {
+        const next = normRenderStart(conv, start - LOAD_MORE);
+        Chat._renderStart = next;
+        renderConversation({ anchor: next });
+      };
+    } else if (btn) btn.remove();
+    if (nearBottom) scrollToBottom(true);
+  }
+
+  function buildUserEl(m, index) {
     const wrap = document.createElement('div');
     wrap.className = 'msg user';
+    if (typeof index === 'number') wrap.dataset.i = String(index);
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     bubble.textContent = msgText(m);
@@ -346,6 +423,7 @@
   function buildAssistantEl(m, index) {
     const wrap = document.createElement('div');
     wrap.className = 'msg assistant';
+    if (typeof index === 'number') wrap.dataset.i = String(index);
     const name = document.createElement('div');
     name.className = 'name';
     name.innerHTML = '<span class="avatar">' + AH.ui.icon('sparkles') + '</span><b>小匣</b><span>' + U.fmtTime(m._at || Date.now()) + '</span>';
@@ -787,8 +865,8 @@
   /* ============================================================
      流式渲染
      ============================================================ */
-  function appendUserToDom(m) {
-    const el = buildUserEl(m);
+  function appendUserToDom(m, index) {
+    const el = buildUserEl(m, index);
     els.messages.appendChild(el);
     scrollToBottom();
   }
@@ -1009,15 +1087,27 @@
     }
   }
 
+  function pinToBottom(el, settle) {
+    let left = settle ? 7 : 0;
+    const step = () => {
+      const last = el.lastElementChild;
+      if (last) {
+        try { last.scrollIntoView({ block: 'end', inline: 'nearest' }); }
+        catch (e) { el.scrollTop = el.scrollHeight; }
+      } else el.scrollTop = el.scrollHeight;
+      if (left-- > 0) requestAnimationFrame(step);
+    };
+    step();
+  }
   function scrollBottomSmart() {
     const el = els.messages;
     if (!el) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 140) el.scrollTop = el.scrollHeight;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 140) pinToBottom(el);
   }
   function scrollToBottom(force) {
     const el = els.messages;
     if (!el) return;
-    if (force) el.scrollTop = el.scrollHeight;
+    if (force) pinToBottom(el, true);
     else scrollBottomSmart();
   }
 
@@ -1089,7 +1179,7 @@
       }
       const nm = document.createElement('span');
       nm.className = 'nm';
-      nm.textContent = a.name;
+      nm.textContent = a.name + (a.isDir ? '（' + (a.count || 0) + ' 个文件）' : '');
       el.appendChild(nm);
       const rm = document.createElement('button');
       rm.className = 'rm';
@@ -1104,6 +1194,24 @@
   Chat.addUpload = async function (file) {
     if (!file) return;
     const name = String(file.name || 'file').replace(/[\\/:*?"<>|]/g, '_');
+    if (U.extName(name) === 'zip') {
+      if (file.size > 25 * 1024 * 1024) { AH.ui.toast('ZIP 超过 25MB，未上传', 'warn'); return; }
+      try {
+        const r = await AH.zip.toVfs(file, '/uploads', name);
+        attachments.push({
+          name: r.name.replace(/\.zip$/i, '') + '/',
+          path: r.root,
+          isDir: true,
+          count: r.files,
+          isImage: false
+        });
+        renderAttachments();
+        AH.ui.toast('已解压 ' + r.files + ' 个文件到 ' + r.root, 'ok', 2800);
+      } catch (e) {
+        AH.ui.error('ZIP 解压失败：' + e.message);
+      }
+      return;
+    }
     const isImage = /^image\//.test(file.type) || U.isImagePath(name);
     const path = '/uploads/' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 6) + '-' + name;
     try {
@@ -1207,7 +1315,7 @@
       }
       content = parts;
     } else if (atts.length) {
-      const lines = atts.map((a) => '- ' + a.path + (a.isImage ? '（图片，当前模型无法直接查看）' : ''));
+      const lines = atts.map((a) => '- ' + a.path + (a.isDir ? '（目录' + (a.count ? '，' + a.count + ' 个文件' : '') + '，可 list_files）' : a.isImage ? '（图片，当前模型无法直接查看）' : '（已存入 VFS，可 read_file）'));
       content = (text ? text + '\n\n' : '') + '附带文件（已存入 VFS）：\n' + lines.join('\n');
     }
 
@@ -1223,9 +1331,10 @@
       if (!o.fromCard) { els.input.value = ''; autoHeight(); }
       els.welcome.hidden = true;
       els.messages.style.visibility = '';
-      appendUserToDom(userMsg);
+      appendUserToDom(userMsg, Chat.conv.length - 1);
+      trimConversationDom(Chat.conv);
     }
-    Chat._renderStart = Math.max(0, Chat.conv.length - RENDER_LIMIT);
+    Chat._renderStart = renderStartFor(Chat.conv);
     Chat.saveSoon();
 
     const meta = Chat.sessions.find((s) => s.id === Chat.currentId);
@@ -1323,6 +1432,7 @@
         updateTokenBar();
       }
       await Chat.saveConv(run.session.id, run.conv, { now: true });
+      if (Chat.currentId === run.session.id) trimConversationDom(run.conv);
       run.conv = null;
       run.attachments = null;
       AH.app.refreshTasks();
@@ -1385,7 +1495,7 @@
     const text = msgText(conv[lastUser]);
     const hadTools = conv.slice(lastUser + 1).some((m) => m.role === 'assistant' && m.tool_calls);
     conv.splice(lastUser + 1);
-    Chat._renderStart = Math.max(0, Chat.conv.length - RENDER_LIMIT);
+    Chat._renderStart = renderStartFor(Chat.conv);
     renderConversation();
     Chat.saveSoon();
     // 复用这条用户消息，不重复插入

@@ -153,8 +153,11 @@
     return Math.ceil(cjk * 0.62 + other / 4.1);
   };
 
+  const tokenCache = new WeakMap();
   U.estimateMsgTokens = (m) => {
     if (!m) return 0;
+    const hit = tokenCache.get(m);
+    if (hit && hit.content === m.content && hit.calls === m.tool_calls) return hit.n;
     let n = 0;
     if (typeof m.content === 'string') n = U.estimateTokens(m.content);
     else if (Array.isArray(m.content)) {
@@ -164,7 +167,9 @@
       }
     }
     if (m.tool_calls) for (const tc of m.tool_calls) n += U.estimateTokens(tc.function && tc.function.arguments) + 8;
-    return n + 4;
+    n += 4;
+    tokenCache.set(m, { content: m.content, calls: m.tool_calls, n });
+    return n;
   };
 
   U.hash = (s) => {
