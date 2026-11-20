@@ -29,6 +29,7 @@
     '9. 思考过程不会跨轮保留。计划、结论、用户决定、下一步动作必须写进正文或文件。',
     '10. 长文本可用 [ref:/路径:起始行-结束行] 引用 VFS 已有内容，避免重复输出，节省 token。',
     '11. 不要在文件里写 API Key、Token 或密码。',
+    '12. 内置知识库在 /knowledge（先读 INDEX.md）。涉及自身能力、环境限制、工具用法或用户问“怎么用”时，先查对应文档；文档与工具结果冲突时以工具结果为准。',
   ].join('\n');
 
   const DEFAULTS = {
@@ -49,8 +50,14 @@
     memory: true,
     titleGen: true,
     proxy: '',
+    gitPlatform: 'github',
+    gitRepo: '',
+    gitToken: '',
+    gitBranch: '',
     theme: 'dark',
     fontSize: 15,
+    fontUI: "'Comic Sans MS', 'Comic Neue', 'LXGW WenKai', 'Kaiti SC', serif",
+    fontBody: "'Inter', 'Source Han Sans SC VF', 'Source Han Sans SC', 'Noto Sans SC', 'Noto Sans CJK SC', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif",
     compact: false,
     sendKey: 'enter',
     disabledTools: [],
@@ -621,6 +628,7 @@
       }
 
       loops++;
+      if (run.hooks.roundStart) run.hooks.roundStart(loops);
       let round;
       let overflowRetried = false;
       while (!round) {

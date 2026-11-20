@@ -1,6 +1,6 @@
 # 小匣 2.0 · 浏览器内 AI Agent
 
-纯前端、无后端、无第三方依赖的单页 Agent。文件系统、对话、记忆、待办全部保存在本机 IndexedDB。
+纯前端、无后端的单页 Agent。文件系统、对话、记忆、待办全部保存在本机 IndexedDB。KaTeX 公式本地自托管；字体样式在首屏加载完成后异步注入。
 
 ## 运行
 
@@ -18,17 +18,23 @@ python3 -m http.server 8080     # 然后打开 http://localhost:8080/index-v2.ht
 ## 文件结构
 
 ```
-index-v2.html     页面骨架（导航 / 侧栏 / 聊天 / 编辑器 / 任务页 / 设置弹窗）
+index.html        页面骨架（导航 / 侧栏 / 聊天 / 编辑器 / 任务页 / 插件页 / 设置弹窗）
+                  仓库里命名为 index-v2.html，旧 index.html 保持原样
 app.css           全部样式（深/浅主题、响应式、动效可被 reduced-motion 关闭）
 js/util.js        路径、格式化、token 估算、文件读写、剪贴板等纯函数
-js/store.js       IndexedDB 封装 + VFS（元数据常驻内存、正文 LRU、内存降级）
+js/store.js       IndexedDB 封装 + VFS（元数据常驻内存、正文 LRU、内存降级、知识库播种）
 js/markdown.js    安全 Markdown 渲染（先转义、标签白名单、链接协议限制）
 js/ui.js          SVG 图标、Toast、确认框、右键菜单、弹窗
-js/tools.js       26 个工具定义 / 分组懒加载 / 执行器 / 撤销 / 待办 / 记忆
+js/knowledge.js   内置知识库（11 篇，首次启动写入 /knowledge）
+js/git.js         GitHub / Gitee / GitLab 读写与批量提交
+js/plugins.js     本地插件管理器 + 插件页
+js/tools.js       工具定义 / 分组懒加载 / 执行器 / 撤销 / 待办 / 记忆 / Git / 插件管理
 js/agent.js       配置、SSE 流式解析、消息清洗与裁剪、预算、工具调度、Agent 循环
 js/chat.js        会话存储、消息渲染、流式 UI、工具卡片、图表/交付/提问卡片、输入区
 js/settings.js    设置面板、服务商预设、连接测试、导入导出、数据清理
-js/app.js         启动、文件树、编辑器、待办、任务页、导航、快捷键
+js/app.js         启动、文件树（80ms 合并刷新 + 自动展开）、编辑器、待办、任务页、导航、快捷键
+knowledge/        知识库源文件（构建 js/knowledge.js 用）
+vendor/katex/     自托管 KaTeX（js + css + 20 个 woff2 字体）
 ```
 
 加载顺序即依赖顺序，全部经典 `<script>`，不用 ES Module——`file://` 与 GitHub Pages 都能直接跑。
@@ -43,7 +49,7 @@ js/app.js         启动、文件树、编辑器、待办、任务页、导航�
 | 每次保存把所有会话全量序列化进 localStorage | 每会话独立 `kv` 键 + 元数据索引；只写当前会话 |
 | 57 个工具定义每轮全量下发 | 默认 4 个核心文件工具 + `tools_expand`，按分组展开 |
 | 消息区每次重绘整段会话 | 只渲染最近 60 条，可向上加载；工具卡片按调用增量更新 |
-| KaTeX / JSZip / Pyodide / 外部字体等 CDN 依赖 | 全部移除，零外部请求 |
+| KaTeX / JSZip / Pyodide 等 CDN 依赖 | KaTeX 本地自托管；字体 CDN 改为 load 后异步注入，不阻塞首屏 |
 | 会话正文与 VFS 内容双份常驻内存 | VFS 元数据常驻、正文 LRU（80 项 / 4MB） |
 
 ### 成本（token）
@@ -68,19 +74,19 @@ js/app.js         启动、文件树、编辑器、待办、任务页、导航�
 
 ## 功能保留 / 移除
 
-保留：VFS 与文件树、编辑器（Markdown / HTML / 图片）、流式对话、思考块、工具卡片、图表、交付卡、提问卡、待办、长期记忆、撤销（最近 3 轮）、任务页、会话存档 Markdown、备份导入导出、深/浅主题。
+保留：VFS 与文件树、编辑器（Markdown / HTML / 图片）、流式对话、逐轮独立气泡、思考块、工具卡片、图表、交付卡、提问卡、待办、长期记忆、撤销（最近 3 轮）、任务页、会话存档 Markdown、备份导入导出、深/浅主题、KaTeX 行内/块级公式、界面/正文字体自定义、本地插件系统、Git 仓库工具、内置知识库。
 
 移除及原因：
 
 | 移除 | 原因 |
 | --- | --- |
 | Codespaces 桥接与 `cs_*` 工具 | 依赖外部隧道与令牌，绝大多数本地使用用不到，且是主要故障源 |
-| 插件系统 / 插件库 / 定时任务页 | 使用率低、状态面大；保留核心 Agent 链更可靠 |
+| 远端插件库 / 定时任务页 | 远端库涉及额外网络与信任面；本地插件管理已恢复，定时任务未恢复 |
 | Gitee / WebDAV / Gist / 恢复码云同步 | 涉及第三方凭据与跨域，改为本地 JSON 备份 |
 | Pyodide `run_py` | 体积与首屏成本过高；`run_js` 已覆盖脚本计算 |
 | 外部知识库 `kb_*`、`web_search`、`download_url` | 与 `fetch_url` / VFS 重叠，减少工具数量 |
-| 浮窗主题 / 六面天空盒 / 字体方案 | 纯装饰，拖慢首屏 |
-| KaTeX、JSZip | 去掉 CDN；公式以代码块呈现，压缩/解压走系统工具 |
+| 浮窗主题 / 六面天空盒 | 纯装饰，拖慢首屏 |
+| JSZip | 压缩/解压不是主链需求；需要时可走系统工具 |
 
 如确实需要上述能力，可在现有工具层按分组增量加回，不影响主链。
 
@@ -95,12 +101,15 @@ js/app.js         启动、文件树、编辑器、待办、任务页、导航�
 
 ## 验收状态
 
-已用本地 mock OpenAI SSE 服务跑过：
+已用本地 mock OpenAI SSE 服务与 Chromium 冒烟验证：
 
-- 多轮工具链：`read_file` → `tools_expand` → `render_chart` → 最终 Markdown；3 张工具卡完成、图表绘制正常；
-- 停止生成：保留已生成正文、显示“已停止生成”、无 dangling tool call；
-- 提问卡、交付卡（点击跳转编辑器）、任务页、待办、主题切换、设置持久化、会话删除、刷新后会话与存档仍在；
-- 缺 Key 自动打开设置；控制台无报错。
+- 多轮工具链：`read_file` → 最终正文；每轮独立 assistant 气泡（本次实测 2 轮 = 2 个气泡、1 张工具卡），第一轮无正文时状态占位会被清除；
+- KaTeX：行内 `$x^2$` 与块级 `$$...$$` 均渲染出 `.katex`（2 个节点）；
+- 知识库：首次启动 `/knowledge` 有 11 个文件，`/README.md` 种子文件在首屏即可读；
+- 插件：创建 → 启用 → 注册工具进入 `buildSpecs` → 禁用后注销，插件页正常渲染/返回对话；
+- VFS 刷新：写入 `/projects/new/test.md` 后 350ms 内文件树出现该文件，父目录自动展开；
+- 字体：正文字体、界面字体变量均已应用；外部字体在 load 后注入，页面 load 约 230ms；
+- 控制台无报错。
 
 后续又做了若干边界修复（跨会话保存、图表随主题重绘、任务页名称、副本命名、确认框并发等），**尚未再跑全量回归**——这部分留给你验收。
 
@@ -117,4 +126,5 @@ js/app.js         启动、文件树、编辑器、待办、任务页、导航�
 
 - 本版是**多文件结构**（`index-v2.html` + `js/*.js` + `app.css`），已推送到 `QiuJunawa/Agent-On-HTML` 的 `main`；旧 `index.html` 保持原样，方便对照与回滚。
 - 线上地址：<https://qiujunawa.github.io/Agent-On-HTML/index-v2.html>。
-- 没有使用你的真实 API Key；上面的验收全部走本地 mock。需要我做真实服务商兼容性实测时，把 Key 发我，测完立即销毁。
+- 本轮未使用真实 API Key；全部走本地 mock。需要真实服务商兼容性实测时，把 Key 发我，测完立即销毁。
+- Git 工具只做了静态实现与入口检查，未用真实 Token 请求 GitHub/Gitee/GitLab。

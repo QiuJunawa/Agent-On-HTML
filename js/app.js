@@ -41,6 +41,8 @@
     await AH.chat.init();
     AH.settings.init();
     AH.settings.applyUI();
+    AH.plugins.init();
+    await AH.plugins.loadAll();
     App.bind();
     renderTree();
     renderTodos();
@@ -250,6 +252,7 @@
     if (App.editor.mode === 'md') {
       md.hidden = false;
       md.innerHTML = AH.md.toHtml(content);
+      AH.md.renderMathIn(md);
     } else if (App.editor.mode === 'html') {
       iframe.hidden = false;
       iframe.srcdoc = content;
@@ -393,6 +396,10 @@
     app.style.display = page === 'chat' ? '' : 'none';
     $('tasksPage').hidden = page !== 'tasks';
     if (page === 'tasks') renderTasks();
+    if ($('pluginsPage')) {
+      $('pluginsPage').hidden = page !== 'plugins';
+      if (page === 'plugins') AH.plugins.render();
+    }
     if (page === 'chat') setTimeout(() => AH.chat.autoHeight && AH.chat.autoHeight(), 0);
   }
   App.setPage = setPage;
@@ -501,15 +508,25 @@
       }
     });
 
-    // VFS 变化 → 节流刷新
+    // VFS 变化 → 合并刷新（80ms 内的批量写入只重绘一次）
+    App._vfsPending = new Set();
     VFS.on((paths) => {
+      for (const p of paths) App._vfsPending.add(p);
       if (App._treeTimer) return;
       App._treeTimer = setTimeout(async () => {
         App._treeTimer = null;
+        const pending = App._vfsPending;
+        App._vfsPending = new Set();
+        // 新文件默认展开父目录，否则树上看不到刚写出来的东西
+        for (const p of pending) {
+          if (p.startsWith('/conversations')) continue;
+          let parent = U.parentPath(p);
+          while (parent && parent !== '/') { App.expanded.add(parent); parent = U.parentPath(parent); }
+        }
         renderTree();
         updateFsStat();
         // 打开的文件被外部修改：未编辑时自动重载
-        if (App.editor.path && !App.editor.dirty && paths.has(App.editor.path)) {
+        if (App.editor.path && !App.editor.dirty && pending.has(App.editor.path)) {
           try {
             const content = await VFS.read(App.editor.path);
             if ($('editor').value !== content && App.editor.mode !== 'image') {
@@ -518,7 +535,7 @@
             }
           } catch (e) {}
         }
-      }, 180);
+      }, 80);
     });
 
     // 页面关闭前提示

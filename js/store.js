@@ -198,6 +198,7 @@
     VFS.nodes.clear();
     for (const n of rows) VFS.nodes.set(n.path, n);
     if (VFS.nodes.size === 0) await seed();
+    await seedKnowledge();
     if (!VFS.nodes.has('/')) {
       await rawPutNode({ path: '/', type: 'dir', size: 0, mtime: Date.now() }, true);
     }
@@ -223,6 +224,8 @@
         '- `/notes`：随手记、草稿',
         '- `/projects`：按项目分目录',
         '- `/conversations`：对话记录（应用自动写入，不要手改）',
+        '- `/knowledge`：内置知识库（Agent 的能力/环境/工具说明）',
+        '- `/plugins`：本地插件（.js + .json，默认禁用）',
         '- `/tmp`：工具产生的临时文件，可随时清空',
         '',
         '## 给 Agent 的约定',
@@ -237,15 +240,31 @@
     const ops = [];
     const now = Date.now();
     for (const d of dirs) {
-      ops.push({ store: 'nodes', type: 'put', value: { path: d, type: 'dir', size: 0, mtime: now } });
+      const node = { path: d, type: 'dir', size: 0, mtime: now };
+      VFS.nodes.set(d, node);
+      ops.push({ store: 'nodes', type: 'put', value: node });
     }
     for (const [path, content] of Object.entries(files)) {
-      ops.push({ store: 'nodes', type: 'put', value: { path, type: 'file', size: content.length, mtime: now } });
+      const node = { path, type: 'file', size: content.length, mtime: now };
+      VFS.nodes.set(path, node);
+      ops.push({ store: 'nodes', type: 'put', value: node });
       ops.push({ store: 'content', type: 'put', value: { path, content } });
     }
     await DB.batch(ops);
     await DB.put('kv', { k: 'seed_v2', v: now });
   }
+
+  async function seedKnowledge() {
+    const kb = AH.knowledge || {};
+    const keys = Object.keys(kb);
+    if (!keys.length) return;
+    if (!VFS.nodes.has('/knowledge')) await VFS.mkdir('/knowledge');
+    for (const path of keys) {
+      if (VFS.nodes.has(path)) continue;      // 用户改过的内容不覆盖
+      try { await VFS.write(path, kb[path]); } catch (e) { console.warn('[knowledge] 写入失败', path, e); }
+    }
+  }
+  VFS.seedKnowledge = seedKnowledge;
 
   /* ---------- 查询 ---------- */
   VFS.stat = (path) => VFS.nodes.get(U.normPath(path)) || null;

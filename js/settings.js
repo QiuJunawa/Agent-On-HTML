@@ -47,6 +47,7 @@
       rail.dataset.iconDone = '1';
     }
     document.documentElement.style.setProperty('--fs', (Number(cfg.get('fontSize')) || 15) + 'px');
+    applyFonts();
     document.body.classList.toggle('compact', !!cfg.get('compact'));
     AH.chat.updateModelChip && AH.chat.updateModelChip();
     AH.chat.redrawCharts && AH.chat.redrawCharts();
@@ -114,6 +115,12 @@
     $('cfgTitleGen').checked = cfg.get('titleGen') !== false;
     $('cfgProxy').value = cfg.get('proxy') || '';
     $('cfgFontSize').value = String(cfg.get('fontSize') || 15);
+    $('cfgFontUI').value = cfg.get('fontUI') || '';
+    $('cfgFontBody').value = cfg.get('fontBody') || '';
+    $('cfgGitPlatform').value = cfg.get('gitPlatform') || 'github';
+    $('cfgGitRepo').value = cfg.get('gitRepo') || '';
+    $('cfgGitToken').value = cfg.get('gitToken') || '';
+    $('cfgGitBranch').value = cfg.get('gitBranch') || '';
     $('cfgCompact').checked = !!cfg.get('compact');
     $('cfgSendKey').value = cfg.get('sendKey') || 'enter';
     syncThemeSeg();
@@ -187,13 +194,39 @@
       S.applyUI();
       syncThemeSeg();
     }));
+    $('cfgFontUI').addEventListener('change', () => {
+      cfg.set('fontUI', $('cfgFontUI').value.trim());
+      applyFonts();
+    });
+    $('cfgFontBody').addEventListener('change', () => {
+      cfg.set('fontBody', $('cfgFontBody').value.trim());
+      applyFonts();
+    });
     $('cfgFontSize').addEventListener('input', () => {
       cfg.set('fontSize', Number($('cfgFontSize').value));
       document.documentElement.style.setProperty('--fs', $('cfgFontSize').value + 'px');
     });
     $('cfgCompact').addEventListener('change', () => { cfg.set('compact', $('cfgCompact').checked); S.applyUI(); });
     $('cfgSendKey').addEventListener('change', () => cfg.set('sendKey', $('cfgSendKey').value));
+    $('cfgGitPlatform').addEventListener('change', () => cfg.set('gitPlatform', $('cfgGitPlatform').value));
+    $('cfgGitRepo').addEventListener('change', () => cfg.set('gitRepo', $('cfgGitRepo').value.trim()));
+    $('cfgGitToken').addEventListener('change', () => cfg.set('gitToken', $('cfgGitToken').value.trim()));
+    $('cfgGitBranch').addEventListener('change', () => cfg.set('gitBranch', $('cfgGitBranch').value.trim()));
+    $('btnGitTest').addEventListener('click', async () => {
+      try {
+        AH.ui.toast(await AH.git.test(), 'ok', 3000);
+      } catch (e) { AH.ui.toast(e.message, 'err', 5000); }
+    });
   }
+
+  function applyFonts() {
+    const root = document.documentElement.style;
+    const ui = String(cfg.get('fontUI') || '').trim();
+    const body = String(cfg.get('fontBody') || '').trim();
+    if (ui) root.setProperty('--font-ui', ui); else root.removeProperty('--font-ui');
+    if (body) root.setProperty('--font-body', body); else root.removeProperty('--font-body');
+  }
+  S.applyFonts = applyFonts;
 
   function fillToolSwitches() {
     const box = $('toolSwitches');

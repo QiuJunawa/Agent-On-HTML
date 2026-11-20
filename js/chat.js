@@ -359,6 +359,7 @@
       const md = document.createElement('div');
       md.className = 'md';
       md.innerHTML = AH.md.toHtml(m.content);
+      AH.md.renderMathIn(md);
       bubble.appendChild(md);
       wrap.appendChild(bubble);
     }
@@ -857,6 +858,7 @@
     state.finalize = (content, thinking) => {
       state.finished = true;
       if (!run.visible) return;
+      if (state.statusEl && state.statusEl.parentElement) state.statusEl.remove();
       state.text = content || state.text;
       state.thinking = thinking || state.thinking;
       if (state.thinkingEl) {
@@ -870,6 +872,7 @@
         ensureBody();
         state.bodyEl.classList.remove('streaming');
         state.bodyEl.innerHTML = '<div class="md">' + AH.md.toHtml(state.text) + '</div>';
+        AH.md.renderMathIn(state.bodyEl);
       }
       attachMsgActions(state, content);
       scrollBottomSmart();
@@ -1151,13 +1154,20 @@
     updateRunningUI();
     updateTokenBar();
 
-    const live = createLiveAssistant(run);
+    // 每一轮模型调用一个独立气泡：上一轮收尾后，下一轮开始再新建
+    let live = null;
+    const beginRound = () => {
+      if (live && !live.finished) live.finalize(live.text, live.thinking);
+      live = createLiveAssistant(run);
+    };
+    run.hooks.roundStart = beginRound;
 
-    run.hooks.status = (t) => live.setStatus(t);
-    run.hooks.delta = (text2, thinking) => live.onDelta(text2, thinking);
-    run.hooks.toolDelta = (idx, name, args) => live.onToolDelta(idx, name, args);
-    run.hooks.toolsReady = (calls) => live.bindIds(calls);
+    run.hooks.status = (t) => { if (live) live.setStatus(t); };
+    run.hooks.delta = (text2, thinking) => { if (live) live.onDelta(text2, thinking); };
+    run.hooks.toolDelta = (idx, name, args) => { if (live) live.onToolDelta(idx, name, args); };
+    run.hooks.toolsReady = (calls) => { if (live) live.bindIds(calls); };
     run.hooks.toolStart = (id, args) => {
+      if (!live) return;
       live.onToolStart(id, args);
       let tc = null;
       for (const m of run.conv) {
@@ -1169,13 +1179,13 @@
       AH.app.refreshTasks();
     };
     run.hooks.toolFinish = (id, ok, text2, ms) => {
-      live.onToolFinish(id, ok, text2, ms);
+      if (live) live.onToolFinish(id, ok, text2, ms);
       const item = run.toolLog.find((x) => x.id === id);
       if (item) { item.status = ok ? 'ok' : 'error'; item.result = U.clip(String(text2 || ''), 2400); item.ms = ms; }
       AH.app.refreshTasks();
     };
     run.hooks.usage = (usage) => { updateTokenBar(); };
-    run.hooks.assistantDone = (content, thinking) => live.finalize(content, thinking);
+    run.hooks.assistantDone = (content, thinking) => { if (live) live.finalize(content, thinking); };
     run.hooks.error = (msg) => {
       AH.ui.toast(msg, 'err', 5000);
       appendError(msg);
@@ -1198,12 +1208,14 @@
       // 中断/失败时补齐 tool 响应，避免下一次请求 400
       repairDangling(run.conv);
       if (Chat.currentId === run.session.id) {
-        if (!live.finished) {
-          const last = [...Chat.conv].reverse().find((m) => m.role === 'assistant');
-          if (last && last.content) live.finalize(last.content, last._thinking);
-          else live.wrap.remove();
+        if (live) {
+          if (!live.finished) {
+            const last = [...Chat.conv].reverse().find((m) => m.role === 'assistant');
+            if (last && last.content) live.finalize(last.content, last._thinking);
+            else live.wrap.remove();
+          }
+          live.attachMeta(run.usage);
         }
-        live.attachMeta(run.usage);
         updateTokenBar();
       }
       await Chat.saveConv(run.session.id, run.conv, { now: true });
@@ -1217,7 +1229,7 @@
           renderConversation();
           updateTokenBar();
         }
-      } else if (!live.text && !live.cards.size && !live.finished && live.wrap.parentElement) {
+      } else if (live && !live.text && !live.cards.size && !live.finished && live.wrap.parentElement) {
         live.wrap.remove();
       }
     }

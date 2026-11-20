@@ -136,6 +136,62 @@
     task_cancel: S('task_cancel', '取消一个后台任务（尽力而为）。', {
       task_id: { type: 'string', description: '任务 ID' }
     }, ['task_id']),
+    git_list: S('git_list', '列出远端 Git 仓库目录（GitHub/Gitee/GitLab）。配置缺省读「设置 → Git 仓库」。', {
+      platform: { type: 'string', description: 'github / gitee / gitlab，缺省读设置' },
+      repo: { type: 'string', description: 'owner/name' },
+      path: { type: 'string', description: '目录路径，默认 /' },
+      ref: { type: 'string', description: '分支/ref，缺省用仓库默认分支' },
+      token: { type: 'string', description: '可选，缺省读设置' }
+    }),
+    git_read: S('git_read', '读取远端 Git 仓库文件（可按行范围）。只读，不产生 commit。', {
+      platform: { type: 'string', description: 'github / gitee / gitlab' },
+      repo: { type: 'string', description: 'owner/name' },
+      path: { type: 'string', description: '文件路径' },
+      ref: { type: 'string', description: '分支/ref' },
+      start_line: { type: 'integer', description: '起始行（1-based）' },
+      end_line: { type: 'integer', description: '结束行（含）' }
+    }, ['path']),
+    git_write: S('git_write', '写入远端 Git 仓库单个文件并提交。会产生真实 commit，需用户确认。', {
+      platform: { type: 'string', description: 'github / gitee / gitlab' },
+      repo: { type: 'string', description: 'owner/name' },
+      path: { type: 'string', description: '文件路径' },
+      content: { type: 'string', description: '完整内容，支持 [ref:] 占位符' },
+      message: { type: 'string', description: '提交说明' },
+      ref: { type: 'string', description: '分支/ref' }
+    }, ['path', 'content']),
+    git_delete: S('git_delete', '删除远端 Git 仓库单个文件并提交。会产生 commit，需用户确认。', {
+      platform: { type: 'string', description: 'github / gitee / gitlab' },
+      repo: { type: 'string', description: 'owner/name' },
+      path: { type: 'string', description: '文件路径' },
+      message: { type: 'string', description: '提交说明' },
+      ref: { type: 'string', description: '分支/ref' }
+    }, ['path']),
+    git_commit_batch: S('git_commit_batch', '批量提交多个文件变更。GitHub/GitLab 为一次 commit，Gitee 顺序提交。', {
+      platform: { type: 'string', description: 'github / gitee / gitlab' },
+      repo: { type: 'string', description: 'owner/name' },
+      actions: { type: 'array', items: { type: 'object', properties: { action: { type: 'string', description: 'create/update/delete' }, path: { type: 'string' }, content: { type: 'string' } }, required: ['path'] }, description: '变更列表' },
+      message: { type: 'string', description: '提交说明' },
+      ref: { type: 'string', description: '分支/ref' }
+    }, ['actions']),
+
+    plugin_list: S('plugin_list', '列出 /plugins 下的插件、启用状态与已注册工具。', {}),
+    plugin_create: S('plugin_create', '新建插件（默认禁用）。代码在 AsyncFunction 中执行，用 AgentAPI.defineTool 注册工具；启用前需用户确认。', {
+      id: { type: 'string', description: '插件 id（字母数字下划线横线点）' },
+      code: { type: 'string', description: '插件 JS 代码' },
+      name: { type: 'string', description: '显示名' },
+      version: { type: 'string', description: '版本，默认 0.0.1' },
+      enabled: { type: 'boolean', description: '是否立即启用（默认 false）' }
+    }, ['id', 'code']),
+    plugin_update: S('plugin_update', '修改插件代码或元信息，保存后重载。', {
+      id: { type: 'string' }, code: { type: 'string' }, name: { type: 'string' }, version: { type: 'string' }, enabled: { type: 'boolean' }
+    }, ['id']),
+    plugin_delete: S('plugin_delete', '删除插件并注销其工具，需用户确认。', {
+      id: { type: 'string' }
+    }, ['id']),
+    plugin_toggle: S('plugin_toggle', '启用/禁用插件。启用会执行插件代码，需用户确认。', {
+      id: { type: 'string' }, enabled: { type: 'boolean' }
+    }, ['id', 'enabled']),
+
     remember: S('remember', '记录用户明确要求长期记住的内容（偏好、约定、项目决定）。跨会话生效。', {
       content: { type: 'string', description: '要记住的内容，≤500 字' },
       tags: { type: 'array', items: { type: 'string' }, description: '可选标签' }
@@ -152,9 +208,11 @@
     task: { label: '任务与交互', tools: ['todo_add', 'todo_done', 'todo_remove', 'todo_list', 'ask_user', 'deliver'] },
     compute: { label: '计算与代码', tools: ['calculator', 'statistics', 'run_js', 'check_code', 'wait'] },
     media: { label: '可视化', tools: ['render_chart'] },
-    system: { label: '撤销、记忆与后台任务', tools: ['undo_last', 'undo_list', 'task_status', 'task_cancel', 'remember'] }
+    system: { label: '撤销、记忆与后台任务', tools: ['undo_last', 'undo_list', 'task_status', 'task_cancel', 'remember'] },
+    git: { label: 'Git 仓库', tools: ['git_list', 'git_read', 'git_write', 'git_delete', 'git_commit_batch'] },
+    plugin: { label: '插件', tools: ['plugin_list', 'plugin_create', 'plugin_update', 'plugin_delete', 'plugin_toggle'] }
   };
-  const GROUP_ORDER = ['fs', 'net', 'task', 'compute', 'media', 'system'];
+  const GROUP_ORDER = ['fs', 'net', 'task', 'compute', 'media', 'system', 'git', 'plugin'];
   const CORE = ['list_files', 'read_file', 'write_file', 'edit_file'];
 
   const ALL = { ...SPECS, tools_expand: TOOL_EXPAND };
@@ -627,7 +685,7 @@
     return U.cut(s, RESULT_HEAD) + '\n\n…（结果过长，已省略 ' + (s.length - RESULT_HEAD - RESULT_TAIL) + ' 字符；可分段读取）…\n\n' + s.slice(-RESULT_TAIL);
   }
 
-  const EXEC_READONLY = new Set(['list_files', 'read_file', 'search_files', 'check_code', 'calculator', 'statistics', 'run_js', 'todo_list', 'task_status', 'undo_list', 'tools_expand']);
+  const EXEC_READONLY = new Set(['list_files', 'read_file', 'search_files', 'check_code', 'calculator', 'statistics', 'run_js', 'todo_list', 'task_status', 'undo_list', 'tools_expand', 'git_list', 'git_read', 'plugin_list']);
 
   const H = {}; // handlers
 
@@ -1020,6 +1078,71 @@
     return ok ? '已记住：' + U.cut(a.content, 120) : '这条内容已在记忆中，未重复保存。';
   };
 
+  /* ---------- Git 仓库 ---------- */
+  H.git_list = async (a, ctx) => AH.git.list(a, ctx);
+  H.git_read = async (a, ctx) => AH.git.read(a, ctx);
+  H.git_write = async (a, ctx) => {
+    const content = await expandRefs(String(a.content == null ? '' : a.content), ctx.run, a.path);
+    return AH.git.write(Object.assign({}, a, { content }), ctx);
+  };
+  H.git_delete = async (a, ctx) => AH.git.remove(a, ctx);
+  H.git_commit_batch = async (a, ctx) => {
+    const actions = [];
+    for (const act of (Array.isArray(a.actions) ? a.actions : [])) {
+      const copy = Object.assign({}, act);
+      if (copy.path) copy.path = U.normPath(copy.path).replace(/^\//, '');
+      if (copy.content != null && String(act.action || '').toLowerCase() !== 'delete') {
+        copy.content = await expandRefs(String(copy.content), ctx.run, copy.path);
+      }
+      actions.push(copy);
+    }
+    return AH.git.batch(Object.assign({}, a, { actions }), ctx);
+  };
+
+  /* ---------- 插件 ---------- */
+  H.plugin_list = async () => {
+    const metas = await AH.plugins.list();
+    if (!metas.length) return '还没有插件。';
+    return metas.map((m) => {
+      const tools = AH.plugins.toolNames(m.id);
+      return (m.enabled ? '[启用] ' : '[禁用] ') + m.id + ' · ' + m.name + ' · v' + m.version +
+        (tools.length ? '  工具：' + tools.join(', ') : '  （未注册工具）');
+    }).join('\n');
+  };
+
+  H.plugin_create = async (a, ctx) => {
+    const id = String(a.id || '').trim();
+    const code = String(a.code || '');
+    const ok = await ctx.confirm({
+      title: '新建插件',
+      text: '插件 ' + id + ' 将写入 /plugins，并可获得页面全部权限。\n\n代码摘要：\n' + U.cut(code, 600),
+      rememberKey: 'plugin-create'
+    });
+    if (!ok) return '用户取消了创建插件';
+    const meta = { name: a.name || id, version: a.version || '0.0.1' };
+    await AH.plugins.save(id, code, meta, !!a.enabled);
+    return '已创建插件 ' + id + '（' + (a.enabled ? '已启用' : '默认禁用，需 plugin_toggle 启用') + '）';
+  };
+
+  H.plugin_update = async (a, ctx) => {
+    const id = String(a.id || '').trim();
+    const meta = (await AH.plugins.list()).find((m) => m.id === id);
+    if (!meta) throw new Error('插件不存在：' + id);
+    let code = a.code;
+    if (code == null) code = await VFS.read('/plugins/' + id + '.js');
+    const ok = await ctx.confirm({
+      title: '更新插件',
+      text: '将重载插件 ' + id + '，旧实例会先卸载。\n\n代码摘要：\n' + U.cut(String(code), 500)
+    });
+    if (!ok) return '用户取消了更新插件';
+    const next = { name: a.name || meta.name, version: a.version || meta.version };
+    await AH.plugins.save(id, code, next, a.enabled == null ? meta.enabled : !!a.enabled);
+    return '已更新插件 ' + id;
+  };
+
+  H.plugin_delete = async (a, ctx) => AH.plugins.remove(String(a.id || ''), ctx);
+  H.plugin_toggle = async (a, ctx) => AH.plugins.setEnabled(String(a.id || ''), !!a.enabled, ctx);
+
   H.tools_expand = async (a, ctx) => {
     const session = ctx.run && ctx.run.session;
     const expanded = session ? (session.expanded || (session.expanded = new Set())) : new Set();
@@ -1061,7 +1184,14 @@
     const disabled = AH.cfg.get('disabledTools') || [];
     const keep = (name) => !disabled.includes(name);
     if (!lazy) {
-      return Object.entries(ALL).filter(([n]) => keep(n)).map(([, s]) => s);
+      const all = Object.entries(ALL).filter(([n]) => keep(n)).map(([, s]) => s);
+      if (AH.plugins && AH.plugins.specs) {
+        for (const sp of AH.plugins.specs()) {
+          const nm = sp.function && sp.function.name;
+          if (nm && keep(nm)) all.push(sp);
+        }
+      }
+      return all;
     }
     const session = run && run.session;
     const expanded = (session && session.expanded) || new Set();
@@ -1080,6 +1210,13 @@
     for (const n of names) {
       if (n === 'tools_expand') continue;
       if (ALL[n] && keep(n)) out.push(ALL[n]);
+    }
+    // 插件注册的工具由用户显式启用，始终并入工具列表
+    if (AH.plugins && AH.plugins.specs) {
+      for (const sp of AH.plugins.specs()) {
+        const nm = sp.function && sp.function.name;
+        if (nm && keep(nm)) out.push(sp);
+      }
     }
     return out;
   }
@@ -1111,11 +1248,17 @@
   });
 
   Tools.execute = async function (name, args, ctx) {
+    const pluginTool = AH.plugins && AH.plugins.find ? AH.plugins.find(name) : null;
     const spec = ALL[name];
-    if (!spec) throw new Error('未知工具：' + name);
+    if (!spec && !pluginTool) throw new Error('未知工具：' + name);
     const disabled = AH.cfg.get('disabledTools') || [];
     if (disabled.includes(name)) throw new Error('该工具已被用户在设置中禁用：' + name);
     ensureGroup(name, ctx.run);
+    if (pluginTool) {
+      const a = args && typeof args === 'object' ? args : {};
+      const r = await pluginTool.handler(a, ctx);
+      return Tools.pruneResult(r == null ? '（无返回）' : String(r));
+    }
     const fn = H[name];
     if (!fn) throw new Error('工具未实现：' + name);
     const a = args && typeof args === 'object' ? args : {};

@@ -6,6 +6,8 @@
 <meta name="color-scheme" content="dark light">
 <meta name="description" content="小匣 · 浏览器内的 AI Agent，带 IndexedDB 虚拟文件系统">
 <title>小匣 · AI Agent</title>
+<link rel="preconnect" href="https://miaoda.feishu.cn">
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="app.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234d9cff'/%3E%3Cpath d='M9 16h14M16 9v14' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 </head>
@@ -17,6 +19,7 @@
   <div class="rail-top">
     <button class="rail-btn active" data-page="chat" title="对话" aria-label="对话" data-icon="chat"></button>
     <button class="rail-btn" data-page="tasks" title="任务" aria-label="任务" data-icon="activity"></button>
+    <button class="rail-btn" data-page="plugins" title="插件" aria-label="插件" data-icon="package"></button>
   </div>
   <div class="rail-bottom">
     <button class="rail-btn" id="railTheme" title="切换主题" aria-label="切换主题" data-icon="moon"></button>
@@ -129,6 +132,29 @@
   </aside>
 </div>
 
+<section class="page plugins-page" id="pluginsPage" hidden>
+  <header class="page-head">
+    <div>
+      <h2>插件</h2>
+      <p>给 Agent 加新工具。插件是运行在页面里的 JS，启用后拥有页面权限。</p>
+    </div>
+    <button class="chip-btn" id="btnPluginNew" type="button">新建插件</button>
+  </header>
+  <div class="plugin-list" id="pluginList"></div>
+  <div class="plugin-editor" id="pluginEditor" hidden>
+    <div class="field two-col">
+      <div><label>插件 id</label><input id="pluginId" placeholder="my-plugin" spellcheck="false"></div>
+      <div><label>显示名 / 版本</label><div class="row"><input id="pluginName" placeholder="我的插件"><input id="pluginVersion" placeholder="0.0.1"></div></div>
+    </div>
+    <div class="field"><label>插件代码</label><textarea id="pluginCode" rows="12" spellcheck="false"></textarea></div>
+    <div class="field"><label class="switch-row"><input type="checkbox" id="pluginEnabled"><span>保存后立即启用（会执行代码）</span></label></div>
+    <div class="row-end">
+      <button class="chip-btn" id="btnPluginCancel" type="button">取消</button>
+      <button class="chip-btn primary" id="btnPluginSave" type="button">保存插件</button>
+    </div>
+  </div>
+</section>
+
 <section class="page tasks-page" id="tasksPage" hidden>
   <header class="page-head">
     <div>
@@ -156,6 +182,7 @@
         <button class="active" data-tab="model">模型</button>
         <button data-tab="agent">Agent</button>
         <button data-tab="tools">工具</button>
+        <button data-tab="git">Git 仓库</button>
         <button data-tab="ui">界面</button>
         <button data-tab="data">数据</button>
       </nav>
@@ -254,6 +281,31 @@
           </div>
         </div>
 
+        <div class="pane" data-pane="git">
+          <p class="tip-text">给 Agent 的 <code>git_list / git_read / git_write / git_delete / git_commit_batch</code> 使用。写入会产生真实 commit，调用前会弹窗确认。</p>
+          <div class="field">
+            <label>平台</label>
+            <select id="cfgGitPlatform">
+              <option value="github">GitHub</option>
+              <option value="gitee">Gitee（码云）</option>
+              <option value="gitlab">GitLab</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>仓库（owner/name）</label>
+            <input id="cfgGitRepo" placeholder="QiuJunawa/Agent-On-HTML" spellcheck="false">
+          </div>
+          <div class="field">
+            <label>访问令牌</label>
+            <input id="cfgGitToken" type="password" placeholder="ghp_… / gitee 私人令牌 / glpat-…" autocomplete="off" spellcheck="false">
+            <div class="hint">GitHub 需要 repo 权限；Gitee 需要 projects；GitLab 需要 api。令牌只存本机。</div>
+          </div>
+          <div class="field two-col">
+            <div><label>分支（留空=默认分支）</label><input id="cfgGitBranch" placeholder="main"></div>
+            <div><label>连接测试</label><button class="chip-btn" id="btnGitTest" type="button">测试</button></div>
+          </div>
+        </div>
+
         <div class="pane" data-pane="tools">
           <p class="tip-text">取消勾选后，该工具不会下发给模型（下一轮生效）。</p>
           <div class="tool-switches" id="toolSwitches"></div>
@@ -270,6 +322,16 @@
           <div class="field">
             <label>正文大小</label>
             <input id="cfgFontSize" type="range" min="13" max="19" step="1" value="15">
+          </div>
+          <div class="field">
+            <label>界面字体（标题 / 按钮 / 导航）</label>
+            <input id="cfgFontUI" type="text" placeholder="Comic Sans MS, Comic Neue, LXGW WenKai, Kaiti SC, serif">
+            <div class="hint">完整 CSS font-family 字符串；留空恢复默认。</div>
+          </div>
+          <div class="field">
+            <label>正文字体（消息 / 输入框）</label>
+            <input id="cfgFontBody" type="text" placeholder="Inter, Source Han Sans SC VF, Noto Sans SC, sans-serif">
+            <div class="hint">同上。字体文件来自公开 CDN，离线时自动回落到系统字体。</div>
           </div>
           <div class="field">
             <label>紧凑布局</label>
@@ -329,14 +391,32 @@
 <div class="toasts" id="toasts" aria-live="polite"></div>
 <div class="drop-hint" id="dropHint" hidden><span data-icon="upload"></span>松开即可上传到 VFS</div>
 
+<script src="vendor/katex/katex.min.js"></script>
 <script src="js/util.js"></script>
+<script src="js/knowledge.js"></script>
 <script src="js/store.js"></script>
 <script src="js/markdown.js"></script>
 <script src="js/ui.js"></script>
-<script src="js/tools.js"></script>
 <script src="js/agent.js"></script>
+<script src="js/git.js"></script>
+<script src="js/tools.js"></script>
+<script src="js/plugins.js"></script>
 <script src="js/chat.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/app.js"></script>
+<script>
+/* 字体样式在 load 之后异步注入：避免 CDN 不稳定拖慢首屏 */
+addEventListener('load', function () {
+  [
+    'https://miaoda.feishu.cn/fonts/css2?family=Comic+Neue:wght@400;700&family=Inter:wght@400;500;600&display=swap',
+    'https://cdn.jsdelivr.net/npm/@callmebill/lxgw-wenkai-web@latest/style.css',
+    'https://cdn.jsdelivr.net/npm/cn-fontsource-source-han-sans-sc-vf/font.css'
+  ].forEach(function (href) {
+    var l = document.createElement('link');
+    l.rel = 'stylesheet'; l.href = href; l.crossOrigin = 'anonymous';
+    document.head.appendChild(l);
+  });
+});
+</script>
 </body>
 </html>

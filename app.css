@@ -5,7 +5,9 @@
    ============================================================ */
 
 :root {
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  --font-ui: 'Comic Sans MS', 'Comic Neue', 'LXGW WenKai', 'Kaiti SC', serif;
+  --font-body: 'Inter', 'Source Han Sans SC VF', 'Source Han Sans SC', 'Noto Sans SC', 'Noto Sans CJK SC', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font: var(--font-body);
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --fs: 15px;
 
@@ -81,11 +83,17 @@ body.light {
 /* 内联 SVG 统一描边渲染（图标集只有 path，没有 fill） */
 svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
 html, body { height: 100%; }
+/* UI 层（按钮/标题/导航/文件名）用书写感字体；正文保持无衬线可读性 */
+button, select, .rail-btn, .brand, .chat-head, .seg-btn, .history-item, .tree,
+.editor-head, .settings-head, .settings-nav-btn, .msg .name, .modal-box h2,
+.modal-box h3, .toast, .badge, .task-top .nm, .side-tabs, .attach-chip {
+  font-family: var(--font-ui);
+}
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: var(--fs)/1.62 var(--font);
+  font: var(--fs)/1.62 var(--font-body);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow: hidden;
@@ -722,3 +730,51 @@ body.compact .msg { margin-bottom: 12px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
+
+/* ============================================================
+   KaTeX 数学公式
+   ============================================================ */
+.math-inline {
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.math-display {
+  display: block;
+  margin: 10px 0;
+  padding: 10px 12px;
+  background: var(--code-bg);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  overflow-x: auto;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.math-display .katex-display { margin: 0; }
+.katex { font-size: 1.02em; }
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+
+/* ------------------------------------------------------------
+   插件页
+   ------------------------------------------------------------ */
+.hint { margin-top: 6px; font-size: 11.5px; line-height: 1.6; color: var(--text-3); }
+.plugin-list { flex: 1; overflow: auto; padding: 14px 26px 24px; }
+.empty-tip { padding: 50px 0; text-align: center; color: var(--text-3); font-size: 13px; }
+.plugin-card {
+  border: 1px solid var(--line-soft); background: var(--panel); border-radius: 10px;
+  padding: 12px 14px; margin-bottom: 9px;
+}
+.plugin-top { display: flex; align-items: center; gap: 10px; }
+.plugin-top > div { flex: 1; min-width: 0; }
+.plugin-top b { font-size: 13.5px; color: var(--text); }
+.plugin-id { margin-left: 8px; font: 11px var(--mono); color: var(--text-3); }
+.plugin-state { font-size: 11px; color: var(--text-3); border: 1px solid var(--line-soft); border-radius: 999px; padding: 2px 8px; }
+.plugin-state.on { color: var(--ok); border-color: var(--ok-soft); background: var(--ok-soft); }
+.plugin-tools { margin-top: 7px; font: 11.5px/1.5 var(--mono); color: var(--text-3); overflow-wrap: anywhere; }
+.plugin-actions { display: flex; gap: 6px; margin-top: 9px; }
+.plugin-editor {
+  border-top: 1px solid var(--line-soft); padding: 16px 26px 24px; background: var(--panel-2);
+  max-height: 52vh; overflow: auto;
+}
+.plugin-editor textarea { font: 12.5px/1.55 var(--mono); }

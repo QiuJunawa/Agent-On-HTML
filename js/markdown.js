@@ -21,6 +21,11 @@
     return '';
   }
 
+  function mathHtml(tex, display) {
+    const cls = display ? 'math-display' : 'math-inline';
+    return '<span class="' + cls + '" data-tex="' + U.escAttr(tex) + '">' + esc(tex) + '</span>';
+  }
+
   function codeBlock(lang, body) {
     const l = esc((lang || '').trim().split(/\s+/)[0]);
     return '<div class="codeblock"><div class="codeblock-head"><span class="lang">' + (l || 'text') +
@@ -37,6 +42,18 @@
       const idx = codes.length;
       codes.push(body.replace(/^\s+|\s+$/g, ''));
       return '\u0000C' + idx + '\u0000';
+    });
+    // 数学：先抽成占位符，避免 TeX 里的 * _ \ 被后续强调规则改写
+    const maths = [];
+    s = s.replace(/\$\$([^$]+?)\$\$/g, (m, tex) => {
+      const idx = maths.length;
+      maths.push({ tex: tex.trim(), display: true });
+      return '\u0000M' + idx + '\u0000';
+    });
+    s = s.replace(/\$([^$\n]+?)\$/g, (m, tex) => {
+      const idx = maths.length;
+      maths.push({ tex: tex.trim(), display: false });
+      return '\u0000M' + idx + '\u0000';
     });
     // 图片 ![alt](url)
     s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (m, alt, url, title) => {
@@ -61,8 +78,9 @@
     s = s.replace(/(^|[^_\w])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
     s = s.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
     s = s.replace(/==([^=\n]+)==/g, '<mark>$1</mark>');
-    // 还原行内代码
+    // 还原行内代码与数学
     s = s.replace(/\u0000C(\d+)\u0000/g, (m, i) => '<code>' + esc(codes[Number(i)] || '') + '</code>');
+    s = s.replace(/\u0000M(\d+)\u0000/g, (m, i) => mathHtml(maths[Number(i)].tex, maths[Number(i)].display));
     return s;
   }
 
@@ -157,6 +175,22 @@
       const line = lines[i];
       if (!line.trim()) { i++; continue; }
 
+      // 块级公式：$$ ... $$（支持同一行闭合与跨行）
+      if (line.trim().startsWith('$$')) {
+        let body = line.trim().slice(2);
+        let j = i + 1;
+        let closed = false;
+        if (body.endsWith('$$')) { body = body.slice(0, -2); closed = true; }
+        while (!closed && j < lines.length) {
+          const cur = lines[j];
+          if (cur.trim().endsWith('$$')) { body += '\n' + cur.replace(/\$\$\s*$/, ''); closed = true; j++; break; }
+          body += '\n' + cur; j++;
+        }
+        out.push(mathHtml(body.trim(), true));
+        i = closed ? j : lines.length;
+        continue;
+      }
+
       const fence = line.match(/^\s*(```+|~~~+)\s*([\w+#.-]*)\s*$/);
       if (fence) {
         const mark = fence[1];
@@ -224,6 +258,24 @@
   };
 
   MD.inline = inline;
+
+  /** 把带 data-tex 的节点渲染成 KaTeX；KaTeX 未加载时保留 TeX 原文。 */
+  MD.renderMathIn = function (root) {
+    if (!root || !root.querySelectorAll) return;
+    const nodes = root.querySelectorAll('[data-tex]:not([data-tex-done])');
+    if (!nodes.length) return;
+    if (!window.katex || !window.katex.render) return;
+    for (const node of nodes) {
+      node.dataset.texDone = '1';
+      try {
+        window.katex.render(node.getAttribute('data-tex') || '', node, {
+          displayMode: node.classList.contains('math-display'),
+          throwOnError: false,
+          strict: false
+        });
+      } catch (e) { /* 单条公式失败保留原文 */ }
+    }
+  };
 
   /** 字数统计（不含代码块与标记） */
   MD.plainLength = function (src) {
