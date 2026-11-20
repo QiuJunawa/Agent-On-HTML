@@ -87,6 +87,17 @@
     return c.branch;
   }
 
+  /* 把 contents 接口结果归一成数组；空响应/非 JSON 不再产生 [null] 元素 */
+  function asArr(r, what) {
+    if (Array.isArray(r.data)) return r.data;
+    const d = asObj(r);
+    if (!d) {
+      if (r && r.text) throw new Error('Git 响应异常：' + what + ' 返回了非 JSON 内容（HTTP ' + ((r && r.status) || 200) + '）：' + String(r.text).slice(0, 120));
+      return [];
+    }
+    return [d];
+  }
+
   /* ---------- 列目录 ---------- */
   G.list = async function (a, ctx) {
     const c = G.config(a);
@@ -94,7 +105,7 @@
     const path = cleanPath(a.path);
     if (c.platform === 'github') {
       const r = await req('https://api.github.com/repos/' + c.repo + '/contents' + (path ? '/' + path : '') + '?ref=' + encodeURIComponent(ref), { headers: ghHeaders(c.token) });
-      const arr = Array.isArray(r.data) ? r.data : [r.data];
+      const arr = asArr(r, '列目录 ' + (path || '/'));
       return arr.map((x) => (x.type === 'dir' ? '[目录] ' : '[文件] ') + x.path + (x.size ? '  ' + x.size + ' B' : '')).join('\n') || '目录为空';
     }
     if (c.platform === 'gitlab') {
@@ -103,7 +114,7 @@
       return arr.map((x) => (x.type === 'tree' ? '[目录] ' : '[文件] ') + x.path).join('\n') || '目录为空';
     }
     const r = await req(giteeUrl('/repos/' + c.repo + '/contents' + (path ? '/' + path : ''), c.token, { ref }));
-    const arr = Array.isArray(r.data) ? r.data : [r.data];
+    const arr = asArr(r, '列目录 ' + (path || '/'));
     return arr.map((x) => (x.type === 'dir' ? '[目录] ' : '[文件] ') + x.path + (x.size ? '  ' + x.size + ' B' : '')).join('\n') || '目录为空';
   };
 
