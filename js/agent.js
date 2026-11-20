@@ -274,7 +274,7 @@
     }
     if (run.vision === false) dynamicParts.push('当前模型按文本处理；图片不会以 image_url 传入。');
     if (run.attachments && run.attachments.length) {
-      dynamicParts.push('用户附带文件：\n' + run.attachments.map((a) => '- ' + a.path + (a.isImage ? '（图片）' : '（已存入 VFS，可 read_file）')).join('\n'));
+      dynamicParts.push('用户附带文件：\n' + run.attachments.map((a) => '- ' + a.path + (a.isDir ? '（目录）' : a.isImage ? '（图片）' : '（已存入 VFS，可 read_file）')).join('\n'));
     }
 
     const messages = buildMessages(conv, dynamicParts, run.tighten);

@@ -24,7 +24,7 @@ app.css           全部样式（深/浅主题、响应式、动效可被 reduce
 js/util.js        路径、格式化、token 估算、文件读写、剪贴板等纯函数
 js/store.js       IndexedDB 封装 + VFS（元数据常驻内存、正文 LRU、内存降级、知识库播种）
 js/markdown.js    安全 Markdown 渲染（先转义、标签白名单、链接协议限制、KaTeX 公式）
-js/zip.js         最小 ZIP 打包（右键文件夹下载，不引入 JSZip）
+js/zip.js         无依赖 ZIP 打包与解压（右键文件夹下载 / 上传 .zip 自动解压进 VFS）
 js/ui.js          SVG 图标、Toast、确认框、右键菜单、弹窗
 js/knowledge.js   内置知识库（11 篇，首次启动写入 /knowledge）
 js/git.js         GitHub / Gitee / GitLab 读写与批量提交
@@ -75,7 +75,7 @@ vendor/katex/     自托管 KaTeX（js + css + 20 个 woff2 字体）
 
 ## 功能保留 / 移除
 
-保留：VFS 与文件树（文件夹右键下载 .zip）、编辑器（Markdown / HTML / 图片）、流式对话、逐轮独立气泡、思考块、工具卡片、图表、交付卡（正文 `[deliver:...]` 标记，少一轮工具调用）、提问卡、待办、长期记忆、撤销（最近 3 轮）、任务页、会话存档 Markdown、备份导入导出、深/浅主题、KaTeX 行内/块级公式、界面/正文字体自定义、本地插件系统、官方插件库（AOH_Plugins）、Git 仓库工具、内置知识库。
+保留：VFS 与文件树（文件夹右键下载 .zip、上传 .zip 自动解压）、编辑器（Markdown / HTML / 图片）、流式对话、逐轮独立气泡、思考块、工具卡片、图表、交付卡（正文 `[deliver:...]` 标记，少一轮工具调用）、提问卡、待办、长期记忆、撤销（最近 3 轮）、任务页、会话存档 Markdown、备份导入导出、深/浅主题、KaTeX 行内/块级公式、界面/正文字体自定义、本地插件系统、官方插件库（AOH_Plugins）、Git 仓库工具、内置知识库。
 
 移除及原因：
 
@@ -87,7 +87,7 @@ vendor/katex/     自托管 KaTeX（js + css + 20 个 woff2 字体）
 | Pyodide `run_py` | 体积与首屏成本过高；`run_js` 已覆盖脚本计算 |
 | 外部知识库 `kb_*`、`web_search`、`download_url` | 与 `fetch_url` / VFS 重叠，减少工具数量 |
 | 浮窗主题 / 六面天空盒 | 纯装饰，拖慢首屏 |
-| JSZip | 压缩/解压不是主链需求；需要时可走系统工具 |
+| JSZip 第三方库 | 自带最小 ZIP 读写实现（store / deflate-raw），不为压缩能力增加首屏体积 |
 
 如确实需要上述能力，可在现有工具层按分组增量加回，不影响主链。
 
@@ -111,6 +111,7 @@ vendor/katex/     自托管 KaTeX（js + css + 20 个 woff2 字体）
 - 官方插件库：拉取 `AOH_Plugins/index.json` 4 个条目，安装 `hello` 并启用，`hello_greet` 成功返回问候；页面显示「共 4 个 · 已安装 1」；
 - 交付标记：最终正文 `[deliver:测试交付 | 一个文件 | /README.md]` 渲染成 1 张交付卡，正文不显示标记；
 - 文件夹 ZIP：右键 `/projects` 出现「下载文件夹 (.zip)」，下载 `projects.zip`，`unzip -l` 校验 3 个条目（含子目录）；
+- 上传 ZIP：聊天附件与侧栏上传选入真实 deflate 压缩包后自动解压到 `/uploads/<包名>/`，保留目录结构与中文文件名，附件条显示「3 个文件」；同名目录自动落为 `-2`；
 - VFS 刷新：写入 `/projects/new/test.md` 后 350ms 内文件树出现该文件，父目录自动展开；
 - 字体：正文字体、界面字体变量均已应用；外部字体在 load 后注入，页面 load 约 230ms；
 - 控制台无报错。

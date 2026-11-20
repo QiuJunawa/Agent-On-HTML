@@ -1033,7 +1033,7 @@
       }
       const nm = document.createElement('span');
       nm.className = 'nm';
-      nm.textContent = a.name;
+      nm.textContent = a.name + (a.isDir ? '（' + a.count + ' 个文件）' : '');
       el.appendChild(nm);
       const rm = document.createElement('button');
       rm.className = 'rm';
@@ -1048,6 +1048,16 @@
   Chat.addUpload = async function (file) {
     if (!file) return;
     const name = String(file.name || 'file').replace(/[\\/:*?"<>|]/g, '_');
+    if (U.extName(name) === 'zip') {
+      if (file.size > 25 * 1024 * 1024) { AH.ui.toast('ZIP 超过 25MB，未上传', 'warn'); return; }
+      try {
+        const r = await AH.zip.toVfs(file, '/uploads', name);
+        attachments.push({ name: r.name.replace(/\.zip$/i, '') + '/', path: r.root, isDir: true, count: r.files, isImage: false });
+        renderAttachments();
+        AH.ui.toast('已解压 ' + r.files + ' 个文件到 ' + r.root, 'ok', 3200);
+      } catch (e) { AH.ui.error('解压失败：' + e.message); }
+      return;
+    }
     const isImage = /^image\//.test(file.type) || U.isImagePath(name);
     const path = '/uploads/' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 6) + '-' + name;
     try {
@@ -1151,7 +1161,7 @@
       }
       content = parts;
     } else if (atts.length) {
-      const lines = atts.map((a) => '- ' + a.path + (a.isImage ? '（图片，当前模型无法直接查看）' : ''));
+      const lines = atts.map((a) => '- ' + a.path + (a.isDir ? '（目录，' + a.count + ' 个文件，可 list_files）' : a.isImage ? '（图片，当前模型无法直接查看）' : ''));
       content = (text ? text + '\n\n' : '') + '附带文件（已存入 VFS）：\n' + lines.join('\n');
     }
 

@@ -571,13 +571,18 @@
       for (const f of [...input.files]) {
         try {
           const name = String(f.name || 'file').replace(/[\\/:*?"<>|]/g, '_');
+          if (U.extName(name) === 'zip') {
+            const r = await AH.zip.toVfs(f, '/uploads', name);
+            AH.ui.toast('已解压 ' + r.files + ' 个文件到 ' + r.root, 'ok', 3200);
+            continue;
+          }
           const path = '/uploads/' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 6) + '-' + name;
           if (U.isImagePath(name)) await VFS.write(path, await U.readFileDataUrl(f));
           else await VFS.write(path, await U.readFileText(f));
+          AH.ui.toast('已上传 ' + name, 'ok', 1600);
         } catch (e) { AH.ui.error('上传失败：' + e.message); }
       }
       renderTree(); updateFsStat();
-      AH.ui.toast('已上传到 /uploads', 'ok');
       input.remove();
     });
     input.click();

@@ -14,6 +14,7 @@
     }
     return t;
   })();
+
   function crc32(bytes) {
     let c = 0xFFFFFFFF;
     for (let i = 0; i < bytes.length; i++) c = crcTable[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
@@ -123,5 +124,105 @@
       ]);
       return { blob: new Blob([concat([...entries, cd, eocd])], { type: 'application/zip' }), name: baseName + '.zip', count: files.length };
     })();
+  };
+
+  /* ---------- 解压（读取中央目录；支持 store / deflate-raw） ---------- */
+  function u16at(b, o) { return b[o] | (b[o + 1] << 8); }
+  function u32at(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
+  function safeName(name) {
+    const out = [];
+    for (const seg of String(name || '').replace(/\\/g, '/').split('/')) {
+      if (!seg || seg === '.') continue;
+      if (seg === '..') return null;
+      if (/^[a-zA-Z]:$/.test(seg)) return null;
+      out.push(seg);
+    }
+    return out.join('/');
+  }
+  async function inflateRaw(bytes) {
+    if (typeof DecompressionStream === 'undefined') throw new Error('当前浏览器不支持 deflate 解压，请用 Chrome/Edge 新版');
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  ZIP.unpack = async function (input) {
+    let bytes;
+    if (input instanceof Blob) bytes = new Uint8Array(await input.arrayBuffer());
+    else if (input instanceof ArrayBuffer) bytes = new Uint8Array(input);
+    else bytes = new Uint8Array(input);
+    let eocd = -1;
+    for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 65535); i--) {
+      if (u32at(bytes, i) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error('不是有效的 ZIP 文件（找不到目录尾）');
+    const count = u16at(bytes, eocd + 10);
+    const cdOff = u32at(bytes, eocd + 16);
+    if (count === 0xFFFF || cdOff === 0xFFFFFFFF) throw new Error('不支持 ZIP64');
+    if (count > 5000) throw new Error('ZIP 条目超过 5000 个，已拒绝');
+    let p = cdOff, total = 0;
+    const entries = [];
+    for (let i = 0; i < count; i++) {
+      if (u32at(bytes, p) !== 0x02014b50) throw new Error('ZIP 中央目录损坏');
+      const flags = u16at(bytes, p + 8), method = u16at(bytes, p + 10);
+      const compSize = u32at(bytes, p + 20), size = u32at(bytes, p + 24);
+      const nameLen = u16at(bytes, p + 28), extraLen = u16at(bytes, p + 30), commentLen = u16at(bytes, p + 32);
+      const localOff = u32at(bytes, p + 42);
+      const rawName = new TextDecoder('utf-8').decode(bytes.slice(p + 46, p + 46 + nameLen));
+      const clean = safeName(rawName);
+      const isDir = /\/$/.test(rawName) || (!size && clean && !rawName.split('/').pop());
+      if (clean === null) throw new Error('ZIP 包含非法路径：' + rawName);
+      if (!clean) { p += 46 + nameLen + extraLen + commentLen; continue; }
+      if (flags & 1) throw new Error('不支持加密 ZIP：' + clean);
+      if (method !== 0 && method !== 8) throw new Error('不支持的压缩方式 ' + method + '：' + clean);
+      if (compSize === 0xFFFFFFFF || size === 0xFFFFFFFF) throw new Error('不支持 ZIP64：' + clean);
+      total += size;
+      if (total > 100 * 1024 * 1024) throw new Error('解压后超过 100MB，已拒绝');
+      if (!isDir) {
+        if (u32at(bytes, localOff) !== 0x04034b50) throw new Error('ZIP 本地头损坏：' + clean);
+        const lnLen = u16at(bytes, localOff + 26), leLen = u16at(bytes, localOff + 28);
+        const start = localOff + 30 + lnLen + leLen;
+        if (start + compSize > bytes.length) throw new Error('ZIP 数据越界：' + clean);
+        const raw = bytes.slice(start, start + compSize);
+        const data = method === 0 ? raw : await inflateRaw(raw);
+        if (data.length !== size) throw new Error('ZIP 解压长度不符：' + clean);
+        entries.push({ path: clean, dir: false, data });
+      } else {
+        entries.push({ path: clean, dir: true, data: null });
+      }
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+    return entries;
+  };
+
+  function bytesToDataUrl(data, path) {
+    let bin = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < data.length; i += chunk) bin += String.fromCharCode.apply(null, data.subarray(i, i + chunk));
+    const mime = AH.util.mimeOf(path);
+    return 'data:' + (mime === 'text/plain' ? 'application/octet-stream' : mime) + ';base64,' + btoa(bin);
+  }
+
+  ZIP.extractTo = async function (entries, dir) {
+    const VFS = AH.vfs, U = AH.util;
+    const root = U.normPath(dir);
+    let files = 0, dirs = 0;
+    for (const e of entries) {
+      const target = U.joinPath(root, e.path);
+      if (e.dir) { await VFS.mkdir(target); dirs++; continue; }
+      const text = U.isTextPath(e.path) && !U.isImagePath(e.path);
+      await VFS.write(target, text ? new TextDecoder('utf-8').decode(e.data) : bytesToDataUrl(e.data, e.path));
+      files++;
+    }
+    return { root, files, dirs };
+  };
+
+  ZIP.toVfs = async function (input, baseDir, fileName) {
+    const VFS = AH.vfs, U = AH.util;
+    const base = U.baseName(String(fileName || 'archive.zip')).replace(/\.zip$/i, '').replace(/[\\/:*?"<>|]/g, '_') || 'archive';
+    const parent = U.normPath(baseDir || '/uploads');
+    let root = U.joinPath(parent, base), n = 2;
+    while (VFS.exists(root)) root = U.joinPath(parent, base + '-' + n++);
+    const entries = await ZIP.unpack(input);
+    const r = await ZIP.extractTo(entries, root);
+    return Object.assign({ name: base + '.zip' }, r);
   };
 })();
