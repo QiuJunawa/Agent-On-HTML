@@ -214,22 +214,24 @@
       const r = await req('https://api.github.com/repos/' + c.repo + '/contents/' + path, {
         method: 'PUT', headers: Object.assign(ghHeaders(c.token), { 'Content-Type': 'application/json' }), body: JSON.stringify(body)
       });
-      return '已提交 ' + path + ' → ' + (r.data.commit && r.data.commit.sha || 'ok');
+      const d = asObj(r);
+      return '已提交 ' + path + ' → ' + ((d && d.commit && d.commit.sha) || 'ok（响应无 commit 字段）');
     }
     if (c.platform === 'gitlab') {
-      const exists = await shaOf(c, path, ref);
       const body = { branch: ref, content, commit_message: message };
       const r = await req('https://gitlab.com/api/v4/projects/' + encodeURIComponent(c.repo) + '/repository/files/' + encodeURIComponent(path), {
-        method: exists ? 'PUT' : 'POST', headers: Object.assign(glHeaders(c.token), { 'Content-Type': 'application/json' }), body: JSON.stringify(body)
+        method: sha ? 'PUT' : 'POST', headers: Object.assign(glHeaders(c.token), { 'Content-Type': 'application/json' }), body: JSON.stringify(body)
       });
-      return '已提交 ' + path + ' → ' + (r.data.file_path || 'ok');
+      const d = asObj(r);
+      return '已提交 ' + path + ' → ' + ((d && d.file_path) || 'ok');
     }
     const body = { access_token: c.token, content: enc(content), message, branch: ref };
     if (sha) body.sha = sha;
     const r = await req('https://gitee.com/api/v5/repos/' + c.repo + '/contents/' + path, {
       method: sha ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
     });
-    return '已提交 ' + path + ' → ' + ((r.data.commit && r.data.commit.sha) || 'ok');
+    const d = asObj(r);
+    return '已提交 ' + path + ' → ' + ((d && d.commit && d.commit.sha) || 'ok');
   };
 
   /* ---------- 删除 ---------- */
