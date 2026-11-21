@@ -559,7 +559,8 @@ body.compact .msg { margin-bottom: 12px; }
 .modal {
   position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
   background: rgba(4, 7, 12, .62); backdrop-filter: blur(4px);
-  padding: 20px;
+  padding: clamp(10px, 4vw, 20px);
+  overflow: auto; overscroll-behavior: contain;
 }
 .modal[hidden] { display: none; }
 .modal-box {
@@ -618,9 +619,20 @@ body.compact .msg { margin-bottom: 12px; }
 .data-card p { margin: 0 0 10px; font-size: 12px; color: var(--text-3); line-height: 1.65; }
 .data-card .row { display: flex; gap: 8px; }
 .data-card .muted { color: var(--text-3); }
-.confirm-box { width: min(420px, 100%); padding: 18px; gap: 10px; }
-.confirm-box h3 { margin: 0; font-size: 15px; }
-.confirm-box p { margin: 0; font-size: 13px; color: var(--text-2); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.confirm-box {
+  width: min(420px, 100%); padding: 18px; gap: 10px;
+  /* 覆盖 .modal-box 的 overflow:hidden，长文案时整盒仍可滚动兜底 */
+  max-height: min(84vh, 720px); overflow: auto;
+}
+.confirm-box h3 { margin: 0; flex: none; font-size: 15px; }
+/* 正文独立滚动，底部按钮永远可见可点 */
+.confirm-box p {
+  margin: 0; font-size: 13px; color: var(--text-2); line-height: 1.7;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+}
+.confirm-box .switch-row { flex: none; }
+.confirm-box .modal-foot { flex: none; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 
 /* 右键菜单 / Toast */
