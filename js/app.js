@@ -351,8 +351,8 @@
     const list = $('taskList');
     const stats = $('taskStats');
     let okCount = 0, errCount = 0, runCount = 0, cancelCount = 0;
-    log.forEach((t) => { if (t.status === 'running') runCount++; else if (t.status === 'error') errCount++; else if (t.status === 'cancelled') cancelCount++; else okCount++; });
-    bg.forEach((t) => { if (t.status === 'running') runCount++; else if (t.status === 'error') errCount++; else if (t.status === 'cancelled') cancelCount++; else okCount++; });
+    log.forEach((t) => { if (t.status === 'running' || t.status === 'background') runCount++; else if (t.status === 'error') errCount++; else if (t.status === 'cancelled') cancelCount++; else okCount++; });
+    bg.forEach((t) => { if (t.status === 'running' || t.status === 'background') runCount++; else if (t.status === 'error') errCount++; else if (t.status === 'cancelled') cancelCount++; else okCount++; });
     stats.innerHTML =
       '<span class="task-chip">本轮调用 <b>' + log.length + '</b></span>' +
       '<span class="task-chip">完成 <b>' + okCount + '</b></span>' +
@@ -364,7 +364,7 @@
     const rows = [];
     log.forEach((t) => rows.push({ name: t.name, status: t.status, args: t.args, result: t.result, ms: t.ms, at: t.at }));
     bg.forEach((t) => rows.push({ name: t.name + '（后台）', status: t.status, args: t.args, result: t.result || t.error, ms: t.end ? t.end - t.start : 0, at: t.start }));
-    if (filter === 'running') rows.splice(0, rows.length, ...rows.filter((r) => r.status === 'running'));
+    if (filter === 'running') rows.splice(0, rows.length, ...rows.filter((r) => r.status === 'running' || r.status === 'background'));
     if (filter === 'error') rows.splice(0, rows.length, ...rows.filter((r) => r.status === 'error'));
     if (!rows.length) {
       list.innerHTML = '<div class="task-empty">' + (filter === 'all' ? '当前会话还没有工具调用。' : '没有符合条件的任务。') + '</div>';
@@ -372,7 +372,7 @@
     }
     rows.reverse().forEach((r, i) => {
       const el = document.createElement('div');
-      el.className = 'task-item ' + (r.status === 'running' ? 'running' : r.status === 'error' ? 'error' : r.status === 'cancelled' ? 'cancelled' : '');
+      el.className = 'task-item ' + (r.status === 'running' || r.status === 'background' ? r.status : r.status === 'error' ? 'error' : r.status === 'cancelled' ? 'cancelled' : '');
       let resultText = r.result || '';
       if (String(resultText).startsWith('@@card:')) {
         try {
@@ -385,7 +385,7 @@
       const detail = U.clip([r.args ? JSON.stringify(r.args) : '', resultText].filter(Boolean).join('\n'), 1200);
       el.innerHTML =
         '<div class="task-top"><span class="num">' + (i + 1) + '</span><span class="nm">' + U.esc(r.name) + '</span>' +
-        '<span class="st ' + r.status + '">' + (r.status === 'running' ? '执行中' : r.status === 'error' ? '失败' : r.status === 'cancelled' ? '已取消' : '完成') + (r.ms ? ' · ' + U.fmtDuration(r.ms) : '') + '</span></div>' +
+        '<span class="st ' + r.status + '">' + (r.status === 'running' ? '执行中' : r.status === 'background' ? '后台运行' : r.status === 'error' ? '失败' : r.status === 'cancelled' ? '已取消' : '完成') + (r.ms ? ' · ' + U.fmtDuration(r.ms) : '') + '</span></div>' +
         '<div class="task-detail"></div>';
       el.querySelector('.task-detail').textContent = detail || '（无参数）';
       list.appendChild(el);

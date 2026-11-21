@@ -264,7 +264,21 @@
       try { await VFS.write(path, kb[path]); } catch (e) { console.warn('[knowledge] 写入失败', path, e); }
     }
   }
+  async function restoreKnowledge() {
+    const kb = AH.knowledge || {};
+    const paths = Object.keys(kb).filter((p) => p.startsWith('/knowledge/'));
+    if (!paths.length) return 0;
+    if (!VFS.nodes.has('/knowledge')) await VFS.mkdir('/knowledge');
+    let count = 0;
+    for (const path of paths) {
+      await VFS.write(path, kb[path], { silent: true });
+      count++;
+    }
+    VFS._emit(['/knowledge']);
+    return count;
+  }
   VFS.seedKnowledge = seedKnowledge;
+  VFS.restoreKnowledge = restoreKnowledge;
 
   /* ---------- 查询 ---------- */
   VFS.stat = (path) => VFS.nodes.get(U.normPath(path)) || null;

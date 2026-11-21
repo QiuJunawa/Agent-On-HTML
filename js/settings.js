@@ -137,6 +137,8 @@
         document.querySelectorAll('.settings-nav button').forEach((x) => x.classList.remove('active'));
         b.classList.add('active');
         document.querySelectorAll('.settings-pane, .pane').forEach((p) => p.classList.toggle('active', p.dataset.pane === b.dataset.tab));
+        const panes = document.querySelector('.settings-panes');
+        if (panes) panes.scrollTop = 0;
       });
     });
   }
@@ -181,13 +183,6 @@
     $('cfgMaxWall').addEventListener('change', () => cfg.set('maxWall', Math.max(0, parseInt($('cfgMaxWall').value, 10) || 0)));
     $('cfgMemory').addEventListener('change', () => cfg.set('memory', $('cfgMemory').checked));
     $('cfgTitleGen').addEventListener('change', () => cfg.set('titleGen', $('cfgTitleGen').checked));
-    $('btnApplySystem').addEventListener('click', () => {
-      const v = $('cfgSystem').value.trim();
-      if (!v) { AH.ui.toast('系统提示词不能为空', 'warn'); return; }
-      cfg.set('systemPrompt', v);
-      const hasDeliver = /\[deliver(?::|\])/i.test(v);
-      AH.ui.toast(hasDeliver ? '已覆盖系统提示词' : '已覆盖系统提示词（未包含 [deliver] 交付规则）', hasDeliver ? 'ok' : 'warn', 2600);
-    });
     $('btnResetSystem').addEventListener('click', async () => {
       const ok = await AH.ui.confirm({ title: '恢复默认提示词', text: '当前自定义的系统提示词会被覆盖。', danger: true });
       if (!ok) return;
@@ -342,6 +337,23 @@
       await AH.db.put('kv', { k: 'session_index', v: [] });
       await AH.chat.newSession();
       AH.ui.toast('已清空全部对话', 'ok');
+    });
+    const resetKnowledgeBtn = $('btnResetKnowledge');
+    if (resetKnowledgeBtn) resetKnowledgeBtn.addEventListener('click', async () => {
+      const ok = await AH.ui.confirm({
+        title: '恢复默认知识库',
+        text: '会覆盖 /knowledge/ 下的内置文件，其他目录不受影响。',
+        danger: true
+      });
+      if (!ok) return;
+      try {
+        const count = await AH.vfs.restoreKnowledge();
+        if (AH.app && AH.app.editor && String(AH.app.editor.path).startsWith('/knowledge/')) {
+          AH.app.editor.dirty = false;
+          await AH.app.openFile(AH.app.editor.path);
+        }
+        AH.ui.toast('已恢复 ' + count + ' 个默认知识库文件', 'ok');
+      } catch (e) { AH.ui.error(e); }
     });
     $('btnResetAll').addEventListener('click', async () => {
       const ok = await AH.ui.confirm({ title: '清空全部数据', text: '文件、对话、记忆、设置都会被删除，且不可恢复。建议先导出备份。', danger: true });

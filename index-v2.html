@@ -324,10 +324,9 @@
             <label>系统提示词</label>
             <textarea id="cfgSystem" rows="9" spellcheck="false"></textarea>
             <div class="row-end">
-              <button class="chip-btn" id="btnApplySystem" type="button">覆盖提示词</button>
-              <button class="chip-btn" id="btnResetSystem" type="button">恢复默认</button>
+              <button class="chip-btn" id="btnResetSystem" type="button">恢复默认提示词</button>
             </div>
-            <div class="hint" style="margin-top:6px">自定义内容会整段覆盖默认提示词；需要交付卡时请保留 <code>[deliver:...]</code> 规则。</div>
+            <div class="hint" style="margin-top:6px">修改后自动保存；自定义内容会整段覆盖默认提示词，需要交付卡时请保留 <code>[deliver:...]</code> 规则。</div>
           </div>
           <div class="field">
             <label>工具懒加载</label>
@@ -508,6 +507,13 @@
               <button class="chip-btn" id="btnExportAll" type="button">导出全部</button>
               <button class="chip-btn" id="btnImportAll" type="button">导入备份</button>
               <input type="file" id="importFile" accept=".json" hidden>
+            </div>
+          </div>
+          <div class="data-card">
+            <h3>知识库</h3>
+            <p>内置知识库位于 /knowledge/。应用更新后可重新写入默认内容，仅覆盖 /knowledge/ 下的内置文件。</p>
+            <div class="row">
+              <button class="chip-btn" id="btnResetKnowledge" type="button">恢复默认知识库</button>
             </div>
           </div>
           <div class="data-card">

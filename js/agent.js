@@ -580,6 +580,7 @@
         }
       }
       let outcome;
+      let finishMeta = null;
       try {
         const exec = AH.tools.execute(tc.function.name, args, ctxFor(tc, taskCtrl.signal));
         exec.catch(() => {});
@@ -606,16 +607,25 @@
             const rec = AH.taskRegistry.map.get(taskId);
             if (rec && run.session) rec.sessionId = run.session.id;
             AH.taskRegistry.attach(taskId, () => taskCtrl.abort());
-            exec.then((r) => AH.taskRegistry.finish(taskId, r)).catch((e) => AH.taskRegistry.finish(taskId, '', e))
+            const finishBackground = (ok, value, error) => {
+              AH.taskRegistry.finish(taskId, ok ? value : '', error);
+              const t = AH.taskRegistry.map.get(taskId);
+              const cancelled = !!(t && t.status === 'cancelled');
+              const text = cancelled ? '已取消' : ok ? String(value == null ? '' : value) : '工具执行失败：' + (error && error.message ? error.message : error);
+              if (emit && emit.finish) emit.finish(tc.id, ok && !cancelled, text, performance.now() - started, { backgroundDone: true, cancelled, taskId });
+            };
+            exec.then((r) => finishBackground(true, r))
+              .catch((e) => finishBackground(false, '', e))
               .finally(() => { if (unlinkRun && run.signal) run.signal.removeEventListener('abort', unlinkRun); });
             outcome = '⏳ 工具 ' + tc.function.name + ' 超过 ' + Math.round(timeoutMs / 1000) + ' 秒，已转后台运行。\n任务 ID：' + taskId + '\n稍后用 task_status 查询（会持续监测最多 20 秒直到完成）。';
+            finishMeta = { background: true, taskId };
           } else {
             if (unlinkRun && run.signal) run.signal.removeEventListener('abort', unlinkRun);
-            if (outcome === '__ABORTED__') outcome = '用户已停止';
+            if (outcome === '__ABORTED__') { outcome = '用户已停止'; finishMeta = { cancelled: true }; }
           }
         }
         results.set(tc.id, String(outcome == null ? '' : outcome));
-        emit.finish(tc.id, true, results.get(tc.id), performance.now() - started);
+        emit.finish(tc.id, true, results.get(tc.id), performance.now() - started, finishMeta);
       } catch (e) {
         if (unlinkRun && run.signal) run.signal.removeEventListener('abort', unlinkRun);
         const msg = '工具执行失败：' + (e && e.message ? e.message : e);

@@ -691,9 +691,10 @@
     card.dataset.call = tc.id || '';
     const head = document.createElement('div');
     head.className = 'tool-head';
-    const status = result == null ? '准备中' : (isErrorResult(result) ? '失败' : '完成');
+    const isBackground = result != null && String(result).startsWith('⏳');
+    const status = result == null ? '准备中' : isBackground ? '后台运行' : (isErrorResult(result) ? '失败' : '完成');
     head.innerHTML =
-      '<span class="tool-dot ' + (result == null ? 'running' : (isErrorResult(result) ? 'error' : 'ok')) + '"></span>' +
+      '<span class="tool-dot ' + (result == null || isBackground ? 'running' : (isErrorResult(result) ? 'error' : 'ok')) + '"></span>' +
       '<span class="tool-name">' + U.esc(tc.function.name) + '</span>' +
       '<span class="tool-args">' + U.esc(U.clip(argSummary(args), 70)) + '</span>' +
       '<span class="tool-status">' + status + '</span>';
@@ -1289,8 +1290,10 @@
       card.classList.add('collapsed');
       if (stick) pinToBottom(view.msgs);
     };
-    state.onToolFinish = (id, ok, text, ms) => {
+    state.onToolFinish = (id, ok, text, ms, meta) => {
       const stick = atBottom(view.msgs, 80);
+      const isBackground = !!(meta && meta.background && !meta.backgroundDone);
+      const isCancelled = !!(meta && meta.cancelled);
       let card = state.findCard(id);
       if (!card) {
         // 兜底：流式阶段没拿到该调用，按 id 建一张
@@ -1301,8 +1304,10 @@
       }
       const dot = card.querySelector('.tool-dot');
       const st = card.querySelector('.tool-status');
-      if (dot) dot.className = 'tool-dot ' + (ok ? 'ok' : 'error');
-      if (st) st.textContent = ok ? '完成' : '失败';
+      const dotState = isCancelled ? 'cancelled' : isBackground ? 'running' : ok ? 'ok' : 'error';
+      if (dot) dot.className = 'tool-dot ' + dotState;
+      if (st) st.textContent = isCancelled ? '已取消' : isBackground ? '后台运行' : ok ? '完成' : '失败';
+      card.dataset.status = dotState;
       const head = card.querySelector('.tool-head');
       if (head && ms) {
         let time = head.querySelector('.tool-time');
@@ -1831,10 +1836,15 @@
       run.toolLog.push({ id, name: tc ? tc.function.name : 'tool', args, status: 'running', at: Date.now() });
       AH.app.refreshTasks();
     };
-    run.hooks.toolFinish = (id, ok, text2, ms) => {
-      if (live) live.onToolFinish(id, ok, text2, ms);
+    run.hooks.toolFinish = (id, ok, text2, ms, meta) => {
+      if (live) live.onToolFinish(id, ok, text2, ms, meta);
       const item = run.toolLog.find((x) => x.id === id);
-      if (item) { item.status = ok ? 'ok' : 'error'; item.result = U.clip(String(text2 || ''), 2400); item.ms = ms; }
+      if (item) {
+        item.status = meta && meta.background && !meta.backgroundDone ? 'background'
+          : meta && meta.cancelled ? 'cancelled' : ok ? 'ok' : 'error';
+        item.result = U.clip(String(text2 || ''), 2400);
+        item.ms = ms;
+      }
       AH.app.refreshTasks();
     };
     run.hooks.usage = (usage) => { if (Chat.currentId === sid) updateTokenBar(); };
