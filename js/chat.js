@@ -1404,8 +1404,31 @@
   /* ============================================================
      发送
      ============================================================ */
+  /* 图片能力判定
+     原实现只看模型名白名单，白名单外的模型（如 deepseek-flash）一律判为不支持，
+     图片被降级成一行文字，模型根本收不到图像。
+     现在改为三级：手动强制开/关，或 auto 乐观尝试——未知模型先带图发出，
+     真正被服务端拒绝时再自动降级并把该模型记下来，不重复试错。 */
+  function visionRejectedList() {
+    const arr = cfg.get('visionRejected');
+    return Array.isArray(arr) ? arr : [];
+  }
+
+  Chat.markVisionUnsupported = function (model) {
+    const m = String(model || '');
+    if (!m) return;
+    const list = visionRejectedList();
+    if (list.indexOf(m) >= 0) return;
+    cfg.set('visionRejected', list.concat([m]));
+  };
+
   function supportsVision(model) {
-    return /(gpt-4o|gpt-4\.1|gpt-4v|claude|gemini|vision|qwen-vl|qwen2-vl|glm-4v|grok-vision|llava|pixtral|o4)/i.test(String(model || ''));
+    const m = String(model || '');
+    const mode = cfg.get('vision');
+    if (mode === 'on') return true;
+    if (mode === 'off') return false;
+    // auto：已知会拒绝的模型不再发图，其余一律乐观尝试
+    return visionRejectedList().indexOf(m) < 0;
   }
   Chat.supportsVision = supportsVision;
 
@@ -1466,7 +1489,7 @@
       }
       content = parts;
     } else if (atts.length) {
-      const lines = atts.map((a) => '- ' + a.path + (a.isDir ? '（目录' + (a.count ? '，' + a.count + ' 个文件' : '') + '，可 list_files）' : a.isImage ? '（图片，当前模型无法直接查看）' : '（已存入 VFS，可 read_file）'));
+      const lines = atts.map((a) => '- ' + a.path + (a.isDir ? '（目录' + (a.count ? '，' + a.count + ' 个文件' : '') + '，可 list_files）' : a.isImage ? '（图片，本次未随消息发送图像内容）' : '（已存入 VFS，可 read_file）'));
       content = (text ? text + '\n\n' : '') + '附带文件（已存入 VFS）：\n' + lines.join('\n');
     }
 

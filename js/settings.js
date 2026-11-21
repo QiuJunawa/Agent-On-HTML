@@ -99,6 +99,7 @@
     $('cfgBaseUrl').value = cfg.get('baseUrl') || '';
     $('cfgApiKey').value = cfg.get('apiKey') || '';
     $('cfgModel').value = cfg.get('model') || '';
+    $('cfgVision').value = cfg.get('vision') || 'auto';
     $('cfgTemp').value = String(cfg.get('temperature'));
     $('tempVal').textContent = String(cfg.get('temperature'));
     $('cfgReasoning').value = cfg.get('reasoning') || '';
@@ -150,6 +151,7 @@
     setStr('cfgBaseUrl', 'baseUrl', true);
     setStr('cfgApiKey', 'apiKey', true);
     setStr('cfgModel', 'model', true);
+    $('cfgVision').addEventListener('change', () => cfg.set('vision', $('cfgVision').value));
     setStr('cfgProxy', 'proxy', true);
     setStr('cfgSystem', 'systemPrompt', false);
     let sysTimer = null;

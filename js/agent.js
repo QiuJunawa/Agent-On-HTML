@@ -40,6 +40,8 @@
     baseUrl: 'https://api.deepseek.com',
     apiKey: '',
     model: 'deepseek-chat',
+    vision: 'auto',
+    visionRejected: [],
     temperature: 0.3,
     reasoning: '',
     agentMode: 'auto',
@@ -255,7 +257,8 @@
      流式请求
      ============================================================ */
   async function streamChat(run) {
-    const conv = run.conv;
+    // 视觉降级时用剔除图片的副本，绝不改动 run.conv（否则存档里的图片会永久丢失）
+    const conv = run.visionDemoted ? stripImages(run.conv) : run.conv;
     const signal = run.signal;
     if (signal && signal.aborted) throw new Error('__STOPPED__');
 
@@ -275,7 +278,7 @@
     } else {
       dynamicParts.push('本轮为纯聊天模式：没有工具可用，不要尝试调用工具。');
     }
-    if (run.vision === false) dynamicParts.push('当前模型按文本处理；图片不会以 image_url 传入。');
+    if (run.vision === false && run.visionDemoted) dynamicParts.push('本次请求原本包含图片，但服务端拒绝了图像内容，已改为仅提供文件路径。');
     if (run.attachments && run.attachments.length) {
       dynamicParts.push('用户附带文件：\n' + run.attachments.map((a) => '- ' + a.path + (a.isDir ? '（目录）' : a.isImage ? '（图片）' : '（已存入 VFS，可 read_file）')).join('\n'));
     }
@@ -635,11 +638,18 @@
       if (run.hooks.roundStart) run.hooks.roundStart(loops);
       let round;
       let overflowRetried = false;
+      let visionRetried = false;
       while (!round) {
         try {
           round = await streamChat(run);
         } catch (e) {
           if (e.message === '__STOPPED__') throw e;
+          if (!visionRetried && isImageRejected(e)) {
+            visionRetried = true;
+            demoteVision(run, cfg.get('model'));
+            run.hooks.error('⚠ 服务端拒绝了图片内容，已移除图片并以纯文本重试一次。可在设置 → 模型 → 图片输入 调整。');
+            continue;
+          }
           if (!overflowRetried && isOverflow(e)) {
             overflowRetried = true;
             run.tighten = (run.tighten || 1) * 0.55;
@@ -716,6 +726,32 @@
     const maxCost = Number(cfg.get('maxCost')) || 0;
     if (maxCost > 0 && b.cost >= maxCost) over.push('成本达上限 $' + maxCost);
     return over;
+  }
+
+  /* 视觉降级支持：把对话副本里的图片换成文字，原对话保持不变 */
+  function stripImages(conv) {
+    return conv.map((m) => {
+      if (!m || !Array.isArray(m.content)) return m;
+      const parts = m.content.filter((p) => !(p && p.type === 'image_url'));
+      if (!parts.length) parts.push({ type: 'text', text: '（图片已省略）' });
+      return Object.assign({}, m, { content: parts });
+    });
+  }
+
+  function isImageRejected(e) {
+    const s = String((e && e.message) || e).toLowerCase();
+    if (/__stopped__/.test(s)) return false;
+    const mentionsImage = /image|vision|multimodal|图像|图片/.test(s);
+    if (!mentionsImage) return false;
+    return /invalid|unsupported|not support|not allowed|does not support|reject|unknown variant|400|bad request|拒绝|不支持|content_type|content type/.test(s);
+  }
+
+  function demoteVision(run, model) {
+    run.vision = false;
+    run.visionDemoted = true;
+    try {
+      if (AH.chat && AH.chat.markVisionUnsupported) AH.chat.markVisionUnsupported(model);
+    } catch (e) { /* 记录失败不影响本次重试 */ }
   }
 
   function isOverflow(e) {
