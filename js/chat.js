@@ -1872,8 +1872,8 @@
       repairDangling(conv);
       if (live) {
         if (!live.finished) {
-          const last = [...conv].reverse().find((m) => m.role === 'assistant');
-          if (last && last.content) live.finalize(last.content, last._thinking);
+          // 停止/异常时以当前气泡的实时状态收尾：只完成了思考、还没有正文时也不能把气泡删掉
+          if (live.text || live.thinking || (live.cards && live.cards.size)) live.finalize(live.text, live.thinking);
           else if (live.wrap.parentElement) live.wrap.remove();
         }
         live.attachMeta(run.usage);
@@ -1897,7 +1897,7 @@
       renderHistory();
       AH.app.refreshTasks();
       if (alive) maybeTitleGen(meta, conv);
-      if (live && !live.text && !live.cards.size && !live.finished && live.wrap.parentElement) live.wrap.remove();
+      if (live && !live.text && !live.thinking && !live.cards.size && !live.finished && live.wrap.parentElement) live.wrap.remove();
     }
   };
 
