@@ -242,11 +242,13 @@ textarea { resize: vertical; }
 .todo-item:hover { background: var(--panel-2); }
 .todo-item.done { color: var(--text-3); text-decoration: line-through; }
 .todo-item .box {
-  width: 14px; height: 14px; border: 1px solid var(--line); border-radius: 4px;
-  display: grid; place-items: center; flex: none; margin-top: 3px; font-size: 10px;
+  width: 14px; height: 14px; flex: none;
+  margin: 3px 0 0; padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
-.todo-item.done .box { border-color: var(--ok); color: var(--ok); }
-.todo-item .t { flex: 1; overflow-wrap: anywhere; }
+.todo-item.done .box { accent-color: var(--ok); }
+.todo-item .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 
 .side-foot {
   flex: none; padding: 7px 12px calc(8px + env(safe-area-inset-bottom));
@@ -552,6 +554,56 @@ body.compact .msg { margin-bottom: 12px; }
 .task-top .st.error { color: var(--danger); }
 .task-detail { font: 11.5px/1.55 var(--mono); color: var(--text-3); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
 .task-empty { padding: 60px 0; text-align: center; color: var(--text-3); font-size: 13px; }
+
+/* ------------------------------------------------------------
+   VFS 页
+   ------------------------------------------------------------ */
+.vfs-tools { display: flex; align-items: center; gap: 6px; flex: none; }
+.vfs-tools input { width: 220px; height: 30px; font-size: 12px; }
+.vfs-body { flex: 1; min-height: 0; display: flex; }
+.vfs-side {
+  width: 300px; flex: none; min-height: 0;
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--line-soft);
+}
+.vfs-crumb {
+  flex: none; padding: 9px 14px; border-bottom: 1px solid var(--line-soft);
+  font: 11.5px var(--mono); color: var(--text-3); overflow-wrap: anywhere;
+}
+.vfs-list { flex: 1; overflow: auto; padding: 8px 8px 20px; }
+.vfs-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 8px; border-radius: 6px;
+  font-size: 12.5px; color: var(--text-2); cursor: pointer;
+}
+.vfs-row:hover { background: var(--panel-2); }
+.vfs-row.active { background: var(--accent-soft); color: var(--text); }
+.vfs-row.up { color: var(--text-3); }
+.vfs-row svg { width: 14px; height: 14px; flex: none; opacity: .8; }
+.vfs-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vfs-row .sz { flex: none; font: 10.5px var(--mono); color: var(--text-3); font-variant-numeric: tabular-nums; }
+.vfs-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.vfs-main-head {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px; border-bottom: 1px solid var(--line-soft);
+}
+.vfs-path {
+  flex: 1; min-width: 0; font: 11.5px var(--mono); color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vfs-head-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+.vfs-stage { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.vfs-stage > iframe { flex: 1; width: 100%; min-height: 240px; border: 0; background: #fff; }
+.vfs-stage .md-preview { padding: 20px 24px; }
+.vfs-source {
+  margin: 0; padding: 14px 18px;
+  font: 12.5px/1.6 var(--mono); color: var(--text-2);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.vfs-img { flex: 1; display: grid; place-items: center; padding: 18px; }
+.vfs-img img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+.vfs-empty { padding: 60px 20px; text-align: center; color: var(--text-3); font-size: 13px; }
+.vfs-hits { padding: 4px 6px 10px; font-size: 11px; color: var(--text-3); }
 
 /* ------------------------------------------------------------
    设置弹窗

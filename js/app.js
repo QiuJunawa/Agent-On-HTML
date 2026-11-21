@@ -326,9 +326,11 @@
       row.className = 'todo-item' + (it.done ? ' done' : '');
       const cb = document.createElement('input');
       cb.type = 'checkbox';
+      cb.className = 'box';
       cb.checked = !!it.done;
       cb.addEventListener('change', () => { AH.todos.setDone(it.id, cb.checked).catch((e) => AH.ui.error(e)); });
       const tx = document.createElement('span');
+      tx.className = 't';
       tx.textContent = it.text;
       row.appendChild(cb); row.appendChild(tx);
       box.appendChild(row);
@@ -399,6 +401,195 @@
   };
 
   /* ============================================================
+     VFS 页（浏览 + 预览）
+     ============================================================ */
+  const VS = (App.vfsState = { cwd: '/', sel: '', view: 'preview', query: '' });
+
+  function vfsPathRow(label, iconName, cls, onClick, meta) {
+    const row = document.createElement('div');
+    row.className = 'vfs-row' + (cls ? ' ' + cls : '');
+    row.innerHTML = '<span class="ico"></span><span class="nm"></span><span class="sz"></span>';
+    row.querySelector('.ico').innerHTML = AH.ui.icon(iconName);
+    row.querySelector('.nm').textContent = label;
+    row.querySelector('.sz').textContent = meta || '';
+    row.addEventListener('click', onClick);
+    return row;
+  }
+
+  function renderVfsList() {
+    const list = $('vfsList');
+    if (!list) return;
+    list.innerHTML = '';
+    $('vfsCrumb').textContent = VS.cwd;
+
+    // 搜索模式：显示命中的文件
+    if (VS.query) {
+      const head = document.createElement('div');
+      head.className = 'vfs-hits';
+      head.textContent = '搜索结果';
+      list.appendChild(head);
+      (App._vfsHits || []).forEach((hit) => {
+        list.appendChild(vfsPathRow(hit.label, 'file-text', hit.path === VS.sel ? 'active' : '', () => {
+          openVfsFile(hit.path);
+        }, hit.meta));
+      });
+      return;
+    }
+
+    // 上级目录
+    if (VS.cwd !== '/') {
+      list.appendChild(vfsPathRow('..', 'chevron-right', 'up', () => {
+        VS.cwd = U.parentPath(VS.cwd) || '/';
+        VS.sel = '';
+        renderVfsList();
+      }, ''));
+    }
+
+    let nodes = [];
+    try { nodes = VFS.list(VS.cwd); }
+    catch (e) { list.innerHTML = '<div class="vfs-empty">' + U.esc(e.message) + '</div>'; return; }
+
+    if (!nodes.length) {
+      const box = document.createElement('div');
+      box.className = 'vfs-empty';
+      box.textContent = '这个目录是空的';
+      list.appendChild(box);
+      return;
+    }
+
+    nodes.forEach((n) => {
+      const isDir = n.type === 'dir';
+      list.appendChild(vfsPathRow(
+        U.baseName(n.path) || n.path,
+        isDir ? 'folder' : (U.isImagePath(n.path) ? 'box' : 'file-text'),
+        n.path === VS.sel ? 'active' : '',
+        () => {
+          if (isDir) {
+            VS.cwd = n.path;
+            VS.sel = '';
+            renderVfsList();
+          } else {
+            openVfsFile(n.path);
+          }
+        },
+        isDir ? '' : U.fmtSize(n.size || 0)
+      ));
+    });
+  }
+
+  function setVfsView(view) {
+    VS.view = view;
+    document.querySelectorAll('#vfsViewMode .seg-btn').forEach((b) => {
+      b.classList.toggle('active', b.dataset.view === view);
+    });
+    if (VS.sel) renderVfsStage();
+  }
+
+  async function openVfsFile(path) {
+    let content;
+    try {
+      const node = VFS.stat(path);
+      if (!node) throw new Error('文件不存在：' + path);
+      if (node.type === 'dir') throw new Error('这是目录');
+      content = await VFS.read(path);
+    } catch (e) { AH.ui.error(e); return; }
+    VS.sel = path;
+    App._vfsContent = content;
+    const isMd = /\.md$/i.test(path);
+    const isHtml = /\.html?$/i.test(path);
+    $('vfsPath').textContent = path;
+    $('vfsPath').title = path;
+    // 只有 md / html 有「预览 / 源码」切换
+    $('vfsViewMode').hidden = !(isMd || isHtml);
+    if (isMd || isHtml) setVfsView('preview');
+    else renderVfsStage();
+    renderVfsList();
+  }
+
+  function renderVfsStage() {
+    const stage = $('vfsStage');
+    if (!stage) return;
+    stage.innerHTML = '';
+    if (!VS.sel) {
+      const box = document.createElement('div');
+      box.className = 'vfs-empty';
+      box.textContent = '从左侧选择一个文件';
+      stage.appendChild(box);
+      return;
+    }
+    const path = VS.sel;
+    const content = App._vfsContent == null ? '' : String(App._vfsContent);
+    try {
+      if (U.isImagePath(path)) {
+        const box = document.createElement('div');
+        box.className = 'vfs-img';
+        const img = document.createElement('img');
+        img.src = content;
+        img.alt = U.baseName(path);
+        box.appendChild(img);
+        stage.appendChild(box);
+        return;
+      }
+      if (VS.view === 'source') {
+        const pre = document.createElement('pre');
+        pre.className = 'vfs-source';
+        pre.textContent = content;
+        stage.appendChild(pre);
+        return;
+      }
+      if (/\.html?$/i.test(path)) {
+        const frame = document.createElement('iframe');
+        frame.setAttribute('sandbox', 'allow-scripts');
+        frame.title = 'HTML 预览';
+        frame.srcdoc = content;
+        stage.appendChild(frame);
+        return;
+      }
+      if (/\.md$/i.test(path)) {
+        const box = document.createElement('div');
+        box.className = 'md-preview';
+        box.innerHTML = AH.md.toHtml(content);
+        stage.appendChild(box);
+        AH.md.renderMathIn(box);
+        return;
+      }
+      const pre = document.createElement('pre');
+      pre.className = 'vfs-source';
+      pre.textContent = content;
+      stage.appendChild(pre);
+    } catch (e) {
+      stage.innerHTML = '';
+      const box = document.createElement('div');
+      box.className = 'vfs-empty';
+      box.textContent = '预览失败：' + (e && e.message ? e.message : e);
+      stage.appendChild(box);
+    }
+  }
+
+  async function vfsSearch(q) {
+    VS.query = String(q || '').trim();
+    if (!VS.query) { App._vfsHits = []; renderVfsList(); return; }
+    try {
+      const raw = await VFS.search(VS.query, { inPath: VS.cwd, limit: 40, inContent: true });
+      App._vfsHits = raw.map((s) => {
+        const m = String(s).match(/^(.*?)(?::(\d+))?\s{2,}/);
+        const p = m ? m[1] : String(s);
+        const line = m && m[2] ? m[2] : '';
+        return { path: p, label: U.baseName(p) || p, meta: line ? '第 ' + line + ' 行' : '文件名' };
+      });
+    } catch (e) {
+      App._vfsHits = [];
+      AH.ui.error(e);
+    }
+    renderVfsList();
+  }
+
+  App.renderVfs = function () {
+    if (!VS.sel) { $('vfsPath').textContent = '未选择文件'; }
+    renderVfsList();
+  };
+
+  /* ============================================================
      导航 / 页面
      ============================================================ */
   function setPage(page) {
@@ -408,6 +599,10 @@
     app.style.display = page === 'chat' ? '' : 'none';
     $('tasksPage').hidden = page !== 'tasks';
     if (page === 'tasks') renderTasks();
+    if ($('vfsPage')) {
+      $('vfsPage').hidden = page !== 'vfs';
+      if (page === 'vfs') App.renderVfs();
+    }
     if ($('pluginsPage')) {
       $('pluginsPage').hidden = page !== 'plugins';
       if (page === 'plugins') AH.plugins.open();
@@ -501,6 +696,26 @@
       });
     });
     document.addEventListener('ah:tasks', () => App.refreshTasks());
+
+    // VFS 页
+    if ($('vfsSearch')) {
+      $('vfsSearch').addEventListener('input', U.debounce((e) => {
+        vfsSearch(e.target.value).catch((err) => AH.ui.error(err));
+      }, 220));
+      $('btnVfsRefresh').addEventListener('click', () => {
+        $('vfsSearch').value = '';
+        VS.query = '';
+        App._vfsHits = [];
+        renderVfsList();
+        if (VS.sel) {
+          const p = VS.sel;
+          openVfsFile(p).catch((err) => AH.ui.error(err));
+        }
+      });
+      document.querySelectorAll('#vfsViewMode .seg-btn').forEach((b) => {
+        b.addEventListener('click', () => setVfsView(b.dataset.view));
+      });
+    }
 
     // 移动端
     $('btnSidebarToggle').addEventListener('click', () => {

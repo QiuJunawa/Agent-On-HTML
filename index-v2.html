@@ -18,6 +18,7 @@
 <nav class="rail" aria-label="主导航">
   <div class="rail-top">
     <button class="rail-btn active" data-page="chat" title="对话" aria-label="对话" data-icon="chat"></button>
+    <button class="rail-btn" data-page="vfs" title="文件" aria-label="文件" data-icon="folder"></button>
     <button class="rail-btn" data-page="tasks" title="任务" aria-label="任务" data-icon="activity"></button>
     <button class="rail-btn" data-page="plugins" title="插件" aria-label="插件" data-icon="package"></button>
   </div>
@@ -180,6 +181,39 @@
   </header>
   <div class="task-stats" id="taskStats"></div>
   <div class="task-list" id="taskList"></div>
+</section>
+
+<section class="page vfs-page" id="vfsPage" hidden>
+  <header class="page-head">
+    <div>
+      <h2>文件</h2>
+      <p>浏览 VFS 并预览 Markdown / HTML / 图片 / 文本</p>
+    </div>
+    <div class="vfs-tools">
+      <input id="vfsSearch" placeholder="搜索路径或内容" spellcheck="false">
+      <button class="chip-btn" id="btnVfsRefresh" type="button">刷新</button>
+    </div>
+  </header>
+  <div class="vfs-body">
+    <div class="vfs-side">
+      <div class="vfs-crumb" id="vfsCrumb">/</div>
+      <div class="vfs-list" id="vfsList"></div>
+    </div>
+    <div class="vfs-main">
+      <div class="vfs-main-head">
+        <span class="vfs-path" id="vfsPath" title="未选择文件">未选择文件</span>
+        <div class="vfs-head-actions">
+          <div class="seg" id="vfsViewMode" hidden>
+            <button class="seg-btn active" data-view="preview" type="button">预览</button>
+            <button class="seg-btn" data-view="source" type="button">源码</button>
+          </div>
+        </div>
+      </div>
+      <div class="vfs-stage" id="vfsStage">
+        <div class="editor-empty"><span data-icon="file-text"></span><p>从左侧选择一个文件</p></div>
+      </div>
+    </div>
+  </div>
 </section>
 
 <div class="modal" id="settingsModal" hidden>
