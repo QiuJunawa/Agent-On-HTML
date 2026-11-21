@@ -25,6 +25,7 @@
     toolLog: [],
     _loaded: new Set(),
     _saveTimers: new Map(),
+    _saveBump: new Map(),
     _mdTimer: null
   });
 
@@ -175,11 +176,16 @@
     return (row && Array.isArray(row.v)) ? row.v : [];
   };
 
+  /* opts.bump = true 表示这次保存源于真实活动（发消息、生成完成、清空等），
+     才更新 updatedAt 以影响历史列表排序。
+     切换会话、单纯归档等被动保存不传 bump，排序时间保持不变——
+     否则「点开看一眼」就会把对话顶到最前面。 */
   Chat.saveConv = async function (id, conv, opts) {
     if (!id || !conv) return;
     const meta = Chat.sessions.find((s) => s.id === id);
     if (!meta) return;
-    meta.updatedAt = Date.now();
+    const bump = !!(opts && (opts.bump || opts.now));
+    if (bump) meta.updatedAt = Date.now();
     meta.count = conv.length;
     let last = null;
     for (let i = conv.length - 1; i >= 0; i--) {
@@ -199,14 +205,18 @@
   };
 
   /* 每个会话一个防抖计时器：并发多个 run 时不会互相顶掉保存 */
-  Chat.saveSoon = function (id) {
+  Chat.saveSoon = function (id, opts) {
     const sid = id || Chat.currentId;
     if (!sid) return;
+    const bump = !!(opts && (opts.bump || opts.now));
+    if (bump) Chat._saveBump.set(sid, true);
     const prev = Chat._saveTimers.get(sid);
     if (prev) clearTimeout(prev);
     Chat._saveTimers.set(sid, setTimeout(() => {
       Chat._saveTimers.delete(sid);
-      Chat.saveConv(sid, convOf(sid)).catch((e) => console.warn(e));
+      const doBump = Chat._saveBump.get(sid) === true;
+      Chat._saveBump.delete(sid);
+      Chat.saveConv(sid, convOf(sid), { bump: doBump }).catch((e) => console.warn(e));
     }, 450));
   };
 
@@ -263,7 +273,7 @@
         pv.scroll = pv.msgs.scrollTop;
         pv.stick = pv.msgs._stick !== false;
       }
-      await Chat.saveConv(prev, convOf(prev), { now: true });
+      await Chat.saveConv(prev, convOf(prev));
     }
     Chat.currentId = id;
     await AH.db.put('kv', { k: 'last_session', v: id });
@@ -314,7 +324,7 @@
   }
 
   Chat.newSession = async function () {
-    if (Chat.currentId) await Chat.saveConv(Chat.currentId, convOf(Chat.currentId), { now: true });
+    if (Chat.currentId) await Chat.saveConv(Chat.currentId, convOf(Chat.currentId));
     const id = U.uid('s');
     const meta = sessionMeta(id);
     Chat.sessions.unshift(meta);
@@ -354,6 +364,7 @@
     for (const id of [...RT.views.keys()]) dropView(id);
     for (const t of Chat._saveTimers.values()) clearTimeout(t);
     Chat._saveTimers.clear();
+    Chat._saveBump.clear();
     if (Chat._mdPending) Chat._mdPending.clear();
     RT.convs.clear();
     Chat._loaded.clear();
@@ -371,7 +382,7 @@
     if (!ok) return;
     conv.length = 0;
     Chat.toolLog = [];
-    await Chat.save({ now: true });
+    await Chat.save({ bump: true });
     const view = currentView();
     if (view) {
       view.renderStart = 0;
@@ -1763,7 +1774,8 @@
       trimConversationDom(view, conv);
     }
     view.renderStart = renderStartFor(conv);
-    Chat.saveSoon(sid);
+    // 发消息是真实活动，刷新排序时间
+    Chat.saveSoon(sid, { bump: true });
 
     if (meta.title === '新对话' && conv.filter((m) => m.role === 'user').length === 1) {
       const t = U.clip(text || '图片对话', 26);
@@ -1861,7 +1873,7 @@
       if (alive) {
         // 后台跑完的会话在列表里留一个未读点，直到用户点开
         if (Chat.currentId !== sid) meta.unread = true;
-        await Chat.saveConv(sid, conv, { now: true });
+        await Chat.saveConv(sid, conv, { bump: true });
       }
       trimConversationDom(view, conv);
       run.conv = null;
@@ -1937,7 +1949,8 @@
       view.renderStart = renderStartFor(conv);
       renderConversation(view);
     }
-    Chat.saveSoon();
+    // 重新生成是真实活动，刷新排序时间
+    Chat.saveSoon(null, { bump: true });
     // 复用这条用户消息，不重复插入
     await Chat.send(text, { fromCard: true, reuseLastUser: true, useTools: hadTools, sessionId: Chat.currentId });
   };
