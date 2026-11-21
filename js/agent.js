@@ -241,7 +241,7 @@
     return out;
   }
 
-  function buildMessages(conv, dynamicParts, tighten) {
+  function buildMessages(conv, dynamicParts, tighten, inject) {
     const budget = (Number(cfg.get('contextTokens')) || 90000) * (tighten || 1);
     let total = 0;
     let cut = 0;
@@ -256,14 +256,25 @@
     if (dropped > 0) {
       dynamicParts.push('本次上下文已省略更早的 ' + dropped + ' 条消息（预算限制）。完整记录在对话存档，需要时用 read_file 查阅。');
     }
+
+    // 插件注入：before 放在用户原文之前，after 放在 runtime_context 之后
+    const before = (inject && Array.isArray(inject.before)) ? inject.before.filter(Boolean) : [];
+    const after = (inject && Array.isArray(inject.after)) ? inject.after.filter(Boolean) : [];
+    const beforeText = before.join('\n');
+
     const dyn = '<runtime_context>\n' + dynamicParts.filter(Boolean).join('\n') + '\n</runtime_context>';
+    const tail = after.length ? dyn + '\n\n' + after.join('\n') : dyn;
+
     const last = messages[messages.length - 1];
     if (last && last.role === 'user' && !last.tool_calls) {
-      if (typeof last.content === 'string') messages[messages.length - 1] = { role: 'user', content: last.content + '\n\n' + dyn };
-      else if (Array.isArray(last.content)) messages[messages.length - 1] = { role: 'user', content: [...last.content, { type: 'text', text: '\n\n' + dyn }] };
-      else messages.push({ role: 'user', content: dyn });
+      if (typeof last.content === 'string') {
+        messages[messages.length - 1] = { role: 'user', content: (beforeText ? beforeText + '\n\n' : '') + last.content + '\n\n' + tail };
+      } else if (Array.isArray(last.content)) {
+        const head = beforeText ? [{ type: 'text', text: beforeText + '\n\n' }] : [];
+        messages[messages.length - 1] = { role: 'user', content: [...head, ...last.content, { type: 'text', text: '\n\n' + tail }] };
+      } else messages.push({ role: 'user', content: (beforeText ? beforeText + '\n\n' : '') + tail });
     } else {
-      messages.push({ role: 'user', content: dyn });
+      messages.push({ role: 'user', content: (beforeText ? beforeText + '\n\n' : '') + tail });
     }
     return sanitize(messages);
   }
@@ -298,7 +309,10 @@
       dynamicParts.push('用户附带文件：\n' + run.attachments.map((a) => '- ' + a.path + (a.isDir ? '（目录）' : a.isImage ? '（图片）' : '（已存入 VFS，可 read_file）')).join('\n'));
     }
 
-    const messages = buildMessages(conv, dynamicParts, run.tighten);
+    const inject = (AH.plugins && AH.plugins.collectInject)
+      ? await AH.plugins.collectInject({ run, conv, parts: dynamicParts })
+      : null;
+    const messages = buildMessages(conv, dynamicParts, run.tighten, inject);
     const payload = buildPayload(messages, tools);
 
     if (run.hooks && run.hooks.status) run.hooks.status(tools ? '正在请求模型（Agent 模式）…' : '正在请求模型…');

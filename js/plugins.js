@@ -14,7 +14,8 @@
     metas: [],
     tools: new Map(),      // name -> { pluginId, spec, handler }
     loaded: new Map(),     // id -> { unloadFns, code }
-    _loading: null
+    _loading: null,
+    _inject: new Map()     // pluginId -> Set<fn>，消息注入器
   });
   const DIR = '/plugins';
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -30,9 +31,37 @@
       executeTool: (name, args, ctx) => AH.tools.execute(name, args, ctx || { run: null, signal: null, confirm: AH.ui.confirm }),
       defineTool: (name, spec, handler) => P.register(id, name, spec, handler),
       registerTool: (name, spec, handler) => P.register(id, name, spec, handler),
+      registerInjector: (fn) => P.addInjector(id, fn),
       pluginId: id
     };
   }
+
+  /* 消息注入器：插件可注册函数，每轮请求前被调用，
+     返回 { before?, after? } 文本，插到发给模型的 user 消息前后。 */
+  P.addInjector = function (pluginId, fn) {
+    if (typeof fn !== 'function') throw new Error('registerInjector 需要一个函数');
+    if (!P._inject.has(pluginId)) P._inject.set(pluginId, new Set());
+    const set = P._inject.get(pluginId);
+    set.add(fn);
+    return () => set.delete(fn);
+  };
+
+  P.collectInject = async function (ctx) {
+    const before = [];
+    const after = [];
+    for (const [pid, set] of P._inject) {
+      for (const fn of set) {
+        let r;
+        try { r = await fn(ctx); } catch (e) { console.warn('[inject]', pid, e); continue; }
+        if (!r) continue;
+        if (typeof r.before === 'string') { if (r.before) before.push(r.before); }
+        else if (Array.isArray(r.before)) before.push(...r.before.filter(Boolean));
+        if (typeof r.after === 'string') { if (r.after) after.push(r.after); }
+        else if (Array.isArray(r.after)) after.push(...r.after.filter(Boolean));
+      }
+    }
+    return { before, after };
+  };
 
   P.register = function (pluginId, name, spec, handler) {
     const n = String(name || '').trim();
@@ -57,6 +86,7 @@
   };
 
   P.unregister = function (pluginId) {
+    P._inject.delete(pluginId);
     let n = 0;
     for (const [name, t] of [...P.tools]) if (t.pluginId === pluginId) { P.tools.delete(name); n++; }
     return n;
