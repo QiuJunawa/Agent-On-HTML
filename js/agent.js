@@ -727,7 +727,6 @@
     const declared = new Set();
     for (const m of conv) {
       if (m.role === 'assistant' && m.tool_calls) m.tool_calls.forEach((tc) => declared.add(tc.id));
-      if (m.role === 'tool') open.delete(m.tool_call_id);
     }
     for (const id of declared) if (!conv.some((m) => m.role === 'tool' && m.tool_call_id === id)) conv.push({ role: 'tool', tool_call_id: id, content: text });
   }
