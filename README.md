@@ -2,6 +2,12 @@
 
 纯前端、无后端的单页 Agent。文件系统、对话、记忆、待办全部保存在本机 IndexedDB。KaTeX 公式本地自托管；字体样式在首屏加载完成后异步注入。
 
+## 访问地址
+
+- 线上地址：<https://qiujunawa.github.io/Agent-On-HTML/index-v2.html>。
+- 想改变点什么？去<https://github.com/QiuJunawa/AOH_Plugins>
+- 发现问题？[我要提交bug](https://github.com/QiuJunawa/Agent-On-HTML/issues)
+
 ## 运行
 
 ```bash
@@ -131,11 +137,3 @@ vendor/katex/     自托管 KaTeX（js + css + 20 个 woff2 字体）
 - Markdown 渲染先转义再加白名单标签；链接只允许 `http/https/mailto/#//`，图片只允许 `http/https/data:image`。
 - HTML 预览使用 `sandbox="allow-scripts"`（不含 same-origin），不能读本页数据。
 - 导入备份会覆盖当前数据，导入前有确认；导出文件包含 Key，注意保管。
-
-## 交付说明
-
-- 本版是**多文件结构**（`index-v2.html` + `js/*.js` + `app.css`），已推送到 `QiuJunawa/Agent-On-HTML` 的 `main`；旧 `index.html` 保持原样，方便对照与回滚。
-- 线上地址：<https://qiujunawa.github.io/Agent-On-HTML/index-v2.html>。
-- 本轮未使用真实 API Key；全部走本地 mock。需要真实服务商兼容性实测时，把 Key 发我，测完立即销毁。
-- Git 工具只做了静态实现与入口检查，未用真实 Token 请求 GitHub/Gitee/GitLab。
-- 官方插件库只实测了 `hello`（兼容 `AgentAPI.defineTool`）；`note` / `claw-mode` 依赖原版 UI / 运行环境，安装后不一定适配本版。
