@@ -260,7 +260,7 @@ textarea { resize: vertical; }
 /* ------------------------------------------------------------
    对话区
    ------------------------------------------------------------ */
-.chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
+.chat { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
 .chat-head {
   flex: none; display: flex; align-items: center; gap: 8px;
   padding: 10px 14px; border-bottom: 1px solid var(--line-soft);
@@ -286,7 +286,7 @@ textarea { resize: vertical; }
 }
 .model-chip.unset { color: var(--warn); border-color: var(--warn-soft); }
 
-.messages { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 22px 0 8px; scroll-behavior: auto; }
+.messages { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 22px 0 16px; scroll-behavior: auto; }
 .msg-wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
 
 .msg {
@@ -600,6 +600,8 @@ body.compact .msg { margin-bottom: 12px; }
 .tip-text.warn { color: var(--warn); }
 .tip-text code { font-family: var(--mono); background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .switch-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+.field label.switch-row { display: flex; align-items: flex-start; margin-bottom: 8px; }
+.field label.switch-row > span { flex: 1; min-width: 0; line-height: 1.55; }
 .switch-row input { margin: 3px 0 0; width: 14px; height: 14px; accent-color: var(--accent); flex: none; }
 .row-end { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
 .tool-switches { display: flex; flex-direction: column; gap: 2px; }

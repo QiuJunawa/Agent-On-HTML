@@ -374,7 +374,7 @@
     if (!els.messages) return;
     const start = renderStartFor(conv);
     const box = els.messages;
-    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140;
+    const nearBottom = atBottom(box, 80);
     for (const el of [...box.querySelectorAll('.msg')]) {
       const i = Number(el.dataset.i);
       if (Number.isFinite(i) && i < start) el.remove();
@@ -868,7 +868,7 @@
   function appendUserToDom(m, index) {
     const el = buildUserEl(m, index);
     els.messages.appendChild(el);
-    scrollToBottom();
+    scrollToBottom(true);
   }
 
   function createLiveAssistant(run) {
@@ -880,8 +880,10 @@
     status.innerHTML = '<span style="color:var(--text-3)">正在连接…</span>';
     wrap.appendChild(status);
 
+    const stick = atBottom(els.messages, 80);
+    ensureStick(els.messages);
     els.messages.appendChild(wrap);
-    scrollBottomSmart();
+    if (stick) pinToBottom(els.messages);
     const state = {
       wrap,
       statusEl: status,
@@ -925,6 +927,7 @@
 
     const render = U.throttle(() => {
       if (!run.visible) return;
+      const stick = atBottom(els.messages, 80);
       if (state.thinking) {
         ensureThinking();
         state.thinkingBody.textContent = state.thinking;
@@ -933,7 +936,7 @@
         ensureBody();
         state.textEl.textContent = state.text;
       }
-      scrollBottomSmart();
+      if (stick) pinToBottom(els.messages);
     }, 80);
 
     state.setStatus = (t) => {
@@ -953,6 +956,7 @@
     };
     state.onToolDelta = (index, name, argsText) => {
       if (!run.visible || !name) return;
+      const stick = atBottom(els.messages, 80);
       const key = state.roundSeq + ':' + index;
       let card = state.cards.get(key);
       if (!card) {
@@ -967,6 +971,7 @@
         const pre = card.querySelector('.tool-body pre');
         if (pre) pre.textContent = JSON.stringify(args, null, 2);
       }
+      if (stick) pinToBottom(els.messages);
     };
     state.bindIds = (toolCalls) => {
       toolCalls.forEach((tc, i) => {
@@ -981,6 +986,7 @@
     };
     state.onToolStart = (id, args) => {
       if (!run.visible) return;
+      const stick = atBottom(els.messages, 80);
       const card = state.findCard(id);
       if (!card) return;
       card.dataset.status = 'running';
@@ -991,9 +997,11 @@
       const pre = card.querySelector('.tool-body pre');
       if (pre) pre.textContent = JSON.stringify(args || {}, null, 2);
       card.classList.add('collapsed');
+      if (stick) pinToBottom(els.messages);
     };
     state.onToolFinish = (id, ok, text, ms) => {
       if (!run.visible) return;
+      const stick = atBottom(els.messages, 80);
       let card = state.findCard(id);
       if (!card) {
         // 兜底：流式阶段没拿到该调用，按 id 建一张
@@ -1029,11 +1037,12 @@
       }
       renderCardExtras(card, text);
       card.classList.toggle('collapsed', ok);
-      scrollBottomSmart();
+      if (stick) pinToBottom(els.messages);
     };
     state.finalize = (content, thinking) => {
       state.finished = true;
       if (!run.visible) return;
+      const stick = atBottom(els.messages, 80);
       if (state.statusEl && state.statusEl.parentElement) state.statusEl.remove();
       const parsed = parseDeliver(content || state.text || '');
       state.text = parsed.text;
@@ -1057,14 +1066,16 @@
         wrap.appendChild(state.deliverEl);
       }
       attachMsgActions(state, state.text);
-      scrollBottomSmart();
+      if (stick) pinToBottom(els.messages, true);
     };
     state.attachMeta = (usage) => {
       if (!run.visible || !usage || (!usage.inTok && !usage.outTok)) return;
+      const stick = atBottom(els.messages, 80);
       const meta = document.createElement('div');
       meta.className = 'msg-meta';
       meta.innerHTML = '<span>' + usage.inTok + ' 入 / ' + usage.outTok + ' 出' + (usage.cost ? ' · $' + usage.cost.toFixed(4) : '') + '</span>';
       wrap.appendChild(meta);
+      if (stick) pinToBottom(els.messages);
     };
     return state;
   }
@@ -1087,28 +1098,58 @@
     }
   }
 
+  function ensureStick(el) {
+    if (!el || el._stickReady) return;
+    el._stickReady = true;
+    el._stick = true;
+    el._lastTop = el.scrollTop || 0;
+    el.addEventListener('scroll', () => {
+      const top = el.scrollTop;
+      const gap = el.scrollHeight - top - el.clientHeight;
+      if (gap <= 8) el._stick = true;
+      else if (top < el._lastTop - 2) el._stick = false;
+      el._lastTop = top;
+    }, { passive: true });
+  }
+  function atBottom(el, slack) {
+    if (!el) return false;
+    ensureStick(el);
+    if (el._stick === false) return false;
+    return el._stick === true || el.scrollHeight - el.scrollTop - el.clientHeight <= (slack == null ? 80 : slack);
+  }
   function pinToBottom(el, settle) {
-    let left = settle ? 7 : 0;
+    if (!el) return;
+    ensureStick(el);
+    if (el._stick === false) return;
+    const toEnd = () => {
+      if (el._stick === false) return;
+      el.scrollTop = el.scrollHeight;
+      el._lastTop = el.scrollTop;
+    };
+    let left = settle ? 8 : 3;
     const step = () => {
-      const last = el.lastElementChild;
-      if (last) {
-        try { last.scrollIntoView({ block: 'end', inline: 'nearest' }); }
-        catch (e) { el.scrollTop = el.scrollHeight; }
-      } else el.scrollTop = el.scrollHeight;
-      if (left-- > 0) requestAnimationFrame(step);
+      toEnd();
+      if (left-- > 0 && el._stick !== false) requestAnimationFrame(step);
     };
     step();
+    if (settle) {
+      setTimeout(toEnd, 140);
+      setTimeout(toEnd, 320);
+    }
   }
   function scrollBottomSmart() {
     const el = els.messages;
     if (!el) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 140) pinToBottom(el);
+    if (atBottom(el, 80)) pinToBottom(el);
   }
   function scrollToBottom(force) {
     const el = els.messages;
     if (!el) return;
-    if (force) pinToBottom(el, true);
-    else scrollBottomSmart();
+    if (force) {
+      ensureStick(el);
+      el._stick = true;
+      pinToBottom(el, true);
+    } else scrollBottomSmart();
   }
 
   /* ============================================================
@@ -1468,7 +1509,7 @@
     el.innerHTML = '<div class="bubble" style="border:1px solid var(--danger-soft);background:var(--danger-soft);color:var(--danger);padding:9px 12px;border-radius:9px;font-size:13px;white-space:pre-wrap"></div>';
     el.querySelector('.bubble').textContent = String(msg);
     els.messages.appendChild(el);
-    scrollToBottom();
+    scrollToBottom(true);
   }
 
   function appendStopped() {
@@ -1476,7 +1517,7 @@
     el.className = 'msg assistant';
     el.innerHTML = '<div class="msg-meta"><span>已停止生成</span></div>';
     els.messages.appendChild(el);
-    scrollToBottom();
+    scrollToBottom(true);
   }
 
   Chat.stop = function () {
