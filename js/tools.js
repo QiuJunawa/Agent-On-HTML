@@ -389,16 +389,17 @@
      ============================================================ */
   async function expandRefs(str, run, selfPath) {
     if (typeof str !== 'string' || str.indexOf('[' + 'ref:') < 0) return str;
-    // 反斜杠转义（标准语义）：N 个连续反斜杠后跟引用标记起始符
-    //   N 为奇数 → 输出 floor(N/2) 个反斜杠，标记作为字面量不展开
-    //   N 为偶数 → 输出 N/2 个反斜杠，标记正常展开
-    // 即：一个反斜杠转义后不留反斜杠；写两个反斜杠才保留一个。
-
-    const guarded = str.replace(/(\\+)\[ref:/g, (m, bs) => {
-      const n = bs.length;
-      const keep = '\\'.repeat(Math.floor(n / 2));
-      return n % 2 === 1 ? keep + '\u0001ESCREF\u0001' : keep + '[ref:';
+    // 转义规则（只看标记前紧邻的一个字符）：
+    //   前面是反斜杠 → 一律不展开，并消耗掉这一个用作转义的反斜杠；
+    //   更前面的反斜杠原样保留，不参与配对。
+    // 例：一个反斜杠 + 标记 → 标记本身；两个 → 一个反斜杠 + 标记；三个 → 两个 + 标记。
+    const TAG = '[' + 'ref:';
+    const SENT = '\u0001ESCREF\u0001';
+    const guarded = str.replace(/(\\*)\[ref:/g, (m, bs) => {
+      if (!bs) return TAG;
+      return '\\'.repeat(bs.length - 1) + SENT;
     });
+
     const re = /\[ref:([^\]]+)\]/g;
     const parts = [];
     let last = 0;
@@ -445,7 +446,7 @@
       last = m.index + m[0].length;
     }
     parts.push(guarded.slice(last));
-    // 哨兵还原为纯 [ref:（转义用的反斜杠已在 guarded 阶段按奇偶规则消耗掉）
+    // 哨兵还原为纯 [ref:（转义用的反斜杠已在 guarded 阶段各消耗一个）
     return parts.join('').replace(/\u0001ESCREF\u0001/g, '[ref:');
   }
 
