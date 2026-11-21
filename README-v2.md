@@ -111,6 +111,7 @@ vendor/katex/     自托管 KaTeX（js + css + 20 个 woff2 字体）
 - 云端凭据（WebDAV 密码 / Token / Gist ID）不会写入快照，恢复设置时会保留本机原有凭据。
 - 不提供自动后台同步，避免两台设备互相覆盖；需要最新数据时手动点「双向同步」。
 - 云端快照是明文 JSON；大文件、图片过多时受 Gist / Gitee 接口体积限制，优先用 WebDAV 或自定义接口。
+- 浏览器直连 WebDAV 受 CORS 限制。坚果云 / Nextcloud 若在浏览器里被拦，改用支持 CORS 的 WebDAV 地址、GitHub Gist，或自建一个允许跨域的自定义备份接口。
 
 ## 功能保留 / 移除
 
