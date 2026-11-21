@@ -30,6 +30,7 @@
     bindTabs();
     bindFields();
     bindData();
+    if (AH.cloud && AH.cloud.init) AH.cloud.init();
     S.applyUI();
     buildVersionInfo();
 
@@ -454,6 +455,7 @@
      ============================================================ */
   S.open = function () {
     fillForm();
+    if (AH.cloud && AH.cloud.fillForm) AH.cloud.fillForm();
     AH.settings.refreshStorage();
     buildVersionInfo();
     AH.ui.openModal('settingsModal');

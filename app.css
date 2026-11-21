@@ -699,6 +699,9 @@ body.compact .msg { margin-bottom: 12px; }
 .field label.switch-row > span { flex: 1; min-width: 0; line-height: 1.55; }
 .switch-row input { margin: 3px 0 0; width: 14px; height: 14px; accent-color: var(--accent); flex: none; }
 .row-end { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+.cloud-only[hidden] { display: none !important; }
+.cloud-actions { flex-wrap: wrap; justify-content: flex-start; }
+.cloud-actions .chip-btn:disabled { opacity: .55; cursor: not-allowed; }
 .tool-switches { display: flex; flex-direction: column; gap: 2px; }
 .tool-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; font-size: 12.5px; }
 .tool-row:hover { background: var(--panel-2); }

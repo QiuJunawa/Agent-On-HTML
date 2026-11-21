@@ -234,6 +234,7 @@
         <button data-tab="tools">工具</button>
         <button data-tab="git">Git 仓库</button>
         <button data-tab="ui">界面</button>
+        <button data-tab="cloud">云端</button>
         <button data-tab="data">数据</button>
       </nav>
       <div class="settings-panes">
@@ -420,6 +421,67 @@
           </div>
         </div>
 
+        <div class="pane" data-pane="cloud">
+          <p class="tip-text">跨设备同步文件和对话。云端只保存一份 JSON 快照；凭据只留在本机。恢复和同步会整包替换本机数据，操作前建议先在「数据」页导出备份。</p>
+
+          <div class="field">
+            <label>同步后端</label>
+            <select id="cfgCloudBackend">
+              <option value="webdav">WebDAV（坚果云 / Nextcloud）</option>
+              <option value="gist">GitHub Gist（私有）</option>
+              <option value="gitee">Gitee 代码片段</option>
+              <option value="custom">自定义 HTTP 备份接口</option>
+            </select>
+          </div>
+
+          <div class="field cloud-only" data-cloud-for="webdav custom">
+            <label id="cloudUrlLabel">WebDAV 文件 URL</label>
+            <input id="cfgCloudUrl" type="url" placeholder="https://dav.jianguoyun.com/dav/xiaohe/xiaohe-cloud.json">
+            <div class="hint">填写到具体文件，不是目录。坚果云用应用密码；Nextcloud 用「文件」地址。</div>
+          </div>
+
+          <div class="two-col cloud-only" data-cloud-for="webdav">
+            <div class="field">
+              <label>账号</label>
+              <input id="cfgCloudUser" type="text" autocomplete="username" placeholder="WebDAV 账号">
+            </div>
+            <div class="field">
+              <label>应用密码</label>
+              <input id="cfgCloudPass" type="password" autocomplete="current-password" placeholder="不是登录密码">
+            </div>
+          </div>
+
+          <div class="field cloud-only" data-cloud-for="gist gitee custom">
+            <label id="cloudTokenLabel">访问令牌</label>
+            <input id="cfgCloudToken" type="password" autocomplete="off" placeholder="只存本机 localStorage">
+            <div class="hint">GitHub 需要 gist 权限；Gitee 需要 projects / gists 权限。自定义接口可留空。</div>
+          </div>
+
+          <div class="two-col cloud-only" data-cloud-for="gist gitee">
+            <div class="field">
+              <label>片段 ID（可留空）</label>
+              <input id="cfgCloudGistId" type="text" placeholder="首次上传后自动回填">
+            </div>
+            <div class="field">
+              <label id="cloudFileLabel">Gist 文件名</label>
+              <input id="cfgCloudFile" type="text" placeholder="xiaohe-cloud.json">
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="switch-row"><input type="checkbox" id="cfgCloudIncludeSessions"><span>同步对话记录（按更新时间合并，保留较新的一侧）</span></label>
+            <label class="switch-row"><input type="checkbox" id="cfgCloudIncludeConfig"><span>同步设置（含模型 API Key，默认关闭；云端凭据不会写入快照）</span></label>
+          </div>
+
+          <div class="row-end cloud-actions">
+            <button class="chip-btn" id="btnCloudTest" type="button">测试连接</button>
+            <button class="chip-btn" id="btnCloudUpload" type="button">上传</button>
+            <button class="chip-btn" id="btnCloudDownload" type="button">从云端恢复</button>
+            <button class="chip-btn" id="btnCloudSync" type="button">双向同步</button>
+          </div>
+          <p class="tip-text" id="cloudStatus">—</p>
+        </div>
+
         <div class="pane" data-pane="data">
           <div class="data-card">
             <h3>备份</h3>
@@ -477,6 +539,7 @@
 <script src="js/tools.js"></script>
 <script src="js/plugins.js"></script>
 <script src="js/chat.js"></script>
+<script src="js/cloud.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/app.js"></script>
 <script>
