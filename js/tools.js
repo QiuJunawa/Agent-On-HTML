@@ -132,8 +132,8 @@
 
     undo_last: S('undo_last', '撤销最近一轮的全部写操作（最多保留 3 轮）。', {}),
     undo_list: S('undo_list', '列出可撤销的轮次。', {}),
-    task_status: S('task_status', '查询后台任务；不传 task_id 则列出当前会话全部任务。', {
-      task_id: { type: 'string', description: '可选：任务 ID' }
+    task_status: S('task_status', '查询后台任务；不传 task_id 则列出当前会话全部任务。若目标任务（或任意一个运行中任务）尚未结束，会持续监测最多 20 秒直到完成。', {
+      task_id: { type: 'string', description: '可选：任务 ID；不传则监测当前会话任意一个运行中的任务' }
     }),
     task_cancel: S('task_cancel', '取消一个后台任务（尽力而为）。', {
       task_id: { type: 'string', description: '任务 ID' }
@@ -387,11 +387,21 @@
     finish(id, result, error) {
       const t = TASKS.map.get(id);
       if (!t) return;
+      if (t.status === 'cancelled') {
+        t.result = String(result || '').slice(0, 4000);
+        t.error = error ? String(error.message || error) : t.error;
+        document.dispatchEvent(new CustomEvent('ah:tasks'));
+        return;
+      }
       t.status = error ? 'error' : 'ok';
       t.end = Date.now();
       t.result = String(result || '').slice(0, 4000);
       t.error = error ? String(error.message || error) : '';
       document.dispatchEvent(new CustomEvent('ah:tasks'));
+    },
+    attach(id, cancel) {
+      const t = TASKS.map.get(id);
+      if (t) t.cancel = typeof cancel === 'function' ? cancel : null;
     },
     cancel(id) { const t = TASKS.map.get(id); if (t && t.cancel) t.cancel(); },
     list(sessionId) {
@@ -1349,26 +1359,51 @@
     return UNDO.rounds.map((r, i) => (i + 1) + '. ' + new Date(r.ts).toLocaleString() + ' · ' + r.ops.length + ' 项 · ' + r.ops.map((o) => o.path).slice(0, 4).join(', ')).join('\n');
   };
 
+  async function waitForTask(task, ctx) {
+    const deadline = Date.now() + 20000;
+    const signal = ctx && (ctx.signal || (ctx.run && ctx.run.signal));
+    while (task && task.status === 'running' && Date.now() < deadline) {
+      if (signal && signal.aborted) break;
+      await U.sleep(300);
+    }
+    return Math.round((Date.now() - (deadline - 20000)) / 1000);
+  }
+
+  function taskLine(t) {
+    return t.id + ' · ' + t.name + ' · ' + t.status + ' · ' + U.fmtDuration((t.end || Date.now()) - t.start) + (t.error ? ' · ' + t.error : '');
+  }
+
   H.task_status = async (a, ctx) => {
-    const sid = ctx.run && ctx.run.session ? ctx.run.session.id : '';
+    const sid = ctx && ctx.run && ctx.run.session ? ctx.run.session.id : '';
     const list = AH.taskRegistry.list(a.task_id ? '' : sid);
     if (a.task_id) {
       const t = list.find((x) => x.id === a.task_id);
       if (!t) throw new Error('任务不存在：' + a.task_id);
-      return '任务 ' + t.id + '（' + t.name + '）\n状态：' + t.status + '\n耗时：' + U.fmtDuration((t.end || Date.now()) - t.start) + (t.error ? '\n错误：' + t.error : '\n结果：' + U.clip(t.result, 1000));
+      const waited = t.status === 'running' ? await waitForTask(t, ctx) : 0;
+      return '任务 ' + t.id + '（' + t.name + '）\n状态：' + t.status + '\n耗时：' +
+        U.fmtDuration((t.end || Date.now()) - t.start) +
+        (waited ? '\n已监测 ' + waited + ' 秒' : '') +
+        (t.error ? '\n错误：' + t.error : '\n结果：' + U.clip(t.result, 1000));
     }
     if (!list.length) return '当前会话没有后台任务';
-    return list.map((t) => t.id + ' · ' + t.name + ' · ' + t.status + ' · ' + U.fmtDuration((t.end || Date.now()) - t.start)).join('\n');
+
+    const target = list.find((t) => t.status === 'running');
+    const waited = target ? await waitForTask(target, ctx) : 0;
+    const lines = list.map(taskLine).join('\n');
+    if (!target) return lines;
+    return '已监测任务 ' + target.id + ' 共 ' + waited + ' 秒（上限 20 秒），当前状态：\n' + lines;
   };
 
-  H.task_cancel = async (a) => {
+  H.task_cancel = async (a, ctx) => {
     const t = AH.taskRegistry.map.get(a.task_id);
     if (!t) throw new Error('任务不存在：' + a.task_id);
     if (t.status !== 'running') return '任务已结束：' + t.status;
     AH.taskRegistry.cancel(a.task_id);
     t.status = 'cancelled';
     t.end = Date.now();
-    return '已请求取消：' + a.task_id;
+    t.error = t.error || 'AI 已请求取消';
+    document.dispatchEvent(new CustomEvent('ah:tasks'));
+    return '已请求取消后台任务：' + a.task_id + '（' + t.name + '）';
   };
 
   H.remember = async (a) => {

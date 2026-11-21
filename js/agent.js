@@ -540,9 +540,9 @@
       else writes.push(tc);
     }
 
-    const ctxFor = (tc) => ({
+    const ctxFor = (tc, signal) => ({
       run,
-      signal: run.signal,
+      signal: signal || run.signal,
       callId: tc.id,
       confirm: (o) => AH.ui.confirm(o)
     });
@@ -568,13 +568,24 @@
       }
       emit.start(tc.id, args);
       const started = performance.now();
-      const timeoutMs = Math.max(10000, Number(cfg.get('toolTimeoutSec')) || 120) * 1000;
+      const timeoutMs = Math.max(10, Number(cfg.get('toolTimeoutSec')) || 120) * 1000;
       const NO_BG = new Set(['read_file', 'list_files', 'search_files', 'todo_list', 'task_status', 'undo_list', 'tools_expand', 'wait', 'run_js', 'check_code']);
+      const taskCtrl = new AbortController();
+      let unlinkRun = null;
+      if (run.signal) {
+        if (run.signal.aborted) taskCtrl.abort();
+        else {
+          unlinkRun = () => taskCtrl.abort();
+          run.signal.addEventListener('abort', unlinkRun, { once: true });
+        }
+      }
       let outcome;
       try {
-        const exec = AH.tools.execute(tc.function.name, args, ctxFor(tc));
+        const exec = AH.tools.execute(tc.function.name, args, ctxFor(tc, taskCtrl.signal));
+        exec.catch(() => {});
         if (NO_BG.has(tc.function.name)) {
           outcome = await exec;
+          if (unlinkRun) run.signal.removeEventListener('abort', unlinkRun);
         } else {
           let timer;
           let onAbort = null;
@@ -594,15 +605,19 @@
             const taskId = AH.taskRegistry.start(tc.function.name, args);
             const rec = AH.taskRegistry.map.get(taskId);
             if (rec && run.session) rec.sessionId = run.session.id;
-            exec.then((r) => AH.taskRegistry.finish(taskId, r)).catch((e) => AH.taskRegistry.finish(taskId, '', e));
-            outcome = '⏳ 工具 ' + tc.function.name + ' 超过 ' + Math.round(timeoutMs / 1000) + ' 秒，已转后台运行。\n任务 ID：' + taskId + '\n稍后用 task_status 查询。';
-          } else if (outcome === '__ABORTED__') {
-            outcome = '用户已停止';
+            AH.taskRegistry.attach(taskId, () => taskCtrl.abort());
+            exec.then((r) => AH.taskRegistry.finish(taskId, r)).catch((e) => AH.taskRegistry.finish(taskId, '', e))
+              .finally(() => { if (unlinkRun && run.signal) run.signal.removeEventListener('abort', unlinkRun); });
+            outcome = '⏳ 工具 ' + tc.function.name + ' 超过 ' + Math.round(timeoutMs / 1000) + ' 秒，已转后台运行。\n任务 ID：' + taskId + '\n稍后用 task_status 查询（会持续监测最多 20 秒直到完成）。';
+          } else {
+            if (unlinkRun && run.signal) run.signal.removeEventListener('abort', unlinkRun);
+            if (outcome === '__ABORTED__') outcome = '用户已停止';
           }
         }
         results.set(tc.id, String(outcome == null ? '' : outcome));
         emit.finish(tc.id, true, results.get(tc.id), performance.now() - started);
       } catch (e) {
+        if (unlinkRun && run.signal) run.signal.removeEventListener('abort', unlinkRun);
         const msg = '工具执行失败：' + (e && e.message ? e.message : e);
         results.set(tc.id, msg);
         emit.finish(tc.id, false, msg, performance.now() - started);

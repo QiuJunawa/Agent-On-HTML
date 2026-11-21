@@ -350,13 +350,14 @@
     const filter = (activeBtn && activeBtn.dataset.filter) || 'all';
     const list = $('taskList');
     const stats = $('taskStats');
-    let okCount = 0, errCount = 0, runCount = 0;
-    log.forEach((t) => { if (t.status === 'running') runCount++; else if (t.status === 'error') errCount++; else okCount++; });
-    bg.forEach((t) => { if (t.status === 'running') runCount++; else if (t.status === 'error') errCount++; else okCount++; });
+    let okCount = 0, errCount = 0, runCount = 0, cancelCount = 0;
+    log.forEach((t) => { if (t.status === 'running') runCount++; else if (t.status === 'error') errCount++; else if (t.status === 'cancelled') cancelCount++; else okCount++; });
+    bg.forEach((t) => { if (t.status === 'running') runCount++; else if (t.status === 'error') errCount++; else if (t.status === 'cancelled') cancelCount++; else okCount++; });
     stats.innerHTML =
       '<span class="task-chip">本轮调用 <b>' + log.length + '</b></span>' +
       '<span class="task-chip">完成 <b>' + okCount + '</b></span>' +
       (errCount ? '<span class="task-chip err">失败 <b>' + errCount + '</b></span>' : '') +
+      (cancelCount ? '<span class="task-chip">已取消 <b>' + cancelCount + '</b></span>' : '') +
       (runCount ? '<span class="task-chip run">进行中 <b>' + runCount + '</b></span>' : '') +
       (bg.length ? '<span class="task-chip">后台任务 <b>' + bg.length + '</b></span>' : '');
     list.innerHTML = '';
@@ -371,7 +372,7 @@
     }
     rows.reverse().forEach((r, i) => {
       const el = document.createElement('div');
-      el.className = 'task-item ' + (r.status === 'running' ? 'running' : r.status === 'error' ? 'error' : '');
+      el.className = 'task-item ' + (r.status === 'running' ? 'running' : r.status === 'error' ? 'error' : r.status === 'cancelled' ? 'cancelled' : '');
       let resultText = r.result || '';
       if (String(resultText).startsWith('@@card:')) {
         try {
@@ -384,7 +385,7 @@
       const detail = U.clip([r.args ? JSON.stringify(r.args) : '', resultText].filter(Boolean).join('\n'), 1200);
       el.innerHTML =
         '<div class="task-top"><span class="num">' + (i + 1) + '</span><span class="nm">' + U.esc(r.name) + '</span>' +
-        '<span class="st ' + r.status + '">' + (r.status === 'running' ? '执行中' : r.status === 'error' ? '失败' : '完成') + (r.ms ? ' · ' + U.fmtDuration(r.ms) : '') + '</span></div>' +
+        '<span class="st ' + r.status + '">' + (r.status === 'running' ? '执行中' : r.status === 'error' ? '失败' : r.status === 'cancelled' ? '已取消' : '完成') + (r.ms ? ' · ' + U.fmtDuration(r.ms) : '') + '</span></div>' +
         '<div class="task-detail"></div>';
       el.querySelector('.task-detail').textContent = detail || '（无参数）';
       list.appendChild(el);

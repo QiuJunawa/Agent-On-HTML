@@ -587,6 +587,7 @@ body.compact .msg { margin-bottom: 12px; }
 }
 .task-item.running { border-color: var(--accent-line); }
 .task-item.error { border-color: var(--danger-soft); }
+.task-item.cancelled { opacity: .72; }
 .task-top { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
 .task-top .num { color: var(--text-3); font-variant-numeric: tabular-nums; width: 24px; }
 .task-top .nm { font-family: var(--mono); font-size: 12px; }
@@ -594,6 +595,7 @@ body.compact .msg { margin-bottom: 12px; }
 .task-top .st.ok { color: var(--ok); }
 .task-top .st.running { color: var(--accent); }
 .task-top .st.error { color: var(--danger); }
+.task-top .st.cancelled { color: var(--text-3); }
 .task-detail { font: 11.5px/1.55 var(--mono); color: var(--text-3); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
 .task-empty { padding: 60px 0; text-align: center; color: var(--text-3); font-size: 13px; }
 
