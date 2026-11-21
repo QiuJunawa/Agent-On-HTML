@@ -1219,17 +1219,26 @@
     if (!ok) return '用户取消了抓取';
     const proxy = String(AH.cfg.get('proxy') || '').trim();
     const target = proxy ? proxy.replace(/\/?$/, '/') + url : url;
-    let resp;
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 30000);
-      resp = await fetch(target, { signal: ctrl.signal, headers: { 'Accept': 'text/html, text/plain, application/json;q=0.9, */*;q=0.8' } });
-      clearTimeout(timer);
-    } catch (e) {
-      throw new Error('抓取失败（可能是 CORS 或网络问题）：' + (e && e.message || e) + '\n可在设置 → Agent 里配置网页抓取代理（如 https://r.jina.ai/）。');
+    let resp, text;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30000);
+    const onOuterAbort = () => ctrl.abort();
+    if (ctx.signal) {
+      if (ctx.signal.aborted) ctrl.abort();
+      else ctx.signal.addEventListener('abort', onOuterAbort, { once: true });
     }
-    if (!resp.ok) throw new Error('抓取失败：HTTP ' + resp.status);
-    let text = await resp.text();
+    try {
+      resp = await fetch(target, { signal: ctrl.signal, headers: { 'Accept': 'text/html, text/plain, application/json;q=0.9, */*;q=0.8' } });
+      if (!resp.ok) throw new Error('抓取失败：HTTP ' + resp.status);
+      text = await resp.text();
+    } catch (e) {
+      if (ctx.signal && ctx.signal.aborted) throw new Error('抓取已取消');
+      if (ctrl.signal.aborted) throw new Error('抓取超过 30 秒已停止');
+      throw new Error('抓取失败（可能是 CORS 或网络问题）：' + (e && e.message || e) + '\n可在设置 → Agent 里配置网页抓取代理（如 https://r.jina.ai/）。');
+    } finally {
+      clearTimeout(timer);
+      if (ctx.signal) ctx.signal.removeEventListener('abort', onOuterAbort);
+    }
     const type = resp.headers.get('content-type') || '';
     if (/html/i.test(type) && !proxy) {
       const doc = new DOMParser().parseFromString(text, 'text/html');
@@ -1398,10 +1407,10 @@
     const t = AH.taskRegistry.map.get(a.task_id);
     if (!t) throw new Error('任务不存在：' + a.task_id);
     if (t.status !== 'running') return '任务已结束：' + t.status;
-    AH.taskRegistry.cancel(a.task_id);
     t.status = 'cancelled';
     t.end = Date.now();
     t.error = t.error || 'AI 已请求取消';
+    AH.taskRegistry.cancel(a.task_id);
     document.dispatchEvent(new CustomEvent('ah:tasks'));
     return '已请求取消后台任务：' + a.task_id + '（' + t.name + '）';
   };
