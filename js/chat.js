@@ -16,8 +16,6 @@
   const RENDER_CHARS = 180000;
   const MIN_RENDER = 8;
   const LOAD_MORE = 20;
-  const MAX_TABS = 8;
-  const TABS_KEY = 'xiaohe_tabs_v1';
   const EMPTY_CONV = [];
 
   const Chat = (AH.chat = {
@@ -27,15 +25,14 @@
     toolLog: [],
     _loaded: new Set(),
     _saveTimers: new Map(),
-    _mdTimer: null,
-    tabs: []
+    _mdTimer: null
   });
 
   /* 多会话运行期状态：
      convs → 会话 id 到消息数组（各存一份，切走也继续增长）
      views → 会话 id 到独立 DOM（隐藏但持续更新，切回来立刻是完整内容）
-     tabs  → 顶部标签栏打开的对话（顺序即显示顺序）
-     这样同一个页面里可以有多个 run 并行，互不踩对方的数组和 DOM。 */
+     这样同一个页面里可以有多个 run 并行，互不踩对方的数组和 DOM；
+     入口就在左侧「对话」列表，不需要额外的标签栏。 */
   const RT = (Chat._rt = { convs: new Map(), views: new Map() });
 
   Object.defineProperty(Chat, 'conv', {
@@ -57,7 +54,6 @@
   const els = {};
   function bindEls() {
     els.chatBody = document.getElementById('chatBody');
-    els.tabs = document.getElementById('sessionTabs');
     els.tree = document.getElementById('tree');
     els.history = document.getElementById('historyList');
     els.input = document.getElementById('input');
@@ -137,7 +133,8 @@
       updatedAt: Date.now(),
       filePath: convPath(),
       count: 0,
-      preview: ''
+      preview: '',
+      unread: false
     };
   }
 
@@ -146,18 +143,6 @@
     const pad = (n) => String(n).padStart(2, '0');
     return '/conversations/chat-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' +
       pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '-' + Math.random().toString(36).slice(2, 6) + '.md';
-  }
-
-  function loadTabs() {
-    try {
-      const raw = localStorage.getItem(TABS_KEY);
-      const arr = raw ? JSON.parse(raw) : null;
-      return Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [];
-    } catch (e) { return []; }
-  }
-
-  function saveTabs() {
-    try { localStorage.setItem(TABS_KEY, JSON.stringify(Chat.tabs)); } catch (e) {}
   }
 
   Chat.init = async function () {
@@ -175,15 +160,9 @@
     const lastId = (await AH.db.get('kv', 'last_session')) || null;
     const start = index.find((s) => lastId && s.id === lastId.v) || index[0];
 
-    // 恢复上次打开的标签页，丢掉重复的与已被删除的会话
-    const saved = [...new Set(loadTabs())].filter((id) => index.some((s) => s.id === id));
-    Chat.tabs = saved.length ? saved : [start.id];
-    if (Chat.tabs.indexOf(start.id) < 0) Chat.tabs.unshift(start.id);
-
     await Chat.switchSession(start.id, { initial: true });
     bindEvents();
     renderHistory();
-    renderTabs();
     updateModelChip();
   };
 
@@ -275,11 +254,7 @@
 
   Chat.switchSession = async function (id, opts) {
     if (!id) return;
-    if (Chat.currentId === id && Chat._loaded.has(id) && !(opts && opts.initial)) {
-      openTab(id);
-      renderTabs();
-      return;
-    }
+    if (Chat.currentId === id && Chat._loaded.has(id) && !(opts && opts.initial)) return;
     const prev = Chat.currentId;
     if (prev) {
       // 切走前记住滚动位置与贴底状态，切回来时还原
@@ -296,11 +271,13 @@
       RT.convs.set(id, await Chat.loadConv(id));
       Chat._loaded.add(id);
     }
-    openTab(id);
     const view = viewOf(id);
     for (const v of RT.views.values()) v.root.hidden = v.id !== id;
     const run = Chat.runs.get(id);
     Chat.toolLog = (run && run.toolLog) || [];
+    // 点开即视为已读：清掉后台回复留下的未读点
+    const meta = Chat.sessions.find((s) => s.id === id);
+    if (meta && meta.unread) { meta.unread = false; Chat._saveIndex().catch(() => {}); }
     renderHeader();
     // 正在生成的会话保留流式 DOM；其余按存档重绘
     if (!(run && run.running && view.live && !view.live.finished)) {
@@ -312,7 +289,6 @@
     restoreScroll(view, run);
     updateTokenBar();
     updateRunningUI();
-    renderTabs();
     renderHistory();
   };
 
@@ -358,8 +334,6 @@
     if (run && run.running) { try { run.controller.abort(); } catch (e) {} }
     Chat.sessions.splice(i, 1);
     Chat.runs.delete(id);
-    Chat.tabs = Chat.tabs.filter((x) => x !== id);
-    saveTabs();
     RT.convs.delete(id);
     Chat._loaded.delete(id);
     dropView(id);
@@ -367,13 +341,11 @@
     await Chat._saveIndex();
     if (Chat.currentId === id) {
       Chat.currentId = null;
-      const next = Chat.tabs.find((x) => Chat.sessions.some((s) => s.id === x)) ||
-        (Chat.sessions[0] && Chat.sessions[0].id);
+      const next = Chat.sessions[0] && Chat.sessions[0].id;
       if (next) await Chat.switchSession(next);
       else await Chat.newSession();
     }
     renderHistory();
-    renderTabs();
   };
 
   /* 清空全部对话时把每个会话的 DOM、数组、运行状态一并丢掉 */
@@ -386,8 +358,6 @@
     RT.convs.clear();
     Chat._loaded.clear();
     Chat.runs.clear();
-    Chat.tabs = [];
-    saveTabs();
     Chat.currentId = null;
     Chat.sessions = [];
     Chat.toolLog = [];
@@ -416,7 +386,6 @@
     meta.title = U.clip(String(title || '').trim() || '新对话', 40);
     await Chat._saveIndex();
     renderHistory();
-    renderTabs();
   };
 
   /* ============================================================
@@ -1484,17 +1453,41 @@
     els.history.innerHTML = '';
     const list = [...Chat.sessions].sort((a, b) => b.updatedAt - a.updatedAt);
     if (!list.length) { els.history.innerHTML = '<div class="hist-empty">还没有对话</div>'; return; }
+
+    // 多会话：顶部一条状态，明确告诉用户“有几个在同时生成”，并给一个全部停止
+    const runningList = list.filter((s) => Chat.isRunning(s.id));
+    if (runningList.length) {
+      const bar = document.createElement('div');
+      bar.className = 'hist-status';
+      const txt = document.createElement('span');
+      txt.innerHTML = '<b>' + runningList.length + '</b> 个对话正在生成';
+      const stopAll = document.createElement('button');
+      stopAll.className = 'link-btn';
+      stopAll.textContent = '全部停止';
+      stopAll.addEventListener('click', () => Chat.stopAll());
+      bar.appendChild(txt);
+      bar.appendChild(stopAll);
+      els.history.appendChild(bar);
+    }
+
     list.forEach((s) => {
       const running = Chat.isRunning(s.id);
+      const unread = !!s.unread && !running;
       const row = document.createElement('div');
-      row.className = 'node-row' + (s.id === Chat.currentId ? ' active' : '') + (running ? ' running' : '');
+      row.className = 'node-row' + (s.id === Chat.currentId ? ' active' : '') +
+        (running ? ' running' : '') + (unread ? ' unread' : '');
       row.innerHTML =
         '<span class="node-ico">' + AH.ui.icon(iconOf(s.title)) + '</span>' +
         '<span class="node-name">' + U.esc(s.title || '未命名') + '</span>' +
-        (running ? '<span class="run-dot" title="正在生成"></span>'
+        (unread ? '<span class="unread-dot" title="有新回复"></span>' : '') +
+        (running ? '<span class="run-dot" title="正在生成 · 点击停止"></span>'
           : '<span class="node-size">' + U.fmtTime(s.updatedAt) + '</span>');
-      row.title = (running ? '生成中 · ' : '') + (s.preview || s.title || '');
+      row.title = (running ? '生成中（点转圈可停止）· ' : unread ? '有新回复 · ' : '') + (s.preview || s.title || '');
       row.addEventListener('click', () => Chat.switchSession(s.id));
+      if (running) {
+        const dot = row.querySelector('.run-dot');
+        if (dot) dot.addEventListener('click', (e) => { e.stopPropagation(); Chat.stop(s.id); });
+      }
       row.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         const items = [];
@@ -1506,7 +1499,6 @@
             await Chat._saveIndex();
             if (s.id === Chat.currentId) renderHeader();
             renderHistory();
-            renderTabs();
           }
         } });
         items.push({ sep: true });
@@ -1515,113 +1507,21 @@
       });
       els.history.appendChild(row);
     });
+
+    // 侧栏「对话」页签上挂一个数字，停在「文件」页时也知道有几个在跑
+    const segBtn = document.querySelector('.seg-btn[data-side="history"]');
+    if (segBtn) {
+      let badge = segBtn.querySelector('.seg-badge');
+      if (runningList.length) {
+        if (!badge) { badge = document.createElement('span'); badge.className = 'seg-badge'; segBtn.appendChild(badge); }
+        badge.textContent = String(runningList.length);
+      } else if (badge) badge.remove();
+    }
+
+    // 浏览器标签页上也标一下，切到别的窗口时能看见还有几个在跑
+    try { document.title = (runningList.length ? '(' + runningList.length + ') ' : '') + '小匣 · AI Agent'; } catch (e) {}
   }
   Chat.renderHistory = renderHistory;
-
-  /* ============================================================
-     顶部标签栏：同时打开的多个对话
-     ============================================================ */
-  function openTab(id) {
-    if (!id) return;
-    if (Chat.tabs.indexOf(id) < 0) Chat.tabs.push(id);
-    // 超出上限时挤掉最早的、既不是当前也没有在生成的那个，顺手回收它的 DOM
-    while (Chat.tabs.length > MAX_TABS) {
-      const idx = Chat.tabs.findIndex((x) => x !== Chat.currentId && !Chat.isRunning(x));
-      if (idx < 0) break;
-      const gone = Chat.tabs.splice(idx, 1)[0];
-      const gv = RT.views.get(gone);
-      if (gv && gone !== Chat.currentId && !Chat.isRunning(gone)) dropView(gone);
-    }
-    saveTabs();
-  }
-
-  Chat.closeTab = async function (id) {
-    const i = Chat.tabs.indexOf(id);
-    if (i < 0) return;
-    if (Chat.isRunning(id)) { AH.ui.toast('这个对话还在生成，先停止再关闭标签', 'warn', 2000); return; }
-    if (Chat.currentId === id) {
-      const next = Chat.tabs[i - 1] || Chat.tabs[i + 1];
-      if (!next) { AH.ui.toast('至少保留一个对话标签', 'warn', 1600); return; }
-      Chat.tabs.splice(i, 1);
-      saveTabs();
-      await Chat.switchSession(next);
-      renderTabs();
-      return;
-    }
-    Chat.tabs.splice(i, 1);
-    saveTabs();
-    // 关掉的标签不再占着 DOM；会话数据还在内存里，再打开会按存档重绘
-    dropView(id);
-    renderTabs();
-  };
-
-  Chat.openTab = openTab;
-
-  function renderTabs() {
-    if (!els.tabs) return;
-    const ids = Chat.tabs.filter((id) => Chat.sessions.some((s) => s.id === id));
-    if (ids.length !== Chat.tabs.length) { Chat.tabs = ids; saveTabs(); }
-    els.tabs.innerHTML = '';
-    els.tabs.hidden = false;
-    ids.forEach((id) => {
-      const meta = Chat.sessions.find((s) => s.id === id) || { title: '未命名' };
-      const running = Chat.isRunning(id);
-      const tab = document.createElement('div');
-      tab.className = 'sess-tab' + (id === Chat.currentId ? ' active' : '');
-      tab.dataset.id = id;
-      tab.setAttribute('role', 'tab');
-      tab.setAttribute('aria-selected', id === Chat.currentId ? 'true' : 'false');
-      tab.title = (meta.title || '未命名') + (running ? ' · 正在生成（点转圈可停止）' : '');
-      const ico = document.createElement('span');
-      ico.className = 'ico';
-      ico.innerHTML = AH.ui.icon(iconOf(meta.title || ''));
-      const nm = document.createElement('span');
-      nm.className = 'nm';
-      nm.textContent = meta.title || '未命名';
-      tab.appendChild(ico);
-      tab.appendChild(nm);
-      if (running) {
-        const sp = document.createElement('span');
-        sp.className = 'stop-spin';
-        sp.title = '正在生成 · 点击停止';
-        sp.addEventListener('click', (e) => { e.stopPropagation(); Chat.stop(id); });
-        tab.appendChild(sp);
-      }
-      const x = document.createElement('button');
-      x.className = 'x';
-      x.type = 'button';
-      x.title = '关闭标签（不删除记录）';
-      x.innerHTML = AH.ui.icon('x');
-      x.addEventListener('click', (e) => { e.stopPropagation(); Chat.closeTab(id); });
-      tab.appendChild(x);
-      tab.addEventListener('click', () => Chat.switchSession(id));
-      tab.addEventListener('auxclick', (e) => { if (e.button === 1) Chat.closeTab(id); });
-      els.tabs.appendChild(tab);
-    });
-
-    const plus = document.createElement('button');
-    plus.className = 'tab-new';
-    plus.type = 'button';
-    plus.title = '新建对话';
-    plus.innerHTML = AH.ui.icon('plus');
-    plus.addEventListener('click', () => Chat.newSession());
-    els.tabs.appendChild(plus);
-
-    const n = runningIds().length;
-    if (n > 0) {
-      const badge = document.createElement('span');
-      badge.className = 'tabs-meta';
-      badge.innerHTML = '<b>' + n + '</b> 个对话生成中';
-      els.tabs.appendChild(badge);
-    }
-    // 浏览器标签页上也标一下，切到别的窗口时能看见还有几个在跑
-    try { document.title = (n > 0 ? '(' + n + ') ' : '') + '小匣 · AI Agent'; } catch (e) {}
-    const active = els.tabs.querySelector('.sess-tab.active');
-    if (active && active.scrollIntoView) {
-      try { active.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
-    }
-  }
-  Chat.renderTabs = renderTabs;
 
   /* ============================================================
      输入与附件
@@ -1774,6 +1674,15 @@
     return U.clamp(parseInt(cfg.get('maxParallel'), 10) || 3, 1, 5);
   }
 
+  /* 在「对话」列表里按当前排序切上一条 / 下一条（不影响其它正在生成的会话） */
+  Chat.cycleSession = function (dir) {
+    const list = [...Chat.sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+    if (list.length < 2) return;
+    const i = list.findIndex((s) => s.id === Chat.currentId);
+    const next = list[(Math.max(0, i) + dir + list.length) % list.length];
+    if (next && next.id !== Chat.currentId) Chat.switchSession(next.id);
+  };
+
   function updateRunningUI() {
     const running = Chat.isRunning();
     if (els.stop) els.stop.hidden = !running;
@@ -1861,7 +1770,6 @@
       meta.title = t || '新对话';
       if (sid === Chat.currentId) renderHeader();
       renderHistory();
-      renderTabs();
     }
 
     const controller = new AbortController();
@@ -1885,7 +1793,6 @@
     Chat.runs.set(sid, run);
     updateRunningUI();
     updateTokenBar();
-    renderTabs();
     renderHistory();
 
     // 每一轮模型调用一个独立气泡：上一轮收尾后，下一轮开始再新建
@@ -1951,7 +1858,11 @@
       }
       // 会话在生成过程中被删掉：不再写回 kv，避免“诈尸”
       const alive = Chat.sessions.some((s) => s.id === sid);
-      if (alive) await Chat.saveConv(sid, conv, { now: true });
+      if (alive) {
+        // 后台跑完的会话在列表里留一个未读点，直到用户点开
+        if (Chat.currentId !== sid) meta.unread = true;
+        await Chat.saveConv(sid, conv, { now: true });
+      }
       trimConversationDom(view, conv);
       run.conv = null;
       run.attachments = null;
@@ -1961,7 +1872,6 @@
         updateTokenBar();
         updateRunningUI();
       }
-      renderTabs();
       renderHistory();
       AH.app.refreshTasks();
       if (alive) maybeTitleGen(meta, conv);
@@ -2041,7 +1951,6 @@
     await Chat._saveIndex();
     if (Chat.currentId === meta.id) renderHeader();
     renderHistory();
-    renderTabs();
   }
 
   /* ============================================================
@@ -2123,21 +2032,12 @@
     document.getElementById('btnNewChat').addEventListener('click', () => Chat.newSession());
     document.getElementById('btnClearChat').addEventListener('click', () => Chat.clearCurrent());
 
-    // 标签栏快捷键：Alt + 数字跳到第 N 个对话，Alt + ↑/↓ 前后切换
-    // （不用 Ctrl+数字：那是浏览器切换标签页的保留快捷键，页面收不到）
+    // 列表快捷键：Alt + ↑/↓ 在「对话」列表里切上一条 / 下一条（切走不会停止正在生成的）
     document.addEventListener('keydown', (e) => {
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
-      if (/^[1-9]$/.test(e.key)) {
-        const id = Chat.tabs[Number(e.key) - 1];
-        if (id) { e.preventDefault(); Chat.switchSession(id); }
-        return;
-      }
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        if (!Chat.tabs.length) return;
-        const i = Math.max(0, Chat.tabs.indexOf(Chat.currentId));
-        const next = Chat.tabs[(i + (e.key === 'ArrowDown' ? 1 : -1) + Chat.tabs.length) % Chat.tabs.length];
         e.preventDefault();
-        if (next) Chat.switchSession(next);
+        Chat.cycleSession(e.key === 'ArrowDown' ? 1 : -1);
       }
     });
 
