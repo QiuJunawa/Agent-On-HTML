@@ -1,0 +1,1 @@
+（拒绝自引用：/knowledge/plugin-dev-v2.md）
