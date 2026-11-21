@@ -2,7 +2,7 @@
    markdown.js · 无依赖 Markdown 渲染
    安全策略：先整体转义 HTML，再只生成白名单标签；
    链接只允许 http/https/mailto/#//，图片只允许 http/https/data:image。
-   性能策略：流式阶段用纯文本节点，结束（或每 400ms）才解析一次 Markdown。
+   性能策略：流式阶段即按 Markdown 渲染，用自适应间隔节流（60ms 起放宽到 260ms）。
    ============================================================ */
 (function () {
   const AH = (window.AH = window.AH || {});

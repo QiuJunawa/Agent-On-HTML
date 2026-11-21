@@ -3,7 +3,7 @@
    性能要点：
    1. 每个会话单独存一个 kv（不再每次整包重写所有会话）；
    2. 长对话只渲染最近 60 条，向上可加载；
-   3. 流式阶段只更新文本节点（textContent），结束后才解析 Markdown；
+    3. 流式阶段即按 Markdown 渲染，自适应间隔节流（60ms→260ms），不再等结束才排版；
    4. 工具卡片按调用增量更新，不重建整条消息。
    ============================================================ */
 (function () {
@@ -585,6 +585,65 @@
   }
 
   /*
+   * 流式阶段专用：把尚未闭合、或已闭合的 [deliver:...] 标记从展示文本里去掉。
+   * 流式时标记是逐字吐出来的，若原样显示，用户会先看到 "…| /notes" 这类碎片。
+   * 这里只处理展示，不改变 state.text（最终仍由 parseDeliver 出卡）。
+   * 规则：围栏代码块内的内容不动；完整标记整段删除；末尾半截标记一并截断。
+   */
+  function stripPartialDeliver(text) {
+    const src = String(text == null ? '' : text);
+    if (!src) return '';
+    const out = [];
+    let fence = null;
+    let i = 0;
+    while (i < src.length) {
+      const lineStart = i === 0 || src[i - 1] === '\n';
+      if (lineStart) {
+        const fm = /^[ \t]*(```+|~~~+)/.exec(src.slice(i, i + 12));
+        if (fm) {
+          fence = fence ? null : fm[1];
+          const nl = src.indexOf('\n', i);
+          if (nl < 0) { out.push(src.slice(i)); break; }
+          out.push(src.slice(i, nl + 1));
+          i = nl + 1;
+          continue;
+        }
+      }
+      if (!fence && src[i] === '[') {
+        // 标记是逐字吐出来的：`[`、`[d`、`[del`… 都要提前截断，不能等 '[deliver' 完整
+        const KEY = '[deliver';
+        const rest = src.slice(i, i + KEY.length);
+        if (KEY.startsWith(rest) && rest.length < KEY.length) {
+          return out.join('');   // 标记词还没吐完
+        }
+        if (rest === KEY) {
+          // 找配对的本层右方括号
+          let j = i + KEY.length;
+          let depth = 0;
+          let closed = false;
+          while (j < src.length) {
+            const ch = src[j];
+            if (ch === '[') depth++;
+            else if (ch === ']') {
+              if (depth === 0) { closed = true; break; }
+              depth--;
+            } else if (ch === '\n' && depth === 0 && j - i > 400) {
+              break;
+            }
+            j++;
+          }
+          if (closed) { i = j + 1; continue; }
+          // 未闭合：截断，等闭合后再显示
+          return out.join('');
+        }
+      }
+      out.push(src[i]);
+      i++;
+    }
+    return out.join('');
+  }
+
+  /*
    * 解析正文里的 [deliver:标题 | 描述 | /文件1, /文件2] 标记。
    * 与旧版的区别（旧版只认「整行、且不含 ]」的写法，导致标记被原样显示）：
    *  1) 先扫描出所有完整标记（方括号按层配对，描述里可含 [ref:] 之类的方括号）；
@@ -890,24 +949,31 @@
       thinkingEl: null,
       thinkingBody: null,
       bodyEl: null,
-      textEl: null,
+      mdEl: null,
+      cursorEl: null,
       text: '',
       thinking: '',
       cards: new Map(),
       cardsWrap: null,
       finished: false,
       visible: true,
-      roundSeq: 0
+      roundSeq: 0,
+      // 上一次渲染时的输入指纹，用于跳过无变化的重复解析
+      lastRendered: '',
+      lastRenderAt: 0
     };
 
-    // 正文：流式阶段只写 textContent，避免每帧解析 Markdown
+    // 正文：流式阶段即按 Markdown 渲染（节流 + 自适应间隔），避免"先看源码、结束才排版"
     const ensureBody = () => {
       if (state.bodyEl) return;
       status.remove();
       state.bodyEl = document.createElement('div');
-      state.bodyEl.className = 'bubble assistant streaming';
-      state.textEl = document.createElement('span');
-      state.bodyEl.appendChild(state.textEl);
+      state.bodyEl.className = 'bubble assistant';
+      state.mdEl = document.createElement('div');
+      state.mdEl.className = 'md';
+      state.cursorEl = document.createElement('span');
+      state.cursorEl.className = 'cursor';
+      state.bodyEl.appendChild(state.mdEl);
       if (state.cardsWrap && state.cardsWrap.parentElement === wrap) wrap.insertBefore(state.bodyEl, state.cardsWrap);
       else wrap.appendChild(state.bodyEl);
     };
@@ -925,8 +991,10 @@
       return state.cardsWrap;
     };
 
-    const render = U.throttle(() => {
-      if (!run.visible) return;
+    // 流式渲染：直接按 Markdown 解析，但用"自适应间隔"控制重排频率。
+    // 短文本 60ms、长文本逐步放宽到 260ms —— 既保持观感连贯，又不在长回答时把主线程拖死。
+    const renderNow = () => {
+      if (!run.visible || state.finished) return;
       const stick = atBottom(els.messages, 80);
       if (state.thinking) {
         ensureThinking();
@@ -934,10 +1002,49 @@
       }
       if (state.text) {
         ensureBody();
-        state.textEl.textContent = state.text;
+        const src = state.text;
+        if (src !== state.lastRendered) {
+          // 流式阶段先剥掉 [deliver:...] 标记，避免半截标记闪出来
+          const shown = stripPartialDeliver(src);
+          state.mdEl.innerHTML = AH.md.toHtml(shown) || '';
+          state.lastRendered = src;
+        }
+        // 光标：跟在最后一个块级元素内部，保持行内跟随（结束后不再挂回）
+        // 注意：上面的 innerHTML 赋值会把光标节点移出文档，这里必须重新挂载
+        if (!state.finished && state.cursorEl) {
+          const last = state.mdEl.lastElementChild;
+          const inlineHost = last && /^(P|LI|H[1-6]|TD|TH|BLOCKQUOTE)$/.test(last.tagName) ? last : state.mdEl;
+          if (state.cursorEl.parentElement !== inlineHost) inlineHost.appendChild(state.cursorEl);
+        }
       }
       if (stick) pinToBottom(els.messages);
-    }, 80);
+    };
+
+    // 根据当前文本长度决定下一次允许渲染的时间
+    const renderInterval = () => {
+      const n = state.text.length;
+      if (n < 1200) return 60;
+      if (n < 4000) return 120;
+      if (n < 10000) return 180;
+      return 260;
+    };
+
+    const pending = { t: null };
+    const render = () => {
+      const now = performance.now();
+      const wait = renderInterval() - (now - state.lastRenderAt);
+      if (wait <= 0) {
+        if (pending.t) { clearTimeout(pending.t); pending.t = null; }
+        state.lastRenderAt = now;
+        renderNow();
+      } else if (!pending.t) {
+        pending.t = setTimeout(() => {
+          pending.t = null;
+          state.lastRenderAt = performance.now();
+          renderNow();
+        }, wait);
+      }
+    };
 
     state.setStatus = (t) => {
       if (!run.visible || state.finished) return;
@@ -1057,8 +1164,11 @@
       if (state.text) {
         ensureBody();
         state.bodyEl.classList.remove('streaming');
-        state.bodyEl.innerHTML = '<div class="md">' + AH.md.toHtml(state.text) + '</div>';
-        AH.md.renderMathIn(state.bodyEl);
+        // 清理流式光标，做最终一次完整渲染（此时 deliver 标记已剔除）
+        if (state.cursorEl && state.cursorEl.parentElement) state.cursorEl.remove();
+        state.mdEl.innerHTML = AH.md.toHtml(state.text) || '';
+        AH.md.renderMathIn(state.mdEl);
+        state.lastRendered = state.text;
       }
       if ((parsed.datas || []).length && !state.deliverEl) {
         state.deliverEl = document.createDocumentFragment();

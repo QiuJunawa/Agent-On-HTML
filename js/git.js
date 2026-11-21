@@ -41,7 +41,17 @@
     const headers = Object.assign({}, o.headers || {});
     let resp;
     try {
-      resp = await fetch(url, { method: o.method || 'GET', headers, body: o.body, signal: o.signal });
+      // cache:'no-store' 很关键：
+      // G.read 用 Accept:...raw 读同一个 contents URL，shaOf 用 Accept:...json 读它。
+      // URL 相同而 Accept 不同，若走 HTTP 缓存（缓存未必按 Vary:Accept 区分），
+      // 取 sha 时会拿回文件原文，JSON.parse 失败后报“HTTP 200 非 JSON 响应”。
+      resp = await fetch(url, {
+        method: o.method || 'GET',
+        headers,
+        body: o.body,
+        signal: o.signal,
+        cache: o.cache || 'no-store'
+      });
     } catch (e) {
       throw new Error('Git 请求失败（网络/CORS）：' + (e && e.message ? e.message : e));
     }
@@ -161,6 +171,32 @@
     return cur;
   }
 
+  /*
+   * 取 GitHub 分支头指针 → 提交 → 树，在树里查 path 的 blob sha。
+   * 这条路走 /git/* 接口，全程 JSON，且与 /contents 的 URL 不重合，
+   * 不会出现「读文件用 raw、取 sha 用 json，同一 URL 命中缓存拿回原文」的问题。
+   */
+  async function shaFromTree(c, path, ref) {
+    const head = await req('https://api.github.com/repos/' + c.repo + '/git/ref/heads/' + encodeURIComponent(ref), { headers: ghHeaders(c.token) });
+    const parent = pick(head, ['object', 'sha'], '读取分支 ' + ref + ' 的头指针');
+    const commit = await req('https://api.github.com/repos/' + c.repo + '/git/commits/' + parent, { headers: ghHeaders(c.token) });
+    const baseTree = pick(commit, ['tree', 'sha'], '读取父提交树');
+    const tree = await req('https://api.github.com/repos/' + c.repo + '/git/trees/' + baseTree + '?recursive=1', { headers: ghHeaders(c.token) });
+    const td = tree.data || {};
+    const arr = Array.isArray(td.tree) ? td.tree : [];
+    const hit = arr.find((x) => x && x.path === path);
+    if (!hit) {
+      // 大仓库的递归树会被截断，此时"没找到"不等于"不存在"。
+      // 若当成新建处理会缺少 sha，GitHub 会返回 422，错误更晦涩。
+      if (td.truncated) {
+        throw new Error('仓库文件树过大已被 GitHub 截断，无法确认 ' + path + ' 是否存在（请显式指定 ref，或先提交一次让缓存生效）');
+      }
+      return null;                       // 确认不存在 → 新建
+    }
+    if (hit.type !== 'blob') throw new Error('目标路径是目录，不能按文件写入：' + path);
+    return hit.sha || null;
+  }
+
   /* ---------- 取文件 sha（更新/删除需要） ---------- */
   async function shaOf(c, path, ref) {
     try {
@@ -168,9 +204,17 @@
         const r = await req('https://api.github.com/repos/' + c.repo + '/contents' + (path ? '/' + path : '') + '?ref=' + encodeURIComponent(ref), { headers: ghHeaders(c.token) });
         // path 指向目录时 GitHub 返回数组：没有 sha，且不能当文件写
         if (Array.isArray(r.data)) throw new Error('目标路径是目录，不能按文件写入：' + path);
-        if (!r.data && r.text) throw new Error('GitHub 返回了非 JSON 响应（HTTP ' + (r.status || 200) + '）：' + r.text.slice(0, 120));
         const d = asObj(r);
-        return (d && d.sha) || null;
+        if (d) return d.sha || null;
+        // 非 JSON 响应（历史上是 Accept 不同却命中缓存所致）：改用 Git Data API 兜底
+        try {
+          const viaTree = await shaFromTree(c, path, ref);
+          return viaTree;
+        } catch (e2) {
+          throw new Error('无法确定远端文件版本：contents 接口返回了非 JSON 内容（HTTP ' +
+            (r.status || 200) + '，片段：' + String(r.text || '').slice(0, 100) +
+            '），改用 Git Data API 兜底也失败：' + (e2 && e2.message ? e2.message : e2));
+        }
       }
       if (c.platform === 'gitlab') {
         try {
