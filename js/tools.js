@@ -388,8 +388,17 @@
      引用占位符
      ============================================================ */
   async function expandRefs(str, run, selfPath) {
-    if (typeof str !== 'string' || str.indexOf('[ref:') < 0) return str;
-    const guarded = str.replace(/\\\[ref:/g, '\u0001ESCREF\u0001');
+    if (typeof str !== 'string' || str.indexOf('[' + 'ref:') < 0) return str;
+    // 反斜杠转义（标准语义）：N 个连续反斜杠后跟引用标记起始符
+    //   N 为奇数 → 输出 floor(N/2) 个反斜杠，标记作为字面量不展开
+    //   N 为偶数 → 输出 N/2 个反斜杠，标记正常展开
+    // 即：一个反斜杠转义后不留反斜杠；写两个反斜杠才保留一个。
+
+    const guarded = str.replace(/(\\+)\[ref:/g, (m, bs) => {
+      const n = bs.length;
+      const keep = '\\'.repeat(Math.floor(n / 2));
+      return n % 2 === 1 ? keep + '\u0001ESCREF\u0001' : keep + '[ref:';
+    });
     const re = /\[ref:([^\]]+)\]/g;
     const parts = [];
     let last = 0;
@@ -420,7 +429,7 @@
         }
       } else {
         const mm = token.match(/^(\/[^\s:]*)(?::(\d+)-(\d+))?$/);
-        if (!mm) text = '（引用格式错误：' + token + '）';
+        if (!mm) throw new Error('引用格式错误：' + token + '（应为 /路径 或 /路径:起始行-结束行）');
         else {
           const p = U.normPath(mm[1]);
           if (selfPath && p === U.normPath(selfPath)) text = '（拒绝自引用：' + p + '）';
@@ -436,7 +445,8 @@
       last = m.index + m[0].length;
     }
     parts.push(guarded.slice(last));
-    return parts.join('').replace(/\u0001ESCREF\u0001/g, '\\[ref:');
+    // 哨兵还原为纯 [ref:（转义用的反斜杠已在 guarded 阶段按奇偶规则消耗掉）
+    return parts.join('').replace(/\u0001ESCREF\u0001/g, '[ref:');
   }
 
   /* ============================================================
