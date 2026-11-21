@@ -1,7 +1,8 @@
 /* ============================================================
    plugins.js · 插件管理器
    插件存放在 VFS /plugins/<id>.js + <id>.json。
-   启用后代码在 AsyncFunction 中执行，可用 AgentAPI.defineTool 注册工具；
+   启用后代码在 AsyncFunction 中执行，可用 AgentAPI.defineTool 注册工具，
+   也可用 AgentAPI.registerHook(event, fn) 注册生命周期钩子；
    插件拥有页面权限，启用前必须由用户确认。
    ============================================================ */
 (function () {
@@ -15,7 +16,8 @@
     tools: new Map(),      // name -> { pluginId, spec, handler }
     loaded: new Map(),     // id -> { unloadFns, code }
     _loading: null,
-    _inject: new Map()     // pluginId -> Set<fn>，消息注入器
+    _inject: new Map(),    // pluginId -> Set<fn>，消息注入器（兼容旧 API）
+    _hooks: new Map()      // event -> Set<{ pluginId, fn }>，事件钩子
   });
   const DIR = '/plugins';
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -32,6 +34,8 @@
       defineTool: (name, spec, handler) => P.register(id, name, spec, handler),
       registerTool: (name, spec, handler) => P.register(id, name, spec, handler),
       registerInjector: (fn) => P.addInjector(id, fn),
+      registerHook: (event, fn) => P.addHook(id, event, fn),
+      on: (event, fn) => P.addHook(id, event, fn),
       pluginId: id
     };
   }
@@ -46,21 +50,88 @@
     return () => set.delete(fn);
   };
 
+  function addHook(pluginId, event, fn) {
+    const name = String(event || '').trim();
+    if (!/^[a-zA-Z][a-zA-Z0-9_.:-]{0,40}$/.test(name)) throw new Error('钩子事件名不合法：' + name);
+    if (typeof fn !== 'function') throw new Error('registerHook 需要 (event, fn)');
+    if (!P._hooks.has(name)) P._hooks.set(name, new Set());
+    const entry = { pluginId, fn };
+    P._hooks.get(name).add(entry);
+    return () => P._hooks.get(name) && P._hooks.get(name).delete(entry);
+  }
+  P.addHook = addHook;
+
+  P.runHook = async function (event, ctx) {
+    const set = P._hooks.get(String(event || ''));
+    if (!set || !set.size) return [];
+    const out = [];
+    for (const entry of [...set]) {
+      try {
+        out.push({ pluginId: entry.pluginId, value: await entry.fn(Object.assign({}, ctx, { pluginId: entry.pluginId })) });
+      } catch (e) { console.warn('[hook]', event, entry.pluginId, e); }
+    }
+    return out;
+  };
+
+  const MAX_INJECT_MESSAGES = 12;
+  const MAX_INJECT_CHARS = 16000;
+
+  function addSystemMessages(out, value) {
+    if (value == null) return;
+    if (out.length >= MAX_INJECT_MESSAGES) return;
+    if (typeof value === 'string') {
+      const text = value.trim();
+      if (text) out.push({ role: 'system', content: text.slice(0, MAX_INJECT_CHARS) });
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) { if (out.length >= MAX_INJECT_MESSAGES) break; addSystemMessages(out, item); }
+      return;
+    }
+    if (typeof value !== 'object') return;
+    if (Array.isArray(value.messages)) addSystemMessages(out, value.messages);
+    if (typeof value.content === 'string' && (!value.role || value.role === 'system')) {
+      const text = value.content.trim();
+      if (text) out.push({ role: 'system', content: text.slice(0, MAX_INJECT_CHARS) });
+    }
+    if (typeof value.system === 'string' && value.system.trim()) {
+      out.push({ role: 'system', content: value.system.trim().slice(0, MAX_INJECT_CHARS) });
+    }
+  }
+
+  function mergeInjectResult(r, before, after, system) {
+    if (!r) return;
+    if (typeof r === 'string') { if (r.trim()) before.push(r); return; }
+    if (Array.isArray(r)) { for (const x of r) mergeInjectResult(x, before, after, system); return; }
+    if (typeof r !== 'object') return;
+    if (typeof r.before === 'string') { if (r.before) before.push(r.before); }
+    else if (Array.isArray(r.before)) before.push(...r.before.filter((x) => typeof x === 'string' && x));
+    if (typeof r.after === 'string') { if (r.after) after.push(r.after); }
+    else if (Array.isArray(r.after)) after.push(...r.after.filter((x) => typeof x === 'string' && x));
+    addSystemMessages(system, r.system);
+    if (Array.isArray(r.messages)) addSystemMessages(system, r.messages);
+  }
+
   P.collectInject = async function (ctx) {
     const before = [];
     const after = [];
+    const system = [];
     for (const [pid, set] of P._inject) {
       for (const fn of set) {
         let r;
         try { r = await fn(ctx); } catch (e) { console.warn('[inject]', pid, e); continue; }
-        if (!r) continue;
-        if (typeof r.before === 'string') { if (r.before) before.push(r.before); }
-        else if (Array.isArray(r.before)) before.push(...r.before.filter(Boolean));
-        if (typeof r.after === 'string') { if (r.after) after.push(r.after); }
-        else if (Array.isArray(r.after)) after.push(...r.after.filter(Boolean));
+        mergeInjectResult(r, before, after, system);
       }
     }
-    return { before, after };
+    for (const r of await P.runHook('beforeRequest', ctx)) mergeInjectResult(r.value, before, after, system);
+
+    const last = ctx && ctx.conv && ctx.conv[ctx.conv.length - 1];
+    if (last && last.role === 'user') {
+      for (const r of await P.runHook('afterUserMessage', Object.assign({}, ctx, { userMessage: last }))) addSystemMessages(system, r.value);
+    } else if (last && last.role === 'tool') {
+      for (const r of await P.runHook('afterToolResult', Object.assign({}, ctx, { toolMessage: last }))) addSystemMessages(system, r.value);
+    }
+    return { before, after, system };
   };
 
   P.register = function (pluginId, name, spec, handler) {
@@ -87,6 +158,10 @@
 
   P.unregister = function (pluginId) {
     P._inject.delete(pluginId);
+    for (const [event, set] of [...P._hooks]) {
+      for (const entry of [...set]) if (entry.pluginId === pluginId) set.delete(entry);
+      if (!set.size) P._hooks.delete(event);
+    }
     let n = 0;
     for (const [name, t] of [...P.tools]) if (t.pluginId === pluginId) { P.tools.delete(name); n++; }
     return n;
@@ -523,12 +598,17 @@
   };
 
   P.EXAMPLE = [
-    '// 示例：注册一个 hello 工具，AI 可在后续轮次调用',
+    '// 示例 1：注册一个 hello 工具，AI 可在后续轮次调用',
     'AgentAPI.defineTool("hello", {',
     '  description: "向指定名字打招呼",',
     '  parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] }',
     '}, async (args) => "你好，" + (args.name || "世界"));',
     '',
-    'onUnload(() => { /* 清理定时器/监听器 */ });'
+    '// 示例 2：用户消息之后注入一条 system 消息',
+    'const offHook = AgentAPI.registerHook("afterUserMessage", async ({ userMessage }) => ({',
+    '  system: "当前是测试环境；回答前先说明这一句是插件注入的系统提醒。"',
+    '}));',
+    '',
+    'onUnload(() => { offHook(); /* 清理定时器/监听器 */ });'
   ].join('\n');
 })();

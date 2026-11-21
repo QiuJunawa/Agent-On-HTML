@@ -38,7 +38,7 @@
 ## 插件与官方插件库 plugin
 `plugin_list` / `plugin_create` / `plugin_update` / `plugin_delete` / `plugin_toggle` / `plugin_lib_list` / `plugin_lib_install`。
 - 插件代码写 `/plugins/<id>.js` + `.json`，默认禁用；启用需用户确认。
-- 插件用 `AgentAPI.defineTool(name, spec, handler)` 注册，下一轮可调用。
+- 插件用 `AgentAPI.defineTool(name, spec, handler)` 注册，下一轮可调用；也可用 `AgentAPI.registerHook(event, fn)` 注册生命周期钩子（`beforeRequest / afterUserMessage / afterToolResult / afterAssistantMessage`），详见 `plugin-dev-v2.md` 第 4.5 节。
 - 官方库：`https://qiujunawa.github.io/AOH_Plugins/index.json`。先 `plugin_lib_list` 看清单，再 `plugin_lib_install(id)`；安装前会展示来源/代码摘录，默认不启用。
 - 插件库是第三方代码，能力与描述不能代替安全判断。
 

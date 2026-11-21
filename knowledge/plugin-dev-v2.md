@@ -123,6 +123,9 @@ new AsyncFunction('AgentAPI', 'onUnload', code + '\n//# sourceURL=plugin://<id>.
 | `executeTool(name, args, ctx?)` | async fn | 调任意工具（内置或插件）。不传 `ctx` 时 `run/signal` 为 `null` |
 | `defineTool(name, spec, handler)` | fn | 注册工具 |
 | `registerTool(...)` | fn | 与 `defineTool` 完全相同 |
+| `registerHook(event, fn)` | fn | 注册生命周期钩子，返回取消函数 |
+| `on(event, fn)` | fn | `registerHook` 的别名 |
+| `registerInjector(fn)` | fn | 兼容旧版：等价于一个只返回 `{before, after}` 的 `beforeRequest` 钩子 |
 | `pluginId` | string | 自己的 id |
 
 **没有** `version`、`confirm`、`fetch` 包装、`storage`。要确认框直接用 `AH.ui.confirm`，要存储用 `localStorage` 或 `AgentAPI.cfg`。
@@ -135,6 +138,39 @@ new AsyncFunction('AgentAPI', 'onUnload', code + '\n//# sourceURL=plugin://<id>.
 - `AH.ui`：`toast / error / confirm / openModal / closeModal / contextMenu / icon / mountIcons`
 - `AH.md.toHtml(text)`：把 Markdown 转 HTML（**输出已过滤**，可直接插入）
 - `AH.app.setPage(name)`、`AH.app.page`
+
+---
+
+## 4.5 生命周期钩子
+
+`registerHook(event, fn)` 按事件名注册；返回一个取消函数，建议在 `onUnload` 里调用。
+
+```javascript
+const off = AgentAPI.registerHook('afterUserMessage', async ({ userMessage, run, conv, parts }) => {
+  return { system: '插件提醒：当前对话处于演示环境。' };
+});
+onUnload(() => off());
+```
+
+### 事件表
+
+| 事件 | 触发时机 | 返回值 |
+| --- | --- | --- |
+| `beforeRequest` | 每次模型请求前 | `{ before, after }`，沿用旧注入语义；`before` 拼在最后一条 user 正文前，`after` 拼在 runtime_context 后 |
+| `afterUserMessage` | 最后一条消息是 user，且请求即将发出 | `{ system }` / `{ messages }` / 字符串 / 数组；作为独立 `role:"system"` 消息插在该条 user 之后 |
+| `afterToolResult` | 最后一条消息是 tool，且请求即将发出 | 同上；插在工具结果之后（实际位于本次请求末尾的 synthetic user 之后） |
+| `afterAssistantMessage` | 助手完成一轮回复（含带 tool_calls 的中间轮） | 返回值忽略；用于记录、统计、准备下一轮注入 |
+
+### 返回与限制
+
+- 注入只接受 `role:"system"`；返回 `user` / `assistant` / `tool` 会被忽略，避免插件伪造对话角色。
+- 也支持直接返回字符串、`[{ role:'system', content:'...' }]`、`{ system:'...' }`、`{ messages:[...] }`。
+- 单次收集最多 12 条 system 消息，每条最多 16000 字符。
+- 某个钩子抛错只 `console.warn`，不会阻断其它钩子或本次请求。
+- `afterToolResult` 与 `afterUserMessage` 只在对应最后一条消息类型匹配时触发；同一轮里不会重复触发。
+- 旧 `registerInjector(fn)` 继续可用，并会和新 `beforeRequest` 钩子一起执行。
+
+> 兼容性提示：部分 OpenAI-compatible 服务端只接受 system 位于最前。若目标服务端拒绝“user 后 system”，可改用 `beforeRequest` 返回 `{ after: ... }`，把提醒并入 user/runtime 内容。
 
 ---
 
@@ -513,7 +549,7 @@ style.textContent = '#' + ID + 'Page .my-row { ... }';
 
 **B. 真实页面实测**（临时诊断插件读取运行时对象）
 
-- `AgentAPI` 实际成员：`VFS / cfg / toast / getConversation / executeTool / defineTool / registerTool / pluginId` —— 确认**无 `version`**
+- `AgentAPI` 实际成员：`VFS / cfg / toast / getConversation / executeTool / defineTool / registerTool / registerInjector / registerHook / on / pluginId` —— 确认**无 `version`**
 - `AH.tools.GROUPS` 实际键：`fs net task compute media system git plugin` —— 确认**无 `plug:*`**
 - `AH.util` / `AH.ui` / `AH.md` / `AH.chat` 成员表
 - `/plugins/horizon-mods.js` 真机挂载：`#horizonmodsPage` 的 `parent=body`、`inApp=false`、点击后 `.app` 隐藏 / 本页 `display:flex` 全屏

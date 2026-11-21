@@ -257,9 +257,13 @@
       dynamicParts.push('本次上下文已省略更早的 ' + dropped + ' 条消息（预算限制）。完整记录在对话存档，需要时用 read_file 查阅。');
     }
 
-    // 插件注入：before 放在用户原文之前，after 放在 runtime_context 之后
-    const before = (inject && Array.isArray(inject.before)) ? inject.before.filter(Boolean) : [];
-    const after = (inject && Array.isArray(inject.after)) ? inject.after.filter(Boolean) : [];
+    // 插件注入：before 放在用户原文之前，after 放在 runtime_context 之后，
+    // system 是独立 system 消息，插在最后一条 user 之后（如 afterUserMessage 钩子）。
+    const before = (inject && Array.isArray(inject.before)) ? inject.before.filter((x) => typeof x === 'string' && x) : [];
+    const after = (inject && Array.isArray(inject.after)) ? inject.after.filter((x) => typeof x === 'string' && x) : [];
+    const injectedSystem = (inject && Array.isArray(inject.system))
+      ? inject.system.filter((m) => m && m.role === 'system' && typeof m.content === 'string' && m.content.trim())
+      : [];
     const beforeText = before.join('\n');
 
     const dyn = '<runtime_context>\n' + dynamicParts.filter(Boolean).join('\n') + '\n</runtime_context>';
@@ -276,6 +280,7 @@
     } else {
       messages.push({ role: 'user', content: (beforeText ? beforeText + '\n\n' : '') + tail });
     }
+    if (injectedSystem.length) messages.push(...injectedSystem);
     return sanitize(messages);
   }
 
@@ -741,6 +746,9 @@
 
         budget.calls += toolCalls.length;
         run.hooks.assistantDone(content, round.thinking);
+        if (AH.plugins && AH.plugins.runHook) {
+          await AH.plugins.runHook('afterAssistantMessage', { run, content, thinking: round.thinking, toolCalls });
+        }
 
         if (run.hooks.toolsReady) run.hooks.toolsReady(toolCalls);
         const results = await executeBatch(run, toolCalls, {
@@ -764,6 +772,9 @@
       if (round.thinking) msg._thinking = round.thinking;
       conv.push(msg);
       run.hooks.assistantDone(content, round.thinking);
+      if (AH.plugins && AH.plugins.runHook) {
+        await AH.plugins.runHook('afterAssistantMessage', { run, content, thinking: round.thinking, toolCalls: [] });
+      }
       break;
     }
 
