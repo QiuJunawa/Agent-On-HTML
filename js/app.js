@@ -767,7 +767,7 @@
 
     // 页面关闭前提示
     window.addEventListener('beforeunload', (e) => {
-      if (App.editor.dirty || AH.chat.isRunning()) {
+      if (App.editor.dirty || (AH.chat.anyRunning && AH.chat.anyRunning())) {
         e.preventDefault();
         e.returnValue = '';
       }

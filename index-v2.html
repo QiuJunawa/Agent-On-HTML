@@ -77,18 +77,9 @@
       </div>
     </header>
 
-    <div class="messages" id="messages" tabindex="0"></div>
+    <div class="session-tabs" id="sessionTabs" role="tablist" aria-label="打开的对话" hidden></div>
 
-    <div class="welcome" id="welcome" hidden>
-      <div class="welcome-glow" aria-hidden="true"></div>
-      <div class="welcome-title">你好，我是<span class="accent">小匣</span></div>
-      <div class="welcome-sub" id="welcomeSub">一个住在浏览器里的 Agent。文件、代码、笔记，都在你本机。</div>
-      <div class="welcome-tips">
-        <button class="tip" data-prompt="列出 / 目录，介绍一下这里的文件">看看我的文件</button>
-        <button class="tip" data-prompt="在 /notes 里帮我写一份本周计划">写一份周计划</button>
-        <button class="tip" data-prompt="用 JavaScript 做一个柱状图，展示 1 到 6 月的阅读量：12、18、9、21、30、26">画个图表</button>
-      </div>
-    </div>
+    <div class="chat-body" id="chatBody"></div>
 
     <div class="composer">
       <div class="attach-row" id="attachRow" hidden></div>
@@ -132,6 +123,22 @@
     </div>
   </aside>
 </div>
+
+<template id="sessionViewTpl">
+  <div class="msg-view">
+    <div class="messages" tabindex="0"></div>
+    <div class="welcome" hidden>
+      <div class="welcome-glow" aria-hidden="true"></div>
+      <div class="welcome-title">你好，我是<span class="accent">小匣</span></div>
+      <div class="welcome-sub">一个住在浏览器里的 Agent。文件、代码、笔记，都在你本机。</div>
+      <div class="welcome-tips">
+        <button class="tip" data-prompt="列出 / 目录，介绍一下这里的文件">看看我的文件</button>
+        <button class="tip" data-prompt="在 /notes 里帮我写一份本周计划">写一份周计划</button>
+        <button class="tip" data-prompt="用 JavaScript 做一个柱状图，展示 1 到 6 月的阅读量：12、18、9、21、30、26">画个图表</button>
+      </div>
+    </div>
+  </div>
+</template>
 
 <section class="page plugins-page" id="pluginsPage" hidden>
   <header class="page-head">
@@ -302,6 +309,17 @@
               <option value="agent">始终 Agent（每轮都能调用工具）</option>
               <option value="chat">纯聊天（不带工具定义，最省钱）</option>
             </select>
+          </div>
+          <div class="field">
+            <label>同时进行的对话</label>
+            <select id="cfgMaxParallel">
+              <option value="1">1 个 · 一次只跑一个对话</option>
+              <option value="2">2 个</option>
+              <option value="3">3 个（推荐）</option>
+              <option value="4">4 个</option>
+              <option value="5">5 个</option>
+            </select>
+            <p class="tip-text">切换对话不会打断正在生成的那个；超出的新消息会被拦下，等有空位再发。并发越高，同时消耗的 token 越多。</p>
           </div>
           <div class="field">
             <label>系统提示词</label>

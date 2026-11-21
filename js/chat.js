@@ -16,23 +16,48 @@
   const RENDER_CHARS = 180000;
   const MIN_RENDER = 8;
   const LOAD_MORE = 20;
+  const MAX_TABS = 8;
+  const TABS_KEY = 'xiaohe_tabs_v1';
+  const EMPTY_CONV = [];
 
   const Chat = (AH.chat = {
     sessions: [],
     currentId: null,
     runs: new Map(),
-    conv: [],
     toolLog: [],
     _loaded: new Set(),
-    _saveTimer: null,
+    _saveTimers: new Map(),
     _mdTimer: null,
-    _renderStart: 0
+    tabs: []
   });
+
+  /* 多会话运行期状态：
+     convs → 会话 id 到消息数组（各存一份，切走也继续增长）
+     views → 会话 id 到独立 DOM（隐藏但持续更新，切回来立刻是完整内容）
+     tabs  → 顶部标签栏打开的对话（顺序即显示顺序）
+     这样同一个页面里可以有多个 run 并行，互不踩对方的数组和 DOM。 */
+  const RT = (Chat._rt = { convs: new Map(), views: new Map() });
+
+  Object.defineProperty(Chat, 'conv', {
+    configurable: true,
+    enumerable: true,
+    get() { return RT.convs.get(Chat.currentId) || EMPTY_CONV; },
+    set(v) { if (Chat.currentId) RT.convs.set(Chat.currentId, Array.isArray(v) ? v : []); }
+  });
+
+  function convOf(id) {
+    let c = RT.convs.get(id);
+    if (!c) { c = []; RT.convs.set(id, c); }
+    return c;
+  }
+  Chat.convOf = convOf;
+  // 导出备份用：内存里是最新的就先拿内存，否则再读 IndexedDB
+  Chat.snapshotConv = (id) => (RT.convs.has(id) ? RT.convs.get(id).slice() : null);
 
   const els = {};
   function bindEls() {
-    els.messages = document.getElementById('messages');
-    els.welcome = document.getElementById('welcome');
+    els.chatBody = document.getElementById('chatBody');
+    els.tabs = document.getElementById('sessionTabs');
     els.tree = document.getElementById('tree');
     els.history = document.getElementById('historyList');
     els.input = document.getElementById('input');
@@ -43,6 +68,62 @@
     els.title = document.getElementById('chatTitleInput');
     els.icon = document.getElementById('chatIcon');
     els.modelChip = document.getElementById('modelChip');
+  }
+
+  /* ============================================================
+     每会话 DOM：一个 .msg-view 装 .messages + .welcome
+     ============================================================ */
+  function buildViewFallback() {
+    const root = document.createElement('div');
+    root.className = 'msg-view';
+    const msgs = document.createElement('div');
+    msgs.className = 'messages';
+    msgs.tabIndex = 0;
+    const welcome = document.createElement('div');
+    welcome.className = 'welcome';
+    welcome.hidden = true;
+    root.appendChild(msgs);
+    root.appendChild(welcome);
+    return root;
+  }
+
+  function viewOf(id) {
+    if (!id) return null;
+    let v = RT.views.get(id);
+    if (v) return v;
+    const tpl = document.getElementById('sessionViewTpl');
+    let root;
+    try {
+      root = tpl && tpl.content && tpl.content.firstElementChild
+        ? tpl.content.firstElementChild.cloneNode(true)
+        : buildViewFallback();
+    } catch (e) { root = buildViewFallback(); }
+    root.dataset.session = id;
+    root.hidden = Chat.currentId !== id;
+    v = {
+      id,
+      root,
+      msgs: root.querySelector('.messages'),
+      welcome: root.querySelector('.welcome'),
+      renderStart: 0,
+      live: null,
+      scroll: 0,
+      stick: true
+    };
+    if (els.chatBody) els.chatBody.appendChild(root);
+    RT.views.set(id, v);
+    ensureStick(v.msgs);
+    return v;
+  }
+  Chat.viewOf = viewOf;
+
+  function currentView() { return viewOf(Chat.currentId); }
+
+  function dropView(id) {
+    const v = RT.views.get(id);
+    if (!v) return;
+    try { v.root.remove(); } catch (e) {}
+    RT.views.delete(id);
   }
 
   /* ============================================================
@@ -67,6 +148,18 @@
       pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '-' + Math.random().toString(36).slice(2, 6) + '.md';
   }
 
+  function loadTabs() {
+    try {
+      const raw = localStorage.getItem(TABS_KEY);
+      const arr = raw ? JSON.parse(raw) : null;
+      return Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [];
+    } catch (e) { return []; }
+  }
+
+  function saveTabs() {
+    try { localStorage.setItem(TABS_KEY, JSON.stringify(Chat.tabs)); } catch (e) {}
+  }
+
   Chat.init = async function () {
     bindEls();
     const row = await AH.db.get('kv', 'session_index');
@@ -81,9 +174,16 @@
     Chat.sessions = index;
     const lastId = (await AH.db.get('kv', 'last_session')) || null;
     const start = index.find((s) => lastId && s.id === lastId.v) || index[0];
+
+    // 恢复上次打开的标签页，丢掉重复的与已被删除的会话
+    const saved = [...new Set(loadTabs())].filter((id) => index.some((s) => s.id === id));
+    Chat.tabs = saved.length ? saved : [start.id];
+    if (Chat.tabs.indexOf(start.id) < 0) Chat.tabs.unshift(start.id);
+
     await Chat.switchSession(start.id, { initial: true });
     bindEvents();
     renderHistory();
+    renderTabs();
     updateModelChip();
   };
 
@@ -97,7 +197,7 @@
   };
 
   Chat.saveConv = async function (id, conv, opts) {
-    if (!id) return;
+    if (!id || !conv) return;
     const meta = Chat.sessions.find((s) => s.id === id);
     if (!meta) return;
     meta.updatedAt = Date.now();
@@ -116,12 +216,19 @@
 
   Chat.save = async function (opts) {
     if (!Chat.currentId) return;
-    await Chat.saveConv(Chat.currentId, Chat.conv, opts);
+    await Chat.saveConv(Chat.currentId, convOf(Chat.currentId), opts);
   };
 
-  Chat.saveSoon = function () {
-    if (Chat._saveTimer) clearTimeout(Chat._saveTimer);
-    Chat._saveTimer = setTimeout(() => { Chat._saveTimer = null; Chat.save().catch((e) => console.warn(e)); }, 450);
+  /* 每个会话一个防抖计时器：并发多个 run 时不会互相顶掉保存 */
+  Chat.saveSoon = function (id) {
+    const sid = id || Chat.currentId;
+    if (!sid) return;
+    const prev = Chat._saveTimers.get(sid);
+    if (prev) clearTimeout(prev);
+    Chat._saveTimers.set(sid, setTimeout(() => {
+      Chat._saveTimers.delete(sid);
+      Chat.saveConv(sid, convOf(sid)).catch((e) => console.warn(e));
+    }, 450));
   };
 
   async function flushMarkdown(id, conv) {
@@ -167,32 +274,76 @@
   }
 
   Chat.switchSession = async function (id, opts) {
-    if (Chat.currentId === id) return;
-    if (Chat.currentId) {
-      await Chat.save({ now: true });
-      const old = Chat.runs.get(Chat.currentId);
-      if (old) old.visible = false;
+    if (!id) return;
+    if (Chat.currentId === id && Chat._loaded.has(id) && !(opts && opts.initial)) {
+      openTab(id);
+      renderTabs();
+      return;
+    }
+    const prev = Chat.currentId;
+    if (prev) {
+      // 切走前记住滚动位置与贴底状态，切回来时还原
+      const pv = RT.views.get(prev);
+      if (pv) {
+        pv.scroll = pv.msgs.scrollTop;
+        pv.stick = pv.msgs._stick !== false;
+      }
+      await Chat.saveConv(prev, convOf(prev), { now: true });
     }
     Chat.currentId = id;
     await AH.db.put('kv', { k: 'last_session', v: id });
-    Chat.conv = await Chat.loadConv(id);
-    Chat._loaded.add(id);
-    Chat._renderStart = renderStartFor(Chat.conv);
-    Chat.toolLog = [];
+    if (!Chat._loaded.has(id)) {
+      RT.convs.set(id, await Chat.loadConv(id));
+      Chat._loaded.add(id);
+    }
+    openTab(id);
+    const view = viewOf(id);
+    for (const v of RT.views.values()) v.root.hidden = v.id !== id;
+    const run = Chat.runs.get(id);
+    Chat.toolLog = (run && run.toolLog) || [];
     renderHeader();
-    renderConversation();
+    // 正在生成的会话保留流式 DOM；其余按存档重绘
+    if (!(run && run.running && view.live && !view.live.finished)) {
+      view.renderStart = renderStartFor(convOf(id));
+      renderConversation(view, { silent: true });
+    } else {
+      reflectBackground(view);
+    }
+    restoreScroll(view, run);
     updateTokenBar();
     updateRunningUI();
+    renderTabs();
+    renderHistory();
   };
 
+  function reflectBackground(view) {
+    if (!view) return;
+    const empty = !convOf(view.id).length;
+    if (view.welcome) view.welcome.hidden = !empty;
+    view.msgs.style.visibility = empty ? 'hidden' : '';
+  }
+
+  function restoreScroll(view, run) {
+    const el = view && view.msgs;
+    if (!el) return;
+    if (run && run.running) { el._stick = true; pinToBottom(el, true); return; }
+    if (view.stick === false) {
+      el._stick = false;
+      el.scrollTop = view.scroll;
+      el._lastTop = el.scrollTop;
+    } else {
+      el._stick = true;
+      pinToBottom(el, true);
+    }
+  }
+
   Chat.newSession = async function () {
-    if (Chat.currentId) await Chat.save({ now: true });
+    if (Chat.currentId) await Chat.saveConv(Chat.currentId, convOf(Chat.currentId), { now: true });
     const id = U.uid('s');
     const meta = sessionMeta(id);
     Chat.sessions.unshift(meta);
     await AH.db.put('kv', { k: 'session_index', v: Chat.sessions });
     await AH.db.put('kv', { k: 'conv:' + id, v: [] });
-    Chat.currentId = null;
     await Chat.switchSession(id, { initial: true });
     return id;
   };
@@ -203,26 +354,59 @@
     const meta = Chat.sessions[i];
     const ok = await AH.ui.confirm({ title: '删除对话', text: '删除「' + (meta.title || '未命名') + '」的记录？VFS 里的存档文件不会被删除。', rememberKey: '' });
     if (!ok) return;
+    const run = Chat.runs.get(id);
+    if (run && run.running) { try { run.controller.abort(); } catch (e) {} }
     Chat.sessions.splice(i, 1);
     Chat.runs.delete(id);
+    Chat.tabs = Chat.tabs.filter((x) => x !== id);
+    saveTabs();
+    RT.convs.delete(id);
+    Chat._loaded.delete(id);
+    dropView(id);
     await AH.db.del('kv', 'conv:' + id);
     await Chat._saveIndex();
     if (Chat.currentId === id) {
       Chat.currentId = null;
-      if (Chat.sessions.length) await Chat.switchSession(Chat.sessions[0].id);
+      const next = Chat.tabs.find((x) => Chat.sessions.some((s) => s.id === x)) ||
+        (Chat.sessions[0] && Chat.sessions[0].id);
+      if (next) await Chat.switchSession(next);
       else await Chat.newSession();
     }
     renderHistory();
+    renderTabs();
+  };
+
+  /* 清空全部对话时把每个会话的 DOM、数组、运行状态一并丢掉 */
+  Chat.resetAll = function () {
+    for (const r of Chat.runs.values()) { try { r.controller.abort(); } catch (e) {} }
+    for (const id of [...RT.views.keys()]) dropView(id);
+    for (const t of Chat._saveTimers.values()) clearTimeout(t);
+    Chat._saveTimers.clear();
+    if (Chat._mdPending) Chat._mdPending.clear();
+    RT.convs.clear();
+    Chat._loaded.clear();
+    Chat.runs.clear();
+    Chat.tabs = [];
+    saveTabs();
+    Chat.currentId = null;
+    Chat.sessions = [];
+    Chat.toolLog = [];
   };
 
   Chat.clearCurrent = async function () {
-    if (!Chat.conv.length) return;
+    const conv = convOf(Chat.currentId);
+    if (!conv.length) return;
+    if (Chat.isRunning()) { AH.ui.toast('这个对话正在生成，先点停止再清空', 'warn', 2000); return; }
     const ok = await AH.ui.confirm({ title: '清空当前对话', text: '只清空当前会话的消息，VFS 文件不受影响。', rememberKey: '' });
     if (!ok) return;
-    Chat.conv = [];
+    conv.length = 0;
     Chat.toolLog = [];
     await Chat.save({ now: true });
-    renderConversation();
+    const view = currentView();
+    if (view) {
+      view.renderStart = 0;
+      renderConversation(view);
+    }
     updateTokenBar();
   };
 
@@ -232,6 +416,7 @@
     meta.title = U.clip(String(title || '').trim() || '新对话', 40);
     await Chat._saveIndex();
     renderHistory();
+    renderTabs();
   };
 
   /* ============================================================
@@ -275,6 +460,8 @@
       parts.push('本轮 <b>' + usage.inTok + '</b> 入 / <b>' + usage.outTok + '</b> 出');
       if (usage.cost > 0) parts.push('≈ <b>$' + usage.cost.toFixed(4) + '</b>');
     }
+    const others = runningIds().filter((id) => id !== Chat.currentId).length;
+    if (others > 0) parts.push('另有 <b>' + others + '</b> 个对话在生成');
     els.tokenBar.innerHTML = parts.join(' · ');
     els.tokenBar.hidden = false;
   }
@@ -317,8 +504,7 @@
     return normRenderStart(conv, start);
   }
 
-  function toolResultFor(tc, startIndex) {
-    const conv = Chat.conv;
+  function toolResultFor(conv, tc, startIndex) {
     for (let i = startIndex; i < Math.min(conv.length, startIndex + 60); i++) {
       const m = conv[i];
       if (m.role === 'tool' && m.tool_call_id === tc.id) return m.content;
@@ -326,13 +512,21 @@
     return null;
   }
 
-  function renderConversation(opts) {
-    if (!els.messages) return;
-    els.messages.innerHTML = '';
-    const conv = Chat.conv;
-    renderWelcome();
+  function msgsOf(view) {
+    const v = view || currentView();
+    return v && v.msgs;
+  }
+
+  function renderConversation(view, opts) {
+    if (!view) view = currentView();
+    if (!view) return;
+    const box = view.msgs;
+    const conv = convOf(view.id);
+    box.innerHTML = '';
+    view.live = null;   // 整段重绘后，旧的气泡节点已不在文档里
+    renderWelcome(view);
     if (!conv.length) return;
-    const start = normRenderStart(conv, Chat._renderStart || 0);
+    const start = normRenderStart(conv, view.renderStart || 0);
     if (start > 0) {
       const btn = document.createElement('button');
       btn.className = 'load-earlier chip-btn';
@@ -340,19 +534,19 @@
       btn.style.cssText = 'display:block;margin:0 auto 14px';
       btn.addEventListener('click', () => {
         const next = normRenderStart(conv, start - LOAD_MORE);
-        Chat._renderStart = next;
-        renderConversation({ anchor: next });
+        view.renderStart = next;
+        renderConversation(view, { anchor: next });
       });
-      els.messages.appendChild(btn);
+      box.appendChild(btn);
     }
     let i = start;
     while (i < conv.length) {
       const m = conv[i];
       if (m.role === 'user') {
-        els.messages.appendChild(buildUserEl(m, i));
+        box.appendChild(buildUserEl(m, i));
         i++;
       } else if (m.role === 'assistant') {
-        els.messages.appendChild(buildAssistantEl(m, i));
+        box.appendChild(buildAssistantEl(view, m, i));
         // 跳过它对应的 tool 消息（已经在卡片里渲染）
         if (m.tool_calls) {
           let j = i + 1;
@@ -361,19 +555,20 @@
         } else i++;
       } else i++;
     }
+    if (opts && opts.silent) return;
     if (opts && Number.isFinite(opts.anchor)) {
-      const target = els.messages.querySelector('.msg[data-i="' + opts.anchor + '"]');
+      const target = box.querySelector('.msg[data-i="' + opts.anchor + '"]');
       if (target) target.scrollIntoView({ block: 'start', inline: 'nearest' });
-      else scrollToBottom(true);
-    } else scrollToBottom(true);
+      else scrollToBottom(view, true);
+    } else scrollToBottom(view, true);
   }
   Chat.renderConversation = renderConversation;
 
   /* 长会话新增消息时同步裁掉预算外的旧 DOM，避免越聊越卡 */
-  function trimConversationDom(conv) {
-    if (!els.messages) return;
+  function trimConversationDom(view, conv) {
+    if (!view) return;
+    const box = view.msgs;
     const start = renderStartFor(conv);
-    const box = els.messages;
     const nearBottom = atBottom(box, 80);
     for (const el of [...box.querySelectorAll('.msg')]) {
       const i = Number(el.dataset.i);
@@ -390,11 +585,11 @@
       btn.textContent = '加载更早的 ' + Math.min(LOAD_MORE, start) + ' 条';
       btn.onclick = () => {
         const next = normRenderStart(conv, start - LOAD_MORE);
-        Chat._renderStart = next;
-        renderConversation({ anchor: next });
+        view.renderStart = next;
+        renderConversation(view, { anchor: next });
       };
     } else if (btn) btn.remove();
-    if (nearBottom) scrollToBottom(true);
+    if (nearBottom) scrollToBottom(view, true);
   }
 
   function buildUserEl(m, index) {
@@ -420,7 +615,8 @@
     return wrap;
   }
 
-  function buildAssistantEl(m, index) {
+  function buildAssistantEl(view, m, index) {
+    const conv = convOf(view.id);
     const wrap = document.createElement('div');
     wrap.className = 'msg assistant';
     if (typeof index === 'number') wrap.dataset.i = String(index);
@@ -447,8 +643,8 @@
     if (m.tool_calls && m.tool_calls.length) {
       const cards = document.createElement('div');
       cards.style.cssText = 'display:flex;flex-direction:column;gap:6px';
-      m.tool_calls.forEach((tc, idx) => {
-        const result = toolResultFor(tc, index + 1);
+      m.tool_calls.forEach((tc) => {
+        const result = toolResultFor(conv, tc, index + 1);
         cards.appendChild(buildToolCard(tc, parseSafe(tc.function.arguments), result));
       });
       wrap.appendChild(cards);
@@ -465,10 +661,13 @@
       copy.addEventListener('click', async () => { const ok = await U.copyText(parsed.text); AH.ui.copied(ok); });
       actions.appendChild(copy);
     }
-    if (index === Chat.conv.length - 1 || (Chat.conv[index + 1] && Chat.conv[index + 1].role === 'tool' && index + 1 === Chat.conv.length - 1)) {
+    if (index === conv.length - 1 || (conv[index + 1] && conv[index + 1].role === 'tool' && index + 1 === conv.length - 1)) {
       const retry = document.createElement('button');
       retry.textContent = '重试';
-      retry.addEventListener('click', () => Chat.regenerate());
+      retry.addEventListener('click', () => {
+        if (view.id !== Chat.currentId) Chat.switchSession(view.id).then(() => Chat.regenerate());
+        else Chat.regenerate();
+      });
       actions.appendChild(retry);
     }
     meta.appendChild(actions);
@@ -756,8 +955,11 @@
         b.addEventListener('click', () => {
           opts.querySelectorAll('button').forEach((x) => { x.disabled = true; });
           b.style.borderColor = 'var(--accent-line)';
+          // 提问卡可能属于别的标签：按卡片所在的会话发，别发到当前对话里
+          const host = b.closest('.msg-view');
+          const sid = (host && host.dataset.session) || Chat.currentId;
           // 等本轮 finally 收尾后再发，避免“还在生成”被拦截
-          setTimeout(() => Chat.send(String(opt), { fromCard: true }), 260);
+          setTimeout(() => Chat.send(String(opt), { fromCard: true, sessionId: sid }), 260);
         });
         opts.appendChild(b);
       });
@@ -924,13 +1126,14 @@
   /* ============================================================
      流式渲染
      ============================================================ */
-  function appendUserToDom(m, index) {
+  function appendUserToDom(view, m, index) {
     const el = buildUserEl(m, index);
-    els.messages.appendChild(el);
-    scrollToBottom(true);
+    view.msgs.appendChild(el);
+    scrollToBottom(view, true);
   }
 
   function createLiveAssistant(run) {
+    const view = viewOf(run.session.id);
     const wrap = document.createElement('div');
     wrap.className = 'msg assistant';
     wrap.innerHTML = '<div class="name"><span class="avatar">' + AH.ui.icon('sparkles') + '</span><b>小匣</b><span class="live-time">' + U.fmtTime(Date.now()) + '</span></div>';
@@ -939,11 +1142,12 @@
     status.innerHTML = '<span style="color:var(--text-3)">正在连接…</span>';
     wrap.appendChild(status);
 
-    const stick = atBottom(els.messages, 80);
-    ensureStick(els.messages);
-    els.messages.appendChild(wrap);
-    if (stick) pinToBottom(els.messages);
+    const stick = atBottom(view.msgs, 80);
+    ensureStick(view.msgs);
+    view.msgs.appendChild(wrap);
+    if (stick) pinToBottom(view.msgs);
     const state = {
+      view,
       wrap,
       statusEl: status,
       thinkingEl: null,
@@ -994,8 +1198,8 @@
     // 流式渲染：直接按 Markdown 解析，但用"自适应间隔"控制重排频率。
     // 短文本 60ms、长文本逐步放宽到 260ms —— 既保持观感连贯，又不在长回答时把主线程拖死。
     const renderNow = () => {
-      if (!run.visible || state.finished) return;
-      const stick = atBottom(els.messages, 80);
+      if (state.finished) return;
+      const stick = atBottom(view.msgs, 80);
       if (state.thinking) {
         ensureThinking();
         state.thinkingBody.textContent = state.thinking;
@@ -1017,7 +1221,7 @@
           if (state.cursorEl.parentElement !== inlineHost) inlineHost.appendChild(state.cursorEl);
         }
       }
-      if (stick) pinToBottom(els.messages);
+      if (stick) pinToBottom(view.msgs);
     };
 
     // 根据当前文本长度决定下一次允许渲染的时间
@@ -1047,7 +1251,7 @@
     };
 
     state.setStatus = (t) => {
-      if (!run.visible || state.finished) return;
+      if (state.finished) return;
       if (!state.text && !state.thinking && !state.cardsWrap) {
         status.innerHTML = '<span style="color:var(--text-3)">' + U.esc(t) + '</span>';
       }
@@ -1062,8 +1266,8 @@
       render();
     };
     state.onToolDelta = (index, name, argsText) => {
-      if (!run.visible || !name) return;
-      const stick = atBottom(els.messages, 80);
+      if (!name) return;
+      const stick = atBottom(view.msgs, 80);
       const key = state.roundSeq + ':' + index;
       let card = state.cards.get(key);
       if (!card) {
@@ -1078,7 +1282,7 @@
         const pre = card.querySelector('.tool-body pre');
         if (pre) pre.textContent = JSON.stringify(args, null, 2);
       }
-      if (stick) pinToBottom(els.messages);
+      if (stick) pinToBottom(view.msgs);
     };
     state.bindIds = (toolCalls) => {
       toolCalls.forEach((tc, i) => {
@@ -1092,8 +1296,7 @@
       return null;
     };
     state.onToolStart = (id, args) => {
-      if (!run.visible) return;
-      const stick = atBottom(els.messages, 80);
+      const stick = atBottom(view.msgs, 80);
       const card = state.findCard(id);
       if (!card) return;
       card.dataset.status = 'running';
@@ -1104,11 +1307,10 @@
       const pre = card.querySelector('.tool-body pre');
       if (pre) pre.textContent = JSON.stringify(args || {}, null, 2);
       card.classList.add('collapsed');
-      if (stick) pinToBottom(els.messages);
+      if (stick) pinToBottom(view.msgs);
     };
     state.onToolFinish = (id, ok, text, ms) => {
-      if (!run.visible) return;
-      const stick = atBottom(els.messages, 80);
+      const stick = atBottom(view.msgs, 80);
       let card = state.findCard(id);
       if (!card) {
         // 兜底：流式阶段没拿到该调用，按 id 建一张
@@ -1144,12 +1346,11 @@
       }
       renderCardExtras(card, text);
       card.classList.toggle('collapsed', ok);
-      if (stick) pinToBottom(els.messages);
+      if (stick) pinToBottom(view.msgs);
     };
     state.finalize = (content, thinking) => {
       state.finished = true;
-      if (!run.visible) return;
-      const stick = atBottom(els.messages, 80);
+      const stick = atBottom(view.msgs, 80);
       if (state.statusEl && state.statusEl.parentElement) state.statusEl.remove();
       const parsed = parseDeliver(content || state.text || '');
       state.text = parsed.text;
@@ -1176,17 +1377,19 @@
         wrap.appendChild(state.deliverEl);
       }
       attachMsgActions(state, state.text);
-      if (stick) pinToBottom(els.messages, true);
+      if (stick) pinToBottom(view.msgs, true);
     };
     state.attachMeta = (usage) => {
-      if (!run.visible || !usage || (!usage.inTok && !usage.outTok)) return;
-      const stick = atBottom(els.messages, 80);
+      if (!usage || (!usage.inTok && !usage.outTok)) return;
+      const stick = atBottom(view.msgs, 80);
       const meta = document.createElement('div');
       meta.className = 'msg-meta';
       meta.innerHTML = '<span>' + usage.inTok + ' 入 / ' + usage.outTok + ' 出' + (usage.cost ? ' · $' + usage.cost.toFixed(4) : '') + '</span>';
       wrap.appendChild(meta);
-      if (stick) pinToBottom(els.messages);
+      if (stick) pinToBottom(view.msgs);
     };
+    // 记住这条会话当前的气泡：切走再切回来时，保留流式 DOM 而不是重绘
+    view.live = state;
     return state;
   }
 
@@ -1247,29 +1450,30 @@
       setTimeout(toEnd, 320);
     }
   }
-  function scrollBottomSmart() {
-    const el = els.messages;
+  function scrollBottomSmart(view) {
+    const el = msgsOf(view);
     if (!el) return;
     if (atBottom(el, 80)) pinToBottom(el);
   }
-  function scrollToBottom(force) {
-    const el = els.messages;
+  function scrollToBottom(view, force) {
+    const el = msgsOf(view);
     if (!el) return;
     if (force) {
       ensureStick(el);
       el._stick = true;
       pinToBottom(el, true);
-    } else scrollBottomSmart();
+    } else scrollBottomSmart(view);
   }
 
   /* ============================================================
      欢迎页
      ============================================================ */
-  function renderWelcome() {
-    if (!els.welcome) return;
-    const empty = !Chat.conv.length;
-    els.welcome.hidden = !empty;
-    els.messages.style.visibility = empty ? 'hidden' : '';
+  function renderWelcome(view) {
+    const v = view || currentView();
+    if (!v || !v.welcome) return;
+    const empty = !convOf(v.id).length;
+    v.welcome.hidden = !empty;
+    v.msgs.style.visibility = empty ? 'hidden' : '';
   }
 
   /* ============================================================
@@ -1281,34 +1485,143 @@
     const list = [...Chat.sessions].sort((a, b) => b.updatedAt - a.updatedAt);
     if (!list.length) { els.history.innerHTML = '<div class="hist-empty">还没有对话</div>'; return; }
     list.forEach((s) => {
+      const running = Chat.isRunning(s.id);
       const row = document.createElement('div');
-      row.className = 'node-row' + (s.id === Chat.currentId ? ' active' : '');
+      row.className = 'node-row' + (s.id === Chat.currentId ? ' active' : '') + (running ? ' running' : '');
       row.innerHTML =
         '<span class="node-ico">' + AH.ui.icon(iconOf(s.title)) + '</span>' +
         '<span class="node-name">' + U.esc(s.title || '未命名') + '</span>' +
-        '<span class="node-size">' + U.fmtTime(s.updatedAt) + '</span>';
-      row.title = s.preview || s.title || '';
+        (running ? '<span class="run-dot" title="正在生成"></span>'
+          : '<span class="node-size">' + U.fmtTime(s.updatedAt) + '</span>');
+      row.title = (running ? '生成中 · ' : '') + (s.preview || s.title || '');
       row.addEventListener('click', () => Chat.switchSession(s.id));
       row.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        AH.ui.contextMenu(e.clientX, e.clientY, [
-          { label: '重命名', icon: 'edit', onClick: async () => {
-            const t = prompt('对话标题', s.title || '');
-            if (t) {
-              s.title = U.clip(t, 40);
-              await Chat._saveIndex();
-              if (s.id === Chat.currentId) renderHeader();
-              renderHistory();
-            }
-          } },
-          { sep: true },
-          { label: '删除对话', icon: 'trash', danger: true, onClick: () => Chat.deleteSession(s.id) }
-        ]);
+        const items = [];
+        if (running) items.push({ label: '停止生成', icon: 'stop', onClick: () => Chat.stop(s.id) });
+        items.push({ label: '重命名', icon: 'edit', onClick: async () => {
+          const t = prompt('对话标题', s.title || '');
+          if (t) {
+            s.title = U.clip(t, 40);
+            await Chat._saveIndex();
+            if (s.id === Chat.currentId) renderHeader();
+            renderHistory();
+            renderTabs();
+          }
+        } });
+        items.push({ sep: true });
+        items.push({ label: '删除对话', icon: 'trash', danger: true, onClick: () => Chat.deleteSession(s.id) });
+        AH.ui.contextMenu(e.clientX, e.clientY, items);
       });
       els.history.appendChild(row);
     });
   }
   Chat.renderHistory = renderHistory;
+
+  /* ============================================================
+     顶部标签栏：同时打开的多个对话
+     ============================================================ */
+  function openTab(id) {
+    if (!id) return;
+    if (Chat.tabs.indexOf(id) < 0) Chat.tabs.push(id);
+    // 超出上限时挤掉最早的、既不是当前也没有在生成的那个，顺手回收它的 DOM
+    while (Chat.tabs.length > MAX_TABS) {
+      const idx = Chat.tabs.findIndex((x) => x !== Chat.currentId && !Chat.isRunning(x));
+      if (idx < 0) break;
+      const gone = Chat.tabs.splice(idx, 1)[0];
+      const gv = RT.views.get(gone);
+      if (gv && gone !== Chat.currentId && !Chat.isRunning(gone)) dropView(gone);
+    }
+    saveTabs();
+  }
+
+  Chat.closeTab = async function (id) {
+    const i = Chat.tabs.indexOf(id);
+    if (i < 0) return;
+    if (Chat.isRunning(id)) { AH.ui.toast('这个对话还在生成，先停止再关闭标签', 'warn', 2000); return; }
+    if (Chat.currentId === id) {
+      const next = Chat.tabs[i - 1] || Chat.tabs[i + 1];
+      if (!next) { AH.ui.toast('至少保留一个对话标签', 'warn', 1600); return; }
+      Chat.tabs.splice(i, 1);
+      saveTabs();
+      await Chat.switchSession(next);
+      renderTabs();
+      return;
+    }
+    Chat.tabs.splice(i, 1);
+    saveTabs();
+    // 关掉的标签不再占着 DOM；会话数据还在内存里，再打开会按存档重绘
+    dropView(id);
+    renderTabs();
+  };
+
+  Chat.openTab = openTab;
+
+  function renderTabs() {
+    if (!els.tabs) return;
+    const ids = Chat.tabs.filter((id) => Chat.sessions.some((s) => s.id === id));
+    if (ids.length !== Chat.tabs.length) { Chat.tabs = ids; saveTabs(); }
+    els.tabs.innerHTML = '';
+    els.tabs.hidden = false;
+    ids.forEach((id) => {
+      const meta = Chat.sessions.find((s) => s.id === id) || { title: '未命名' };
+      const running = Chat.isRunning(id);
+      const tab = document.createElement('div');
+      tab.className = 'sess-tab' + (id === Chat.currentId ? ' active' : '');
+      tab.dataset.id = id;
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-selected', id === Chat.currentId ? 'true' : 'false');
+      tab.title = (meta.title || '未命名') + (running ? ' · 正在生成（点转圈可停止）' : '');
+      const ico = document.createElement('span');
+      ico.className = 'ico';
+      ico.innerHTML = AH.ui.icon(iconOf(meta.title || ''));
+      const nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = meta.title || '未命名';
+      tab.appendChild(ico);
+      tab.appendChild(nm);
+      if (running) {
+        const sp = document.createElement('span');
+        sp.className = 'stop-spin';
+        sp.title = '正在生成 · 点击停止';
+        sp.addEventListener('click', (e) => { e.stopPropagation(); Chat.stop(id); });
+        tab.appendChild(sp);
+      }
+      const x = document.createElement('button');
+      x.className = 'x';
+      x.type = 'button';
+      x.title = '关闭标签（不删除记录）';
+      x.innerHTML = AH.ui.icon('x');
+      x.addEventListener('click', (e) => { e.stopPropagation(); Chat.closeTab(id); });
+      tab.appendChild(x);
+      tab.addEventListener('click', () => Chat.switchSession(id));
+      tab.addEventListener('auxclick', (e) => { if (e.button === 1) Chat.closeTab(id); });
+      els.tabs.appendChild(tab);
+    });
+
+    const plus = document.createElement('button');
+    plus.className = 'tab-new';
+    plus.type = 'button';
+    plus.title = '新建对话';
+    plus.innerHTML = AH.ui.icon('plus');
+    plus.addEventListener('click', () => Chat.newSession());
+    els.tabs.appendChild(plus);
+
+    const n = runningIds().length;
+    if (n > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'tabs-meta';
+      badge.innerHTML = '<b>' + n + '</b> 个对话生成中';
+      els.tabs.appendChild(badge);
+    }
+    // 浏览器标签页上也标一下，切到别的窗口时能看见还有几个在跑
+    try { document.title = (n > 0 ? '(' + n + ') ' : '') + '小匣 · AI Agent'; } catch (e) {}
+    const active = els.tabs.querySelector('.sess-tab.active');
+    if (active && active.scrollIntoView) {
+      try { active.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+    }
+  }
+  Chat.renderTabs = renderTabs;
 
   /* ============================================================
      输入与附件
@@ -1448,29 +1761,61 @@
     return !!(r && r.running);
   };
 
+  function runningIds() {
+    const out = [];
+    for (const [id, r] of Chat.runs) if (r && r.running) out.push(id);
+    return out;
+  }
+  Chat.runningIds = runningIds;
+  Chat.anyRunning = () => runningIds().length > 0;
+  Chat.runningCount = () => runningIds().length;
+
+  function maxParallel() {
+    return U.clamp(parseInt(cfg.get('maxParallel'), 10) || 3, 1, 5);
+  }
+
   function updateRunningUI() {
     const running = Chat.isRunning();
     if (els.stop) els.stop.hidden = !running;
     if (els.send) els.send.disabled = running;
-    if (els.input) els.input.placeholder = running ? '小匣正在处理，可点停止…' : '给 AI 下达指令…（Enter 发送，Shift+Enter 换行，可粘贴图片）';
+    const others = runningIds().filter((id) => id !== Chat.currentId).length;
+    if (els.input) {
+      els.input.placeholder = running
+        ? '小匣正在处理，可点停止…'
+        : others
+          ? '其他对话正在生成中，这个对话也可以继续发…（Enter 发送）'
+          : '给 AI 下达指令…（Enter 发送，Shift+Enter 换行，可粘贴图片）';
+    }
   }
   Chat.updateRunningUI = updateRunningUI;
 
   Chat.send = async function (text, opts) {
     const o = opts || {};
+    const sid = o.sessionId || Chat.currentId;
+    if (!sid) return;
+    const meta = Chat.sessions.find((s) => s.id === sid);
+    if (!meta) return;
     if (!o.fromCard) {
       text = String(text == null ? '' : text).trim();
       if (!text && !attachments.length) return;
     }
-    if (Chat.isRunning()) { AH.ui.toast('当前会话还在生成，先停止或等它结束', 'warn'); return; }
+    if (Chat.isRunning(sid)) { AH.ui.toast('这个对话还在生成，先停止或等它结束', 'warn'); return; }
+    if (runningIds().length >= maxParallel()) {
+      AH.ui.toast('同时进行的对话已达上限 ' + maxParallel() + ' 个，等其中一个结束再发；可在设置 → Agent 调整', 'warn', 4200);
+      return;
+    }
     if (!cfg.get('apiKey')) {
       AH.ui.toast('请先填写 API Key（设置 → 模型）', 'warn', 3200);
       setTimeout(() => AH.settings.open(), 120);
       return;
     }
 
-    const atts = attachments.splice(0, attachments.length);
-    renderAttachments();
+    const conv = convOf(sid);
+    const view = viewOf(sid);
+    const fromComposer = !o.fromCard && sid === Chat.currentId;
+    // 卡片触发的自动发送（提问卡等）不碰输入区里的附件，避免别的对话把它“吃掉”
+    const atts = o.fromCard ? [] : attachments.splice(0, attachments.length);
+    if (!o.fromCard) renderAttachments();
 
     const useTools = typeof o.useTools === 'boolean' ? o.useTools : needsAgent(text, atts);
     const vision = supportsVision(cfg.get('model'));
@@ -1496,50 +1841,52 @@
     let userMsg;
     if (o.reuseLastUser) {
       let lastUser = -1;
-      for (let i = Chat.conv.length - 1; i >= 0; i--) if (Chat.conv[i].role === 'user') { lastUser = i; break; }
-      userMsg = Chat.conv[lastUser];
+      for (let i = conv.length - 1; i >= 0; i--) if (conv[i].role === 'user') { lastUser = i; break; }
+      userMsg = conv[lastUser];
       if (!userMsg) return;
     } else {
       userMsg = { role: 'user', content, images, _at: Date.now() };
-      Chat.conv.push(userMsg);
-      if (!o.fromCard) { els.input.value = ''; autoHeight(); }
-      els.welcome.hidden = true;
-      els.messages.style.visibility = '';
-      appendUserToDom(userMsg, Chat.conv.length - 1);
-      trimConversationDom(Chat.conv);
+      conv.push(userMsg);
+      if (fromComposer) { els.input.value = ''; autoHeight(); }
+      view.welcome.hidden = true;
+      view.msgs.style.visibility = '';
+      appendUserToDom(view, userMsg, conv.length - 1);
+      trimConversationDom(view, conv);
     }
-    Chat._renderStart = renderStartFor(Chat.conv);
-    Chat.saveSoon();
+    view.renderStart = renderStartFor(conv);
+    Chat.saveSoon(sid);
 
-    const meta = Chat.sessions.find((s) => s.id === Chat.currentId);
-    if (meta && meta.title === '新对话' && Chat.conv.filter((m) => m.role === 'user').length === 1) {
+    if (meta.title === '新对话' && conv.filter((m) => m.role === 'user').length === 1) {
       const t = U.clip(text || '图片对话', 26);
       meta.title = t || '新对话';
-      renderHeader();
+      if (sid === Chat.currentId) renderHeader();
       renderHistory();
+      renderTabs();
     }
 
     const controller = new AbortController();
     const run = {
       session: meta,
-      conv: Chat.conv,
+      conv,
       signal: controller.signal,
       controller,
       useTools,
       vision,
       attachments: atts,
       running: true,
-      visible: true,
       awaitUser: false,
       roundId: U.uid('r'),
       toolLog: [],
       usage: { inTok: 0, outTok: 0, cost: 0 },
       hooks: {},
-      startedAt: Date.now()
+      startedAt: Date.now(),
+      _undo: []
     };
-    Chat.runs.set(Chat.currentId, run);
+    Chat.runs.set(sid, run);
     updateRunningUI();
     updateTokenBar();
+    renderTabs();
+    renderHistory();
 
     // 每一轮模型调用一个独立气泡：上一轮收尾后，下一轮开始再新建
     let live = null;
@@ -1571,11 +1918,12 @@
       if (item) { item.status = ok ? 'ok' : 'error'; item.result = U.clip(String(text2 || ''), 2400); item.ms = ms; }
       AH.app.refreshTasks();
     };
-    run.hooks.usage = (usage) => { updateTokenBar(); };
+    run.hooks.usage = (usage) => { if (Chat.currentId === sid) updateTokenBar(); };
     run.hooks.assistantDone = (content, thinking) => { if (live) live.finalize(content, thinking); };
     run.hooks.error = (msg) => {
-      AH.ui.toast(msg, 'err', 5000);
-      appendError(msg);
+      const mine = Chat.currentId === sid;
+      AH.ui.toast((mine ? '' : '「' + (meta.title || '对话') + '」') + msg, 'err', 5000);
+      appendError(view, msg);
     };
 
     try {
@@ -1585,41 +1933,39 @@
       await AH.agent.run(run);
     } catch (e) {
       if (String(e.message) === '__STOPPED__') {
-        appendStopped();
+        appendStopped(view);
       } else {
-        appendError(e && e.message ? e.message : String(e));
+        appendError(view, e && e.message ? e.message : String(e));
       }
     } finally {
       run.running = false;
-      updateRunningUI();
       // 中断/失败时补齐 tool 响应，避免下一次请求 400
-      repairDangling(run.conv);
-      if (Chat.currentId === run.session.id) {
-        if (live) {
-          if (!live.finished) {
-            const last = [...Chat.conv].reverse().find((m) => m.role === 'assistant');
-            if (last && last.content) live.finalize(last.content, last._thinking);
-            else live.wrap.remove();
-          }
-          live.attachMeta(run.usage);
+      repairDangling(conv);
+      if (live) {
+        if (!live.finished) {
+          const last = [...conv].reverse().find((m) => m.role === 'assistant');
+          if (last && last.content) live.finalize(last.content, last._thinking);
+          else if (live.wrap.parentElement) live.wrap.remove();
         }
-        updateTokenBar();
+        live.attachMeta(run.usage);
       }
-      await Chat.saveConv(run.session.id, run.conv, { now: true });
-      if (Chat.currentId === run.session.id) trimConversationDom(run.conv);
+      // 会话在生成过程中被删掉：不再写回 kv，避免“诈尸”
+      const alive = Chat.sessions.some((s) => s.id === sid);
+      if (alive) await Chat.saveConv(sid, conv, { now: true });
+      trimConversationDom(view, conv);
       run.conv = null;
       run.attachments = null;
-      AH.app.refreshTasks();
-      maybeTitleGen(meta);
-      if (!run.visible) {
-        // 切走时跑完的会话：若用户已经切回，直接重绘一次拿到完整结果
-        if (Chat.currentId === run.session.id) {
-          renderConversation();
-          updateTokenBar();
-        }
-      } else if (live && !live.text && !live.cards.size && !live.finished && live.wrap.parentElement) {
-        live.wrap.remove();
+      run._undo = null;
+      run._seenResults = null;
+      if (Chat.currentId === sid) {
+        updateTokenBar();
+        updateRunningUI();
       }
+      renderTabs();
+      renderHistory();
+      AH.app.refreshTasks();
+      if (alive) maybeTitleGen(meta, conv);
+      if (live && !live.text && !live.cards.size && !live.finished && live.wrap.parentElement) live.wrap.remove();
     }
   };
 
@@ -1636,28 +1982,35 @@
     }
   }
 
-  function appendError(msg) {
+  function appendError(view, msg) {
     const el = document.createElement('div');
     el.className = 'msg assistant';
     el.innerHTML = '<div class="bubble" style="border:1px solid var(--danger-soft);background:var(--danger-soft);color:var(--danger);padding:9px 12px;border-radius:9px;font-size:13px;white-space:pre-wrap"></div>';
     el.querySelector('.bubble').textContent = String(msg);
-    els.messages.appendChild(el);
-    scrollToBottom(true);
+    view.msgs.appendChild(el);
+    scrollToBottom(view, true);
   }
 
-  function appendStopped() {
+  function appendStopped(view) {
     const el = document.createElement('div');
     el.className = 'msg assistant';
     el.innerHTML = '<div class="msg-meta"><span>已停止生成</span></div>';
-    els.messages.appendChild(el);
-    scrollToBottom(true);
+    view.msgs.appendChild(el);
+    scrollToBottom(view, true);
   }
 
-  Chat.stop = function () {
-    const run = Chat.runs.get(Chat.currentId);
+  /* 停止指定会话（默认当前）：多个 run 并行时不会误停别人 */
+  Chat.stop = function (id) {
+    const sid = id || Chat.currentId;
+    const run = Chat.runs.get(sid);
     if (!run || !run.running) return;
     try { run.controller.abort(); } catch (e) {}
-    AH.ui.toast('正在停止…', 'warn', 1200);
+    const name = (run.session && run.session.title) || '对话';
+    AH.ui.toast(sid === Chat.currentId ? '正在停止…' : '正在停止「' + name + '」…', 'warn', 1400);
+  };
+
+  Chat.stopAll = function () {
+    for (const id of runningIds()) Chat.stop(id);
   };
 
   Chat.regenerate = async function () {
@@ -1669,22 +2022,26 @@
     const text = msgText(conv[lastUser]);
     const hadTools = conv.slice(lastUser + 1).some((m) => m.role === 'assistant' && m.tool_calls);
     conv.splice(lastUser + 1);
-    Chat._renderStart = renderStartFor(Chat.conv);
-    renderConversation();
+    const view = currentView();
+    if (view) {
+      view.renderStart = renderStartFor(conv);
+      renderConversation(view);
+    }
     Chat.saveSoon();
     // 复用这条用户消息，不重复插入
-    await Chat.send(text, { fromCard: true, reuseLastUser: true, useTools: hadTools });
+    await Chat.send(text, { fromCard: true, reuseLastUser: true, useTools: hadTools, sessionId: Chat.currentId });
   };
 
-  async function maybeTitleGen(meta) {
+  async function maybeTitleGen(meta, conv) {
     if (!meta || !cfg.get('titleGen')) return;
     if (meta.title && meta.title !== '新对话') return;
-    const title = await AH.agent.generateTitle({ conv: Chat.conv });
+    const title = await AH.agent.generateTitle({ conv: conv || convOf(meta.id) });
     if (!title) return;
     meta.title = title;
     await Chat._saveIndex();
     if (Chat.currentId === meta.id) renderHeader();
     renderHistory();
+    renderTabs();
   }
 
   /* ============================================================
@@ -1739,24 +2096,50 @@
     });
     paintMode();
 
-    // 消息区：代码复制、链接等委托
-    els.messages.addEventListener('click', async (e) => {
-      const copy = e.target.closest('.codeblock .copy');
-      if (copy) {
-        const pre = copy.closest('.codeblock').querySelector('pre');
-        AH.ui.copied(await U.copyText(pre ? pre.textContent : ''));
-      }
-    });
+    // 消息区：代码复制、链接等委托（所有会话共用一份，事件在 chatBody 上冒泡）
+    if (els.chatBody) {
+      els.chatBody.addEventListener('click', async (e) => {
+        const copy = e.target.closest('.codeblock .copy');
+        if (copy) {
+          const pre = copy.closest('.codeblock').querySelector('pre');
+          AH.ui.copied(await U.copyText(pre ? pre.textContent : ''));
+        }
+      });
+
+      // 欢迎页示例提示：每个会话一份，走事件委托
+      els.chatBody.addEventListener('click', (e) => {
+        const tip = e.target.closest('.welcome .tip');
+        if (!tip) return;
+        const view = tip.closest('.msg-view');
+        const sid = view && view.dataset.session;
+        if (sid && sid !== Chat.currentId) return;   // 只有当前会话的欢迎页可点
+        els.input.value = tip.dataset.prompt || '';
+        autoHeight();
+        els.input.focus();
+        Chat.send(tip.dataset.prompt || '');
+      });
+    }
 
     document.getElementById('btnNewChat').addEventListener('click', () => Chat.newSession());
     document.getElementById('btnClearChat').addEventListener('click', () => Chat.clearCurrent());
 
-    document.querySelectorAll('#welcome .tip').forEach((b) => b.addEventListener('click', () => {
-      els.input.value = b.dataset.prompt;
-      autoHeight();
-      els.input.focus();
-      Chat.send(b.dataset.prompt);
-    }));
+    // 标签栏快捷键：Alt + 数字跳到第 N 个对话，Alt + ↑/↓ 前后切换
+    // （不用 Ctrl+数字：那是浏览器切换标签页的保留快捷键，页面收不到）
+    document.addEventListener('keydown', (e) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      if (/^[1-9]$/.test(e.key)) {
+        const id = Chat.tabs[Number(e.key) - 1];
+        if (id) { e.preventDefault(); Chat.switchSession(id); }
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!Chat.tabs.length) return;
+        const i = Math.max(0, Chat.tabs.indexOf(Chat.currentId));
+        const next = Chat.tabs[(i + (e.key === 'ArrowDown' ? 1 : -1) + Chat.tabs.length) % Chat.tabs.length];
+        e.preventDefault();
+        if (next) Chat.switchSession(next);
+      }
+    });
 
     // 拖拽上传
     let dragDepth = 0;

@@ -238,19 +238,34 @@
   });
 
   UNDO.begin = function () { UNDO.current = []; };
-  UNDO.record = async function (path) {
-    if (!UNDO.current) return;
+  /* 多会话并发时撤销栈必须按 run 隔离，否则 A 对话的写入会记进 B 对话的轮次 */
+  UNDO.beginFor = function (run) {
+    if (run) run._undo = [];
+    return run && run._undo;
+  };
+  UNDO.record = async function (path, ctx) {
+    const round = (ctx && ctx.run && Array.isArray(ctx.run._undo)) ? ctx.run._undo : UNDO.current;
+    if (!round) return;
     const p = U.normPath(path);
-    if (UNDO.current.some((o) => o.path === p)) return;
+    if (round.some((o) => o.path === p)) return;
     let before = null;
     try { before = VFS.exists(p) && VFS.stat(p).type === 'file' ? await VFS.read(p) : null; } catch (e) { before = null; }
     if (before && before.length > 200000) return; // 超大文件不进撤销栈，避免内存爆炸
-    UNDO.current.push({ path: p, before });
+    round.push({ path: p, before });
+  };
+  UNDO.pushRound = function (ops, label) {
+    UNDO.rounds.unshift({ ts: Date.now(), label: label || '', ops });
+    UNDO.rounds = UNDO.rounds.slice(0, 3);
+  };
+  UNDO.commitFor = function (run, label) {
+    const ops = run && run._undo;
+    if (!ops || !ops.length) { if (run) run._undo = null; return; }
+    UNDO.pushRound(ops, label);
+    if (run) run._undo = null;
   };
   UNDO.commit = function (label) {
     if (!UNDO.current || !UNDO.current.length) { UNDO.current = null; return; }
-    UNDO.rounds.unshift({ ts: Date.now(), label: label || '', ops: UNDO.current });
-    UNDO.rounds = UNDO.rounds.slice(0, 3);
+    UNDO.pushRound(UNDO.current, label);
     UNDO.current = null;
   };
   UNDO.discard = function () { UNDO.current = null; };
@@ -1066,7 +1081,7 @@
         });
         if (!ok) return '用户拒绝了覆盖操作，文件未改动：' + p;
       }
-      await UNDO.record(p);
+      await UNDO.record(p, ctx);
     }
     await VFS.write(p, content);
     return '已写入：' + p + '（' + content.length + ' 字符）';
@@ -1076,7 +1091,7 @@
     const p = U.normPath(a.path);
     const content = await expandRefs(String(a.content == null ? '' : a.content), ctx.run, p);
     const exists = VFS.exists(p);
-    if (exists) await UNDO.record(p);
+    if (exists) await UNDO.record(p, ctx);
     if (a.start_line != null) {
       if (!exists) throw new Error('定点插入要求文件已存在：' + p);
       const old = await VFS.read(p);
@@ -1117,7 +1132,7 @@
       throw new Error('未找到 old_string，文件未改动。' + hint + '\n建议：先用 read_file 确认原文（注意缩进与空行）。');
     }
     if (count > 1) throw new Error('old_string 匹配到 ' + count + ' 处，无法唯一定位。请带上更多上下文再试。');
-    await UNDO.record(p);
+    await UNDO.record(p, ctx);
     const next = content.replace(oldStr, newStr);
     await VFS.write(p, next);
     let extra = '';
@@ -1141,7 +1156,7 @@
       rememberKey: 'delete'
     });
     if (!ok) return '用户取消了删除：' + p;
-    if (!isDir) await UNDO.record(p);
+    if (!isDir) await UNDO.record(p, ctx);
     const n = await VFS.remove(p);
     return '已删除：' + p + '（' + n + ' 项）';
   };
@@ -1157,9 +1172,9 @@
     });
     if (!ok) return '用户取消了移动操作';
     const node = VFS.stat(from);
-    if (node.type === 'file') await UNDO.record(from);
+    if (node.type === 'file') await UNDO.record(from, ctx);
     // 若目标已存在，记录目标快照，撤销时可恢复
-    if (VFS.exists(to)) await UNDO.record(to);
+    if (VFS.exists(to)) await UNDO.record(to, ctx);
     await VFS.move(from, to);
     return '已移动：' + from + ' → ' + to;
   };

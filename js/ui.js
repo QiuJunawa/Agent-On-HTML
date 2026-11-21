@@ -90,19 +90,39 @@
 
   UI.error = (msg) => UI.toast(String(msg && msg.message ? msg.message : msg), 'err', 4000);
 
-  /* ---------- 确认框 ---------- */
+  /* ---------- 确认框 ----------
+     多个对话并行时可能同时要确认：这里改成排队，逐个弹，
+     而不是后一个把前一个顶掉（被顶掉的那个会被当成“拒绝”）。 */
   let confirmResolver = null;
+  let confirmActive = false;
+  const confirmQueue = [];
+
   UI.confirm = function (opts) {
     const o = Object.assign({ title: '确认操作', text: '', danger: true, rememberKey: '' }, opts || {});
     if (o.rememberKey && UI.allowedConfirms.has(o.rememberKey)) return Promise.resolve(true);
-    if (confirmResolver) { const prev = confirmResolver; confirmResolver = null; prev(false); }
+    return new Promise((resolve) => {
+      confirmQueue.push({ o, resolve });
+      pumpConfirm();
+    });
+  };
+
+  UI.pendingConfirms = () => confirmQueue.length + (confirmActive ? 1 : 0);
+
+  function pumpConfirm() {
+    if (confirmActive) return;
+    const next = confirmQueue.shift();
+    if (!next) return;
+    const o = next.o;
+    // 排队期间用户可能已经点过“本次会话内不再询问”
+    if (o.rememberKey && UI.allowedConfirms.has(o.rememberKey)) { next.resolve(true); pumpConfirm(); return; }
+    confirmActive = true;
     const modal = document.getElementById('confirmModal');
     const title = document.getElementById('confirmTitle');
     const text = document.getElementById('confirmText');
     const rememberWrap = document.getElementById('confirmRememberWrap');
     const remember = document.getElementById('confirmRemember');
     const ok = document.getElementById('confirmOk');
-    title.textContent = o.title;
+    title.textContent = o.title + (confirmQueue.length ? '（还有 ' + confirmQueue.length + ' 个待确认）' : '');
     text.textContent = o.text;
     remember.checked = false;
     rememberWrap.hidden = !o.rememberKey;
@@ -110,15 +130,15 @@
     ok.className = 'chip-btn ' + (o.danger ? 'danger' : 'primary');
     modal.hidden = false;
     remember.dataset.key = o.rememberKey || '';
-    return new Promise((resolve) => {
-      confirmResolver = (val) => {
-        if (val && remember.checked && o.rememberKey) UI.allowedConfirms.add(o.rememberKey);
-        confirmResolver = null;
-        modal.hidden = true;
-        resolve(val);
-      };
-    });
-  };
+    confirmResolver = (val) => {
+      if (val && remember.checked && o.rememberKey) UI.allowedConfirms.add(o.rememberKey);
+      confirmResolver = null;
+      confirmActive = false;
+      modal.hidden = true;
+      next.resolve(val);
+      setTimeout(pumpConfirm, 0);
+    };
+  }
   UI.initConfirm = function () {
     const modal = document.getElementById('confirmModal');
     document.getElementById('confirmOk').addEventListener('click', () => confirmResolver && confirmResolver(true));

@@ -288,6 +288,69 @@ textarea { resize: vertical; }
 }
 .model-chip.unset { color: var(--warn); border-color: var(--warn-soft); }
 
+/* ------------------------------------------------------------
+   多会话：每个对话一份独立的消息容器，切换只切显隐
+   ------------------------------------------------------------ */
+.chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.msg-view { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.msg-view[hidden] { display: none; }
+/* 欢迎页锚在会话自己的消息区里（原来锚在整个 .chat 上，加了标签栏后会被顶偏） */
+.msg-view .welcome { inset: 0; }
+
+.session-tabs {
+  flex: none; display: flex; align-items: flex-end; gap: 5px;
+  padding: 6px 12px 0; overflow-x: auto; overflow-y: hidden;
+  border-bottom: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  scrollbar-width: none;
+}
+.session-tabs[hidden] { display: none; }
+.session-tabs::-webkit-scrollbar { height: 0; }
+.sess-tab {
+  flex: none; display: flex; align-items: center; gap: 6px; max-width: 180px;
+  padding: 4px 7px 5px 8px; border: 1px solid var(--line-soft); border-bottom: none;
+  border-radius: 8px 8px 0 0; background: var(--panel-2); color: var(--text-3);
+  font-size: 11.5px; cursor: pointer; position: relative; top: 1px;
+  transition: color .15s, background .15s;
+}
+.sess-tab:hover { color: var(--text); }
+.sess-tab.active {
+  background: var(--bg); color: var(--text); border-color: var(--line);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.sess-tab .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.sess-tab .ico { display: grid; place-items: center; opacity: .8; flex: none; }
+.sess-tab .ico svg { width: 12px; height: 12px; }
+.sess-tab .x { display: grid; place-items: center; color: var(--text-3); opacity: 0; flex: none; }
+.sess-tab .x svg { width: 11px; height: 11px; }
+.sess-tab:hover .x, .sess-tab.active .x { opacity: .65; }
+.sess-tab .x:hover { color: var(--danger); opacity: 1; }
+.sess-tab .stop-spin {
+  width: 11px; height: 11px; border-radius: 50%; flex: none;
+  border: 1.5px solid var(--accent-line); border-top-color: var(--accent);
+  animation: spin .9s linear infinite;
+}
+.sess-tab .stop-spin:hover { border-top-color: var(--danger); }
+.tab-new {
+  flex: none; display: grid; place-items: center; width: 22px; height: 22px;
+  margin-bottom: 3px; border-radius: 6px; color: var(--text-3);
+}
+.tab-new:hover { background: var(--panel-2); color: var(--text); }
+.tab-new svg { width: 13px; height: 13px; }
+.tabs-meta {
+  flex: none; margin: 0 0 7px auto; padding-left: 10px; font-size: 11px;
+  color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.tabs-meta b { color: var(--accent); font-weight: 600; }
+
+/* 历史列表里的「生成中」小转圈 */
+.node-row .run-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex: none;
+  border: 1.5px solid var(--line); border-top-color: var(--accent);
+  animation: spin .9s linear infinite;
+}
+.node-row.running .node-name { color: var(--text); }
+
 .messages { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 22px 0 16px; scroll-behavior: auto; }
 .msg-wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
 

@@ -53,6 +53,7 @@
     maxWall: 300,
     maxLoops: 16,
     maxOut: 0,
+    maxParallel: 3,
     memory: true,
     titleGen: true,
     proxy: '',
@@ -618,7 +619,9 @@
     const conv = run.conv;
     const maxLoops = Math.max(1, Number(cfg.get('maxLoops')) || 16);
     const budget = { start: Date.now(), calls: 0, inTok: 0, outTok: 0, cost: 0 };
-    AH.tools.UNDO.begin();
+    // 撤销栈与结果去重都按 run 隔离：多个对话并行时不互相污染
+    AH.tools.UNDO.beginFor(run);
+    run._seenResults = new Map();
     let loops = 0;
     let lastRound = null;
 
@@ -629,7 +632,7 @@
       const over = checkBudget(budget);
       if (over.length) {
         await settleDanglingTools(conv, '预算超限，未执行');
-        AH.tools.UNDO.commit();
+        AH.tools.UNDO.commitFor(run);
         run.hooks.error('⛔ 已停止：' + over.join('；') + '。本轮完成 ' + loops + ' 次模型调用。');
         return;
       }
@@ -693,7 +696,7 @@
         });
 
         for (const r of results) {
-          const text = await trimToolResult(r.result, conv);
+          const text = await trimToolResult(r.result, conv, run);
           conv.push({ role: 'tool', tool_call_id: r.tc.id, content: text });
         }
 
@@ -714,7 +717,7 @@
     if (loops >= maxLoops && !run.awaitUser) {
       run.hooks.error('⚠ 达到最大工具循环次数（' + maxLoops + '），任务可能未完成。可在设置 → Agent 调大。');
     }
-    AH.tools.UNDO.commit();
+    AH.tools.UNDO.commitFor(run);
   }
 
   function checkBudget(b) {
@@ -767,9 +770,8 @@
     for (const id of declared) if (!conv.some((m) => m.role === 'tool' && m.tool_call_id === id)) conv.push({ role: 'tool', tool_call_id: id, content: text });
   }
 
-  /* 工具结果入上下文前压缩 + 去重 */
-  const resultSeen = new Map();
-  async function trimToolResult(text, conv) {
+  /* 工具结果入上下文前压缩 + 去重（去重表按 run 隔离，避免跨对话误判） */
+  async function trimToolResult(text, conv, run) {
     const s = String(text == null ? '' : text);
     if (s.length <= 30000) return s;
     const head = U.cut(s, 22000);
@@ -777,10 +779,11 @@
     const pruned = head + '\n\n…（工具结果过长，中间已省略 ' + (s.length - 28000) + ' 字符）…\n\n' + tail;
     // 完全相同的大结果只保留一次，其余用占位符（避免重复读同一文件烧 token）
     if (s.length > 3000) {
+      if (!run._seenResults) run._seenResults = new Map();
       const h = U.hash(s);
-      const prev = resultSeen.get(h);
+      const prev = run._seenResults.get(h);
       if (prev != null) return '[与第 ' + prev + ' 条工具结果完全相同，已省略]';
-      resultSeen.set(h, conv.filter((m) => m.role === 'tool').length + 1);
+      run._seenResults.set(h, conv.filter((m) => m.role === 'tool').length + 1);
     }
     return pruned;
   }

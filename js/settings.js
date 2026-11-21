@@ -106,6 +106,7 @@
     $('cfgMaxOut').value = cfg.get('maxOut') || '';
     $('cfgMaxLoops').value = cfg.get('maxLoops') || 16;
     $('cfgAgentMode').value = cfg.get('agentMode') || 'auto';
+    $('cfgMaxParallel').value = String(cfg.get('maxParallel') || 3);
     $('cfgSystem').value = cfg.get('systemPrompt') || AH.agent.DEFAULT_SYSTEM;
     $('cfgLazy').checked = cfg.get('lazyTools') !== false;
     $('cfgToolTimeout').value = cfg.get('toolTimeoutSec') || 120;
@@ -168,6 +169,10 @@
     $('cfgMaxOut').addEventListener('change', () => cfg.set('maxOut', Math.max(0, parseInt($('cfgMaxOut').value, 10) || 0)));
     $('cfgMaxLoops').addEventListener('change', () => cfg.set('maxLoops', Math.max(1, Math.min(60, parseInt($('cfgMaxLoops').value, 10) || 16))));
     $('cfgAgentMode').addEventListener('change', () => { cfg.set('agentMode', $('cfgAgentMode').value); });
+    $('cfgMaxParallel').addEventListener('change', () => {
+      cfg.set('maxParallel', U.clamp(parseInt($('cfgMaxParallel').value, 10) || 3, 1, 5));
+      AH.chat.updateRunningUI && AH.chat.updateRunningUI();
+    });
     $('cfgLazy').addEventListener('change', () => cfg.set('lazyTools', $('cfgLazy').checked));
     $('cfgToolTimeout').addEventListener('change', () => cfg.set('toolTimeoutSec', Math.max(10, Math.min(900, parseInt($('cfgToolTimeout').value, 10) || 120))));
     $('cfgMaxCalls').addEventListener('change', () => cfg.set('maxCalls', Math.max(0, parseInt($('cfgMaxCalls').value, 10) || 0)));
@@ -331,9 +336,8 @@
       const ok = await AH.ui.confirm({ title: '清空全部对话', text: '所有会话与存档文件会被删除，VFS 其他文件不受影响。', danger: true });
       if (!ok) return;
       for (const s of AH.chat.sessions) await AH.db.del('kv', 'conv:' + s.id);
-      AH.chat.sessions = [];
-      AH.chat.currentId = null;
-      AH.chat.conv = [];
+      if (AH.chat.resetAll) AH.chat.resetAll();
+      else { AH.chat.sessions = []; AH.chat.currentId = null; AH.chat.conv = []; }
       await AH.db.put('kv', { k: 'session_index', v: [] });
       await AH.chat.newSession();
       AH.ui.toast('已清空全部对话', 'ok');
@@ -382,7 +386,8 @@
       const exported = await AH.vfs.exportFiles();
       const sessions = [];
       for (const s of AH.chat.sessions) {
-        sessions.push({ meta: s, conv: await AH.chat.loadConv(s.id) });
+        const live = AH.chat.snapshotConv ? AH.chat.snapshotConv(s.id) : null;
+        sessions.push({ meta: s, conv: live || await AH.chat.loadConv(s.id) });
       }
       const data = {
         app: 'xiaohe',
