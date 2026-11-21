@@ -1113,6 +1113,10 @@
     scrollToBottom(view, true);
   }
 
+  // 超长思考只渲染尾部窗口，避免每次 delta 重写整段大文本把主线程拖死
+  const LIVE_THINKING_LIMIT = 12000;
+  const LIVE_THINKING_TAIL = 3000;
+
   function createLiveAssistant(run) {
     const view = viewOf(run.session.id);
     const wrap = document.createElement('div');
@@ -1138,6 +1142,7 @@
       cursorEl: null,
       text: '',
       thinking: '',
+      thinkingRendered: '',
       cards: new Map(),
       cardsWrap: null,
       finished: false,
@@ -1183,7 +1188,19 @@
       const stick = atBottom(view.msgs, 80);
       if (state.thinking) {
         ensureThinking();
-        state.thinkingBody.textContent = state.thinking;
+        const full = state.thinking;
+        if (!state.finished && full.length > LIVE_THINKING_LIMIT) {
+          const shown = '…（前文省略，思考中 ' + full.length + ' 字）\n' + full.slice(-LIVE_THINKING_TAIL);
+          if (state.thinkingRendered !== shown) state.thinkingBody.textContent = shown;
+          state.thinkingRendered = shown;
+        } else if (!state.thinkingRendered || full.startsWith(state.thinkingRendered)) {
+          const delta = full.slice(state.thinkingRendered.length);
+          if (delta) state.thinkingBody.appendChild(document.createTextNode(delta));
+          state.thinkingRendered = full;
+        } else {
+          state.thinkingBody.textContent = full;
+          state.thinkingRendered = full;
+        }
       }
       if (state.text) {
         ensureBody();
@@ -1207,7 +1224,8 @@
 
     // 根据当前文本长度决定下一次允许渲染的时间
     const renderInterval = () => {
-      const n = state.text.length;
+      // 思考内容也算进自适应节流，长思考时把刷新频率逐步降到 260ms
+      const n = Math.max(state.text.length, Math.min(state.thinking.length, LIVE_THINKING_LIMIT));
       if (n < 1200) return 60;
       if (n < 4000) return 120;
       if (n < 10000) return 180;
@@ -1345,7 +1363,10 @@
         if (lbl) lbl.textContent = '思考过程';
         const spin = state.thinkingEl.querySelector('.spin');
         if (spin) spin.remove();
-        if (state.thinkingBody) state.thinkingBody.textContent = state.thinking;
+        if (state.thinkingBody && state.thinkingBody.textContent !== state.thinking) {
+          state.thinkingBody.textContent = state.thinking;
+        }
+        state.thinkingRendered = state.thinking;
       }
       if (state.text) {
         ensureBody();
