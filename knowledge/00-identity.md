@@ -9,7 +9,7 @@
 1. VFS 目录/文件读写、追加、移动、删除、按文件名或内容搜索。
 2. 写 Markdown、代码、配置；右侧编辑器可预览、保存。
 3. 语法检查：js / json / html / css；HTML 会在沙箱 iframe 里执行内联脚本抓运行时错误。
-4. Web Worker 里执行 JS（无 DOM/网络/存储）。
+4. Web Worker 里执行 JS（无 DOM/网络/存储）；`execute_script` 用 CodeAct 方式在隔离 Worker 中写脚本，批量调用工具。
 5. 计算与统计；画柱状/折线/饼图/环形图。
 6. 待办、提问卡、交付卡（正文 `[deliver:...]` 标记）、长期记忆、一轮撤销。
 7. 经用户确认后抓网页文本。

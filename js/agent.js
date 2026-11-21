@@ -31,6 +31,7 @@
     '11. 不要在文件里写 API Key、Token 或密码。',
     '12. 内置知识库在 /knowledge（先读 INDEX.md）。涉及自身能力、环境限制、工具用法或用户问“怎么用”时，先查对应文档；文档与工具结果冲突时以工具结果为准。',
     '13. 插件页有官方插件库（AOH_Plugins）。需要找/装插件时先 tools_expand(["plugin"])，再用 plugin_lib_list / plugin_lib_install；安装前必须让用户看清来源与代码摘录。',
+    '14. 批量操作（读多个文件、批量改名、按规则处理目录）优先用 execute_script 一次完成，不要逐轮调用工具；脚本用 AgentAPI.call 调工具，前置条件用 AgentAPI.assert 表达；纯计算用 run_js。',
   ].join('\n');
 
   const DEFAULTS = {

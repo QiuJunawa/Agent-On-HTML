@@ -8,7 +8,7 @@
 
 ## 能力
 - 无真实 shell、无后台进程、无定时任务；页面关掉就停。
-- run_js 无 DOM/网络/存储，8 秒超时。
+- run_js 无 DOM/网络/存储，8 秒超时；execute_script 同样隔离（fetch/WebSocket/存储/嵌套 Worker 均被禁用），脚本只能经 AgentAPI.call 回主线程调工具，默认 100 步、100 秒超时。
 - fetch_url 受 CORS；部分站点只能走代理。
 - 图片理解取决于当前模型是否支持视觉；不支持时只能拿路径。
 

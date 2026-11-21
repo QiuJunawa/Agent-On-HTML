@@ -1,6 +1,6 @@
 # 20 · 工具速查
 
-默认只下发 4 个核心文件工具 + `tools_expand`；需要其他分组时先展开，省 token。
+默认只下发 5 个核心工具（4 个文件工具 + `execute_script`）与 `tools_expand`；需要其他分组时先展开，省 token。
 
 ## 文件系统 fs
 `list_files` / `read_file` / `write_file` / `append_file` / `edit_file` / `delete_path` / `move_path` / `create_dir` / `search_files`
@@ -19,7 +19,10 @@
 - 收尾交付不要额外调用工具：在正文单独一行写 `[deliver:标题 | 描述 | /文件1, /文件2]`，界面会渲染成交付卡。
 
 ## 计算与代码 compute
-`calculator`、`statistics`、`run_js`（Worker，8 秒）、`check_code`、`wait`（≤60 秒）。
+`calculator`、`statistics`、`run_js`（Worker，8 秒）、`execute_script`（CodeAct：Worker 里写脚本，`AgentAPI.call` 批量调工具）、`check_code`、`wait`（≤60 秒）。
+- `run_js` 只做纯计算，不能调工具；批量读文件、改名、按目录处理用 `execute_script`。
+- `execute_script` 的 `onError`：`abort` 默认终止、`continue` 返回 null 并记录、`retry` 重试 2 次；`maxSteps` 默认 100；危险操作仍逐个确认。
+- 脚本 Worker 内没有网络、浏览器存储和嵌套 Worker；文件读写与工具调用都经 `AgentAPI` 回主线程，受白名单、步数和确认框约束。
 
 ## 可视化 media
 `render_chart`：bar / line / pie / doughnut。

@@ -1,7 +1,7 @@
 /* ============================================================
    tools.js · 工具定义、分组、执行器
    设计要点：
-   - 工具定义只写一份，按分组懒加载（默认只下发 4 个核心工具）
+   - 工具定义只写一份，按分组懒加载（默认只下发 5 个核心工具）
    - 所有写操作先记快照，支持一轮撤销
    - 危险操作走统一确认框，可按会话记住
    - 只读工具的结果在本轮内可复用，避免重复读同一文件
@@ -107,6 +107,13 @@
     run_js: S('run_js', '在 Web Worker 沙箱执行 JavaScript（无 DOM/网络/存储，超时 8 秒）。console.log 与最后结果会被返回。', {
       code: { type: 'string', description: '代码' }
     }, ['code']),
+    execute_script: S('execute_script', 'CodeAct 批量执行：在隔离 Worker 里写一段脚本，用 AgentAPI.VFS 只读文件、AgentAPI.call 调工具、AgentAPI.log / AgentAPI.assert / AgentAPI.sleep 控制流程。危险操作仍会逐个弹确认。与 run_js 的分工：run_js 只做纯计算，不能调工具；批量读文件、改名、按目录处理用本工具。', {
+      code: { type: 'string', description: 'JS 代码；可用 AgentAPI.VFS / AgentAPI.call / AgentAPI.log / AgentAPI.assert / AgentAPI.sleep' },
+      onError: { type: 'string', enum: ['abort', 'continue', 'retry'], description: '工具调用失败策略，默认 abort；continue 返回 null 并记录错误，retry 重试 2 次' },
+      maxSteps: { type: 'integer', description: '最多工具调用步数，默认 100，上限 500' },
+      allowedTools: { type: 'array', items: { type: 'string' }, description: '可选：允许调用的工具白名单；默认=所有未禁用工具' },
+      check: { type: 'boolean', description: '可选：执行前先做 JS 语法检查' }
+    }, ['code']),
     check_code: S('check_code', '语法检查（不执行）：js / json / html / css。HTML 会在沙箱 iframe 里真实执行内联脚本，抓运行时错误。', {
       path: { type: 'string', description: 'VFS 文件路径（与 code 二选一）' },
       code: { type: 'string', description: '直接给代码' },
@@ -211,14 +218,14 @@
     fs: { label: '文件系统', tools: ['list_files', 'read_file', 'write_file', 'append_file', 'edit_file', 'delete_path', 'move_path', 'create_dir', 'search_files'] },
     net: { label: '网络', tools: ['fetch_url'] },
     task: { label: '任务与交互', tools: ['todo_add', 'todo_done', 'todo_remove', 'todo_list', 'ask_user'] },
-    compute: { label: '计算与代码', tools: ['calculator', 'statistics', 'run_js', 'check_code', 'wait'] },
+    compute: { label: '计算与代码', tools: ['calculator', 'statistics', 'run_js', 'execute_script', 'check_code', 'wait'] },
     media: { label: '可视化', tools: ['render_chart'] },
     system: { label: '撤销、记忆与后台任务', tools: ['undo_last', 'undo_list', 'task_status', 'task_cancel', 'remember'] },
     git: { label: 'Git 仓库', tools: ['git_list', 'git_read', 'git_write', 'git_delete', 'git_commit_batch'] },
     plugin: { label: '插件与插件库', tools: ['plugin_list', 'plugin_create', 'plugin_update', 'plugin_delete', 'plugin_toggle', 'plugin_lib_list', 'plugin_lib_install'] }
   };
   const GROUP_ORDER = ['fs', 'net', 'task', 'compute', 'media', 'system', 'git', 'plugin'];
-  const CORE = ['list_files', 'read_file', 'write_file', 'edit_file'];
+  const CORE = ['list_files', 'read_file', 'write_file', 'edit_file', 'execute_script'];
 
   const ALL = { ...SPECS, tools_expand: TOOL_EXPAND };
 
@@ -546,12 +553,279 @@
   }
 
   /* ============================================================
-     代码检查
+     批量脚本：Worker 隔离 + RPC 回主线程执行工具
      ============================================================ */
+  const SCRIPT_TIMEOUT = 100000; // 低于默认工具超时 120s，避免被转后台
+
+  const SCRIPT_WORKER_SRC = `
+    "use strict";
+    const off = (k, v) => {
+      try { Object.defineProperty(self, k, { value: v, writable: false, configurable: false }); }
+      catch (e) { try { self[k] = v; } catch (e2) {} }
+      let o = self;
+      while (o) {
+        try {
+          const desc = Object.getOwnPropertyDescriptor(o, k);
+          if (desc && desc.configurable) delete o[k];
+        } catch (e) {}
+        try { o = Object.getPrototypeOf(o); } catch (e) { break; }
+      }
+    };
+    ['fetch', 'XMLHttpRequest', 'WebSocket', 'WebSocketStream', 'WebTransport', 'RTCPeerConnection', 'EventSource', 'BroadcastChannel', 'indexedDB', 'localStorage', 'document', 'window', 'caches', 'Worker', 'SharedWorker', 'close', 'navigator'].forEach((k) => off(k, undefined));
+    off('importScripts', () => { throw new Error('importScripts 已禁用'); });
+    let runId = null, aborted = false, seq = 0;
+    const pending = new Map();
+    const fmt = (v) => {
+      if (typeof v === 'string') return v;
+      try { return JSON.stringify(v); } catch (e) { return String(v); }
+    };
+    const rpc = (method, payload) => new Promise((resolve, reject) => {
+      if (aborted) return reject(new Error('用户已停止脚本'));
+      const id = ++seq;
+      pending.set(id, { resolve, reject });
+      self.postMessage({ type: 'rpc', runId, id, method, payload });
+    });
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    self.onmessage = async (e) => {
+      const d = e.data || {};
+      if (d.type === 'abort') {
+        aborted = true;
+        for (const [id, p] of pending) { pending.delete(id); p.reject(new Error('用户已停止脚本')); }
+        return;
+      }
+      if (d.type === 'rpcResult') {
+        const p = pending.get(d.id);
+        if (!p) return;
+        pending.delete(d.id);
+        if (d.ok) p.resolve(d.result);
+        else p.reject(new Error(d.error || '工具调用失败'));
+        return;
+      }
+      if (d.type !== 'start') return;
+      runId = d.runId;
+      const logs = [];
+      const errors = [];
+      const takeLog = (...a) => { if (logs.length < 100) logs.push(a.map(fmt).join(' ').slice(0, 1000)); };
+      const fakeConsole = { log: takeLog, info: takeLog, warn: takeLog, error: takeLog, debug: takeLog };
+      const policy = d.onError === 'continue' || d.onError === 'retry' ? d.onError : 'abort';
+      let step = 0;
+      const call = async (tool, args) => {
+        let attempt = 0;
+        while (true) {
+          step++;
+          if (step > d.maxSteps) {
+            self.postMessage({ type: 'limit', runId, step, max: d.maxSteps });
+            throw new Error('脚本超过 maxSteps=' + d.maxSteps + ' 步');
+          }
+          try {
+            return await rpc('call', { tool: String(tool || ''), args: args && typeof args === 'object' ? args : {}, attempt });
+          } catch (e) {
+            if (aborted) throw e;
+            const err = e && e.message || String(e);
+            errors.push({ tool: String(tool || ''), error: String(err) });
+            if (policy === 'continue') return null;
+            if (policy === 'retry' && attempt < 2) { await sleep(400 * (attempt + 1)); attempt++; continue; }
+            throw new Error(err);
+          }
+        }
+      };
+      const VFS = {
+        meta: () => rpc('vfs', { op: 'meta' }),
+        readFile: (p) => rpc('vfs', { op: 'read', path: String(p) }),
+        exists: (p) => rpc('vfs', { op: 'exists', path: String(p) }),
+        stat: (p) => rpc('vfs', { op: 'stat', path: String(p) }),
+        listDir: (p) => rpc('vfs', { op: 'list', path: String(p) })
+      };
+      const assert = {
+        exists: async (p) => { if (!await VFS.exists(p)) throw new Error('路径不存在：' + p); },
+        isFile: async (p) => { const s = await VFS.stat(p); if (!s || s.type !== 'file') throw new Error('不是文件：' + p); },
+        isDir: async (p) => { const s = await VFS.stat(p); if (!s || s.type !== 'dir') throw new Error('不是目录：' + p); }
+      };
+      const signal = { get aborted() { return aborted; }, throwIfAborted() { if (aborted) throw new Error('用户已停止脚本'); } };
+      const AgentAPI = { VFS, call, log: takeLog, sleep, assert, signal };
+      try {
+        const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor;
+        const fn = new AsyncFunction('AgentAPI', 'console', d.code);
+        const result = await fn(AgentAPI, fakeConsole);
+        const ok = true;
+        self.postMessage({ type: 'done', runId, ok, logs, result: result === undefined ? '' : fmt(result) });
+      } catch (err) {
+        self.postMessage({ type: 'done', runId, ok: false, logs, error: (err && err.name ? err.name + ': ' : '') + (err && err.message || err) });
+      }
+    };
+  `;
+
+  function clipArgs(args) {
+    try { return U.clip(JSON.stringify(args || {}), 280); }
+    catch (e) { return '{}'; }
+  }
+
+  function scriptResult(r) {
+    const data = {
+      ok: !!r.ok,
+      steps: r.steps || [],
+      errors: r.errors || [],
+      logs: (r.logs || []).slice(-100),
+      totalMs: r.totalMs || 0
+    };
+    if (r.error) data.error = String(r.error);
+    if (r.aborted) data.aborted = true;
+    if (r.result) data.result = U.clip(String(r.result), 3000);
+    let json = JSON.stringify(data);
+    if (json.length > 8000 && data.steps.length) {
+      const total = data.steps.length;
+      data.omitted = Math.max(0, total - 30);
+      data.steps = total > 30
+        ? [...data.steps.slice(0, 20), { i: '…', tool: '…', note: '省略 ' + (total - 30) + ' 步' }, ...data.steps.slice(-10)]
+        : data.steps;
+      json = JSON.stringify(data);
+    }
+    if (json.length > 8000) {
+      data.errors = data.errors.slice(-20);
+      data.logs = data.logs.slice(-20);
+      if (data.result) data.result = U.clip(data.result, 1000);
+      json = JSON.stringify(data);
+    }
+    return json;
+  }
+
+  async function runExecuteScript(a, ctx) {
+    const code = String(a.code || '');
+    if (!code.trim()) throw new Error('code 不能为空');
+    if (code.length > 30000) throw new Error('脚本过长（上限 30000 字符）');
+    if (a.check) {
+      const err = checkAsyncJs(code);
+      if (err) return scriptResult({ ok: false, steps: [], errors: [{ i: 0, tool: 'script', error: err }], logs: [], totalMs: 0 });
+    }
+    const onError = a.onError === 'continue' || a.onError === 'retry' ? a.onError : 'abort';
+    const maxSteps = Math.max(1, Math.min(500, Number(a.maxSteps) || 100));
+    const allowedSet = Array.isArray(a.allowedTools) ? new Set(a.allowedTools.map((x) => String(x)).filter(Boolean)) : null;
+    const runId = U.uid('xs');
+    const startedAt = performance.now();
+    const steps = [], stepErrors = [];
+    let stepCount = 0, finished = false;
+
+    return new Promise((resolve) => {
+      let w = null, url = null, timer = null, abortHandler = null;
+      const finish = (r) => {
+        if (finished) return;
+        finished = true;
+        if (timer) clearTimeout(timer);
+        if (ctx && ctx.signal && abortHandler) {
+          try { ctx.signal.removeEventListener('abort', abortHandler); } catch (e) {}
+        }
+        try { if (w) w.terminate(); } catch (e) {}
+        try { if (url) URL.revokeObjectURL(url); } catch (e) {}
+        resolve(scriptResult(Object.assign({}, r, {
+          steps,
+          errors: stepErrors,
+          totalMs: Math.round(performance.now() - startedAt)
+        })));
+      };
+      const reply = (id, ok, result, error) => {
+        if (finished || !w) return;
+        try { w.postMessage({ type: 'rpcResult', runId, id, ok, result, error }); } catch (e) {}
+      };
+      let chain = Promise.resolve();
+      const enqueue = (fn, id) => { chain = chain.then(fn).catch((e) => reply(id, false, undefined, e && e.message || String(e))); };
+      const handleRpc = async (d) => {
+        if (finished) return;
+        if (d.method === 'vfs') {
+          const p = U.normPath(d.payload && d.payload.path || '/');
+          try {
+            if (d.payload.op === 'meta') return reply(d.id, true, { mode: AH.db.mode, ...VFS.stats() });
+            if (d.payload.op === 'exists') return reply(d.id, true, VFS.exists(p));
+            if (d.payload.op === 'read') return reply(d.id, true, await VFS.read(p));
+            if (d.payload.op === 'stat') {
+              const s = VFS.stat(p);
+              return reply(d.id, true, s ? { path: s.path, type: s.type, size: s.size } : null);
+            }
+            if (d.payload.op === 'list') {
+              return reply(d.id, true, VFS.list(p).map((n) => ({ name: U.baseName(n.path), path: n.path, type: n.type, size: n.size })));
+            }
+            return reply(d.id, false, undefined, '未知 VFS 操作：' + d.payload.op);
+          } catch (e) { return reply(d.id, false, undefined, e.message || String(e)); }
+        }
+        if (d.method !== 'call') return reply(d.id, false, undefined, '未知脚本操作：' + d.method);
+        const tool = String(d.payload && d.payload.tool || '');
+        const args = d.payload && d.payload.args && typeof d.payload.args === 'object' ? d.payload.args : {};
+        const deny = (msg) => {
+          const i = ++stepCount;
+          steps.push({ i, tool, args: clipArgs(args), ok: false, error: msg, ms: 0 });
+          stepErrors.push({ i, tool, error: msg });
+          reply(d.id, false, undefined, msg);
+        };
+        if (tool === 'execute_script') return deny('不允许嵌套 execute_script');
+        if (allowedSet && !allowedSet.has(tool)) return deny('工具未授权：' + tool);
+        if (!AH.tools.SPECS[tool] && !(AH.plugins && AH.plugins.find && AH.plugins.find(tool))) {
+          return deny('未知工具：' + tool);
+        }
+        if (stepCount >= maxSteps) return deny('脚本超过 maxSteps=' + maxSteps + ' 步');
+        const disabled = AH.cfg.get('disabledTools') || [];
+        if (disabled.includes(tool)) return deny('该工具已被用户在设置中禁用：' + tool);
+        const i = ++stepCount;
+        const t0 = performance.now();
+        try {
+          const result = await Tools.execute(tool, args, ctx || { run: null });
+          const text = String(result == null ? '' : result);
+          steps.push({ i, tool, args: clipArgs(args), ok: true, resultLen: text.length, ms: Math.round(performance.now() - t0) });
+          reply(d.id, true, text);
+        } catch (e) {
+          const msg = e && e.message || String(e);
+          steps.push({ i, tool, args: clipArgs(args), ok: false, error: msg, ms: Math.round(performance.now() - t0) });
+          stepErrors.push({ i, tool, error: msg });
+          reply(d.id, false, undefined, msg);
+        }
+      };
+
+      timer = setTimeout(() => finish({ ok: false, error: '脚本执行超时（' + Math.round(SCRIPT_TIMEOUT / 1000) + ' 秒）' }), SCRIPT_TIMEOUT);
+      try {
+        url = URL.createObjectURL(new Blob([SCRIPT_WORKER_SRC], { type: 'text/javascript' }));
+        w = new Worker(url);
+      } catch (e) {
+        return finish({ ok: false, error: '无法创建脚本沙箱：' + (e.message || e) });
+      }
+      w.onmessage = (e) => {
+        if (finished) return;
+        const d = e.data || {};
+        if (d.runId !== runId) return;
+        if (d.type === 'rpc') { enqueue(() => handleRpc(d), d.id); return; }
+        if (d.type === 'limit') {
+          const msg = '脚本超过 maxSteps=' + d.max + ' 步';
+          steps.push({ i: d.step, tool: '（已拒绝）', args: '{}', ok: false, error: msg, ms: 0 });
+          stepErrors.push({ i: d.step, tool: '（已拒绝）', error: msg });
+          return;
+        }
+        if (d.type === 'done') finish({ ok: d.ok, logs: d.logs || [], result: d.result || '', error: d.error || '' });
+      };
+      w.onerror = (e) => finish({ ok: false, error: e.message || '脚本 Worker 运行错误' });
+      if (ctx && ctx.signal) {
+        abortHandler = () => {
+          try { w.postMessage({ type: 'abort', runId }); } catch (e) {}
+          finish({ ok: false, aborted: true, error: '用户已停止脚本' });
+        };
+        if (ctx.signal.aborted) abortHandler();
+        else ctx.signal.addEventListener('abort', abortHandler, { once: true });
+      }
+      if (!finished) w.postMessage({ type: 'start', runId, code, onError, maxSteps });
+    });
+  }
+
+
   function checkJs(code) {
     try {
       // 只做语法解析，不执行
       new Function('"use strict";\n' + String(code || ''));
+      return '';
+    } catch (e) {
+      return e.name + ': ' + e.message;
+    }
+  }
+
+  function checkAsyncJs(code) {
+    try {
+      const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+      new AsyncFunction('AgentAPI', 'console', String(code || ''));
       return '';
     } catch (e) {
       return e.name + ': ' + e.message;
@@ -1002,6 +1276,8 @@
     else parts.push('错误：' + r.error);
     return parts.join('\n\n');
   };
+
+  H.execute_script = async (a, ctx) => runExecuteScript(a, ctx);
 
   H.check_code = async (a, ctx) => {
     let code = a.code;
