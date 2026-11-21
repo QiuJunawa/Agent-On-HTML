@@ -1,7 +1,8 @@
 /* ============================================================
    cloud.js · 跨设备云端同步
-   支持 WebDAV / GitHub Gist / Gitee 代码片段 / 自定义 HTTP 备份
+   支持 Gitee 仓库（逐文件） / WebDAV / GitHub Gist / Gitee 代码片段 / 自定义 HTTP 备份
    快照与本地备份同形：{ app, version, exportedAt, files, sessions, memory, todos, config? }
+   Gitee 仓库后端会把 files 逐个写入仓库，元数据放同步目录下的 .xiaohe/，不生成单个大 JSON。
    ============================================================ */
 (function () {
   const AH = (window.AH = window.AH || {});
@@ -26,6 +27,31 @@
     let bin = '';
     for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
     return 'Basic ' + btoa(bin);
+  }
+
+  function utf8ToB64(str) {
+    const bytes = new TextEncoder().encode(String(str));
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+
+  function b64ToUtf8(b64) {
+    const bin = atob(String(b64 || '').replace(/\s/g, ''));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+
+  function contentHash(text) {
+    // 只用于云端清单判断内容是否变化，不用于 Git 对象校验；跨设备稳定即可。
+    let h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+      h2 = Math.imul(h2 ^ (c + i), 0x85ebca6b) >>> 0;
+    }
+    return h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0') + text.length.toString(16);
   }
 
   async function request(url, opts, label) {
@@ -284,6 +310,295 @@
     };
   }
 
+  function giteeRepoProvider() {
+    const token = s('cloudToken').trim();
+    if (!token) throw new Error('请先填写 Gitee Token');
+
+    const rawRepo = s('cloudGiteeRepo').trim()
+      .replace(/^(?:https?:\/\/)?(?:www\.)?gitee\.com\//i, '')
+      .replace(/\.git$/i, '')
+      .replace(/\/+$/, '');
+    const repoParts = rawRepo.split('/').filter(Boolean);
+    if (repoParts.length !== 2) throw new Error('Gitee 仓库格式应为「用户名/仓库名」');
+    const owner = repoParts[0], name = repoParts[1];
+    const base = s('cloudGiteePath', 'xiaohe').trim().replace(/^\/+|\/+$/g, '');
+    if (base.split('/').some((p) => p === '..')) throw new Error('仓库内同步目录不能包含 ..');
+    const metaDir = (base ? base + '/' : '') + '.xiaohe';
+    const branchCfg = s('cloudGiteeBranch').trim();
+    const apiRoot = s('cloudGiteeApi', 'https://gitee.com/api/v5').replace(/\/+$/g, '');
+    const authHeaders = { Authorization: 'token ' + token };
+    let branchCache = '';
+
+    const encPath = (path) => String(path).split('/').map(encodeURIComponent).join('/');
+    const api = (rest) => apiRoot + '/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(name) + rest;
+    const repoPath = (vfsPath) => {
+      const rel = String(vfsPath || '').replace(/^\/+/, '');
+      if (!rel) throw new Error('不能把空路径同步到仓库');
+      if (rel === '.xiaohe' || rel.indexOf('.xiaohe/') === 0) throw new Error('VFS 路径 .xiaohe 与同步元数据目录冲突');
+      return base ? base + '/' + rel : rel;
+    };
+    const vfsPath = (path) => '/' + String(path).slice(base ? base.length + 1 : 0);
+    const prefix = base ? base + '/' : '';
+
+    async function gfetch(url, label, opts) {
+      const o = Object.assign({}, opts || {});
+      o.headers = Object.assign({}, authHeaders, o.headers || {});
+      return request(url, o, label);
+    }
+
+    async function getBranch() {
+      if (branchCache) return branchCache;
+      if (branchCfg) { branchCache = branchCfg; return branchCache; }
+      const res = await gfetch(api(''), 'Gitee 仓库信息');
+      if (!res.ok) throw httpError(res, await textOf(res), 'Gitee 仓库信息');
+      const j = await jsonOf(res, 'Gitee 仓库信息');
+      branchCache = j.default_branch || 'master';
+      return branchCache;
+    }
+
+    async function getTree() {
+      const branch = await getBranch();
+      const res = await gfetch(api('/git/trees/' + encodeURIComponent(branch) + '?recursive=1'), 'Gitee 文件树');
+      if (!res.ok) throw httpError(res, await textOf(res), 'Gitee 文件树');
+      const j = await jsonOf(res, 'Gitee 文件树');
+      const entries = (j.tree || []).filter((x) => x && x.type === 'blob' && x.path);
+      return { branch, entries, shas: new Map(entries.map((x) => [x.path, x.sha])) };
+    }
+
+    async function readFile(path, branch) {
+      const res = await gfetch(api('/contents/' + encPath(path) + '?ref=' + encodeURIComponent(branch)), 'Gitee 读取 ' + path);
+      if (res.status === 404) return null;
+      if (!res.ok) throw httpError(res, await textOf(res), 'Gitee 读取 ' + path);
+      const j = await jsonOf(res, 'Gitee 读取 ' + path);
+      if (Array.isArray(j)) throw new Error('Gitee 路径是目录而不是文件：' + path);
+      if (j.content) return b64ToUtf8(j.content);
+      if (j.sha) {
+        const blob = await gfetch(api('/git/blobs/' + encodeURIComponent(j.sha)), 'Gitee Blob ' + path);
+        if (blob.ok) {
+          const bj = await jsonOf(blob, 'Gitee Blob ' + path);
+          if (bj.content != null) return b64ToUtf8(bj.content);
+        }
+      }
+      if (j.size === 0) return '';
+      if (j.download_url) {
+        const dl = await gfetch(j.download_url, 'Gitee 原文 ' + path);
+        if (dl.ok) return await textOf(dl);
+      }
+      throw new Error('Gitee 没有返回文件正文：' + path);
+    }
+
+    async function readJson(path, branch) {
+      const text = await readFile(path, branch);
+      if (text == null || text === '') return null;
+      try { return JSON.parse(text); }
+      catch (e) { throw new Error(path + ' 不是合法 JSON：' + e.message); }
+    }
+
+    function managedEntries(entries) {
+      const p = prefix;
+      return entries.filter((x) => x.path.indexOf(p) === 0 &&
+        x.path.slice(p.length) !== '.xiaohe' &&
+        x.path.indexOf(p + '.xiaohe/') !== 0);
+    }
+
+    function parents(path) {
+      const out = [];
+      const rel = String(path).replace(/^\/+/, '');
+      const parts = rel.split('/');
+      for (let i = 1; i < parts.length; i++) out.push('/' + parts.slice(0, i).join('/'));
+      return out;
+    }
+
+    async function get() {
+      const tree = await getTree();
+      const branch = tree.branch;
+      const entries = managedEntries(tree.entries);
+      const has = (path) => tree.entries.some((x) => x.path === path);
+      const manifest = has(metaDir + '/manifest.json') ? await readJson(metaDir + '/manifest.json', branch) : null;
+      if (!manifest && entries.length === 0) return null;
+
+      const manifestFiles = new Map(((manifest && manifest.files) || []).map((f) => [f.path, f]));
+      const files = [];
+      const dirs = new Set((manifest && manifest.dirs) || []);
+      for (const entry of entries) {
+        const content = await readFile(entry.path, branch);
+        if (content == null) continue;
+        const path = vfsPath(entry.path);
+        const old = manifestFiles.get(path);
+        let mtime = Number(old && old.mtime) || Date.now();
+        // 如果仓库里的内容和上次清单不一致，说明在 Gitee 网页/其他客户端改过；
+        // 让这一侧在双向合并时优先，而不是被旧 mtime 压住。
+        if (old && old.hash && old.hash !== contentHash(content)) mtime = Math.max(mtime, Date.now() + 1);
+        files.push({ path, content, mtime });
+        for (const d of parents(path)) dirs.add(d);
+      }
+
+      const data = {
+        app: 'xiaohe',
+        version: 2,
+        exportedAt: Number(manifest && manifest.exportedAt) || Date.now(),
+        files: { dirs: [...dirs], files }
+      };
+
+      const sessionEntries = tree.entries.filter((x) => x.path.indexOf(metaDir + '/sessions/') === 0 && /\.json$/i.test(x.path));
+      if (sessionEntries.length) {
+        data.sessions = [];
+        for (const entry of sessionEntries) {
+          const item = await readJson(entry.path, branch);
+          if (item && item.meta && item.meta.id) data.sessions.push(item);
+        }
+      }
+
+      const memory = has(metaDir + '/memory.json') ? await readJson(metaDir + '/memory.json', branch) : null;
+      if (Array.isArray(memory)) data.memory = memory;
+      const todos = has(metaDir + '/todos.json') ? await readJson(metaDir + '/todos.json', branch) : null;
+      if (Array.isArray(todos)) data.todos = todos;
+      const config = has(metaDir + '/config.json') ? await readJson(metaDir + '/config.json', branch) : null;
+      if (config && typeof config === 'object' && !Array.isArray(config)) data.config = config;
+      return data;
+    }
+
+    async function commitActions(branch, message, actions) {
+      if (!actions.length) return;
+      const chunks = [];
+      let chunk = [], bytes = 0;
+      for (const a of actions) {
+        const size = String(a.content || '').length;
+        if (bytes + size > 8 * 1024 * 1024 && chunk.length) {
+          chunks.push(chunk); chunk = []; bytes = 0;
+        }
+        chunk.push(a); bytes += size;
+      }
+      if (chunk.length) chunks.push(chunk);
+
+      for (let i = 0; i < chunks.length; i++) {
+        const batch = chunks[i];
+        const body = { access_token: token, branch, message: message + (chunks.length > 1 ? ' (' + (i + 1) + '/' + chunks.length + ')' : ''), actions: batch };
+        let res = await gfetch(api('/commits'), 'Gitee 提交', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          timeout: 120000
+        });
+        if (!res.ok) {
+          // 文件树过期或 create/update 判断错误时，逐项探测后重试一次
+          const fixed = [];
+          for (const a of batch) {
+            if (a.action === 'delete') { fixed.push(a); continue; }
+            const probe = await gfetch(api('/contents/' + encPath(a.path) + '?ref=' + encodeURIComponent(branch)), 'Gitee 探测 ' + a.path);
+            let exists = probe.ok;
+            if (exists) {
+              const pj = await jsonOf(probe, 'Gitee 探测 ' + a.path);
+              if (Array.isArray(pj)) exists = false;
+            }
+            fixed.push(Object.assign({}, a, { action: exists ? 'update' : 'create' }));
+          }
+          res = await gfetch(api('/commits'), 'Gitee 提交', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.assign({}, body, { actions: fixed })),
+            timeout: 120000
+          });
+        }
+        if (!res.ok) throw httpError(res, await textOf(res), 'Gitee 提交');
+      }
+    }
+
+    async function put(data) {
+      if (!data || !data.files || !Array.isArray(data.files.files)) throw new Error('同步数据格式不正确');
+      const tree = await getTree();
+      const branch = tree.branch;
+      const oldManifest = tree.entries.some((x) => x.path === metaDir + '/manifest.json')
+        ? await readJson(metaDir + '/manifest.json', branch)
+        : null;
+      const actions = new Map();
+      const manifestFiles = [];
+      const manifestDirs = new Set(Array.isArray(data.files.dirs) ? data.files.dirs : []);
+      const oldFiles = new Set(((oldManifest && oldManifest.files) || []).map((f) => f.repo || repoPath(f.path)));
+      const sessionFiles = [];
+      const oldSessions = new Set(((oldManifest && oldManifest.sessions) || []).map((x) => x.repo || x.path).filter(Boolean));
+      const newSessionRepos = new Set();
+
+      const addFile = (path, content) => {
+        const isDataUrl = /^data:[\w.+-]+\/[\w.+-]+(;[\w-]+=[\w-]+)*;base64,/i.test(content);
+        actions.set(path, {
+          path,
+          action: tree.shas.has(path) ? 'update' : 'create',
+          content: isDataUrl ? content : utf8ToB64(content),
+          encoding: isDataUrl ? 'text' : 'base64'
+        });
+      };
+
+      for (const file of data.files.files) {
+        if (!file || !file.path) continue;
+        const path = repoPath(file.path);
+        const content = String(file.content == null ? '' : file.content);
+        addFile(path, content);
+        manifestFiles.push({
+          path: file.path,
+          repo: path,
+          mtime: Number(file.mtime) || Date.now(),
+          hash: contentHash(content),
+          size: content.length
+        });
+        for (const d of parents(file.path)) manifestDirs.add(d);
+      }
+
+      if (Array.isArray(data.sessions)) {
+        for (const item of data.sessions) {
+          if (!item || !item.meta || !item.meta.id) continue;
+          const filename = String(item.meta.id).replace(/[^\w.-]/g, '_') + '.json';
+          const path = metaDir + '/sessions/' + filename;
+          newSessionRepos.add(path);
+          sessionFiles.push({ id: item.meta.id, repo: path, updatedAt: Number(item.meta.updatedAt) || 0 });
+          addFile(path, JSON.stringify(item, null, 2));
+        }
+        for (const path of oldSessions) if (!newSessionRepos.has(path)) actions.set(path, { action: 'delete', path });
+      }
+
+      if (Array.isArray(data.memory)) addFile(metaDir + '/memory.json', JSON.stringify(data.memory, null, 2));
+      if (Array.isArray(data.todos)) addFile(metaDir + '/todos.json', JSON.stringify(data.todos, null, 2));
+      if (data.config && typeof data.config === 'object' && !Array.isArray(data.config)) {
+        addFile(metaDir + '/config.json', JSON.stringify(data.config, null, 2));
+      } else if (oldManifest && oldManifest.config) {
+        actions.set(metaDir + '/config.json', { action: 'delete', path: metaDir + '/config.json' });
+      }
+
+      for (const repo of oldFiles) {
+        if (!actions.has(repo)) actions.set(repo, { action: 'delete', path: repo });
+      }
+
+      const manifest = {
+        app: 'xiaohe-cloud',
+        version: 2,
+        base,
+        exportedAt: Number(data.exportedAt) || Date.now(),
+        dirs: [...manifestDirs],
+        files: manifestFiles.sort((a, b) => a.path.localeCompare(b.path)),
+        sessions: sessionFiles.sort((a, b) => a.id.localeCompare(b.id)),
+        config: !!(data.config && typeof data.config === 'object')
+      };
+      addFile(metaDir + '/manifest.json', JSON.stringify(manifest, null, 2));
+
+      await commitActions(branch, 'xiaohe sync: ' + manifestFiles.length + ' files', [...actions.values()]);
+      return { files: manifestFiles.length, branch, base };
+    }
+
+    return {
+      id: 'giteeRepo',
+      label: 'Gitee 仓库',
+      get,
+      put,
+      async test() {
+        const tree = await getTree();
+        const entries = managedEntries(tree.entries);
+        const manifest = await readJson(metaDir + '/manifest.json', tree.branch);
+        if (manifest) return '连接正常：' + owner + '/' + name + ' · ' + (base || '根目录') + ' · ' + entries.length + ' 个文件';
+        return '连接正常：' + owner + '/' + name + ' · 分支 ' + tree.branch + '；首次上传会创建 ' + (base || '根目录') + ' 目录';
+      }
+    };
+  }
+
   function customProvider() {
     const url = s('cloudUrl').trim();
     if (!url) throw new Error('请先填写自定义备份接口 URL');
@@ -322,6 +637,7 @@
   function provider() {
     const b = backend();
     if (b === 'gist') return gistProvider();
+    if (b === 'giteeRepo') return giteeRepoProvider();
     if (b === 'gitee') return giteeProvider();
     if (b === 'custom') return customProvider();
     return webdavProvider();
@@ -483,6 +799,10 @@
         cloudToken: cfg.get('cloudToken'),
         cloudGistId: cfg.get('cloudGistId'),
         cloudFile: cfg.get('cloudFile'),
+        cloudGiteeRepo: cfg.get('cloudGiteeRepo'),
+        cloudGiteeBranch: cfg.get('cloudGiteeBranch'),
+        cloudGiteePath: cfg.get('cloudGiteePath'),
+        cloudGiteeApi: cfg.get('cloudGiteeApi'),
         cloudIncludeSessions: cfg.get('cloudIncludeSessions'),
         cloudIncludeConfig: cfg.get('cloudIncludeConfig'),
         cloudLastAt: cfg.get('cloudLastAt')
@@ -513,7 +833,9 @@
     const urlLabel = $('cloudUrlLabel');
     if (urlLabel) urlLabel.textContent = b === 'custom' ? '备份接口 URL' : 'WebDAV 文件 URL';
     const tokenLabel = $('cloudTokenLabel');
-    if (tokenLabel) tokenLabel.textContent = b === 'gitee' ? 'Gitee Token' : (b === 'gist' ? 'GitHub Token' : 'Bearer Token（可选）');
+    if (tokenLabel) tokenLabel.textContent =
+      (b === 'gitee' || b === 'giteeRepo') ? 'Gitee Token' :
+      (b === 'gist' ? 'GitHub Token' : 'Bearer Token（可选）');
     const fileLabel = $('cloudFileLabel');
     if (fileLabel) fileLabel.textContent = b === 'gitee' ? '代码片段文件名' : 'Gist 文件名';
     C.status();
@@ -528,6 +850,9 @@
     $('cfgCloudToken').value = s('cloudToken');
     $('cfgCloudGistId').value = s('cloudGistId');
     $('cfgCloudFile').value = fileName();
+    $('cfgCloudGiteeRepo').value = s('cloudGiteeRepo');
+    $('cfgCloudGiteeBranch').value = s('cloudGiteeBranch');
+    $('cfgCloudGiteePath').value = cfg.get('cloudGiteePath') == null ? 'xiaohe' : String(cfg.get('cloudGiteePath'));
     $('cfgCloudIncludeSessions').checked = cfg.get('cloudIncludeSessions') !== false;
     $('cfgCloudIncludeConfig').checked = !!cfg.get('cloudIncludeConfig');
     syncFields();
@@ -641,6 +966,9 @@
     bindText('cfgCloudToken', 'cloudToken', true);
     bindText('cfgCloudGistId', 'cloudGistId', true);
     bindText('cfgCloudFile', 'cloudFile', true);
+    bindText('cfgCloudGiteeRepo', 'cloudGiteeRepo', true);
+    bindText('cfgCloudGiteeBranch', 'cloudGiteeBranch', true);
+    bindText('cfgCloudGiteePath', 'cloudGiteePath', true);
 
     const backendEl = $('cfgCloudBackend');
     if (backendEl) backendEl.addEventListener('change', () => {

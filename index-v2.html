@@ -427,6 +427,7 @@
           <div class="field">
             <label>同步后端</label>
             <select id="cfgCloudBackend">
+              <option value="giteeRepo">Gitee 仓库（逐文件，推荐）</option>
               <option value="webdav">WebDAV（坚果云 / Nextcloud）</option>
               <option value="gist">GitHub Gist（私有）</option>
               <option value="gitee">Gitee 代码片段</option>
@@ -451,10 +452,27 @@
             </div>
           </div>
 
-          <div class="field cloud-only" data-cloud-for="gist gitee custom">
+          <div class="two-col cloud-only" data-cloud-for="giteeRepo">
+            <div class="field">
+              <label>Gitee 仓库</label>
+              <input id="cfgCloudGiteeRepo" type="text" autocomplete="off" placeholder="用户名/仓库名">
+            </div>
+            <div class="field">
+              <label>分支</label>
+              <input id="cfgCloudGiteeBranch" type="text" autocomplete="off" placeholder="留空=默认分支">
+            </div>
+          </div>
+
+          <div class="field cloud-only" data-cloud-for="giteeRepo">
+            <label>仓库内同步目录</label>
+            <input id="cfgCloudGiteePath" type="text" autocomplete="off" placeholder="xiaohe">
+            <div class="hint">VFS 文件按路径逐个写入该目录；对话、记忆、待办放在 .xiaohe 元数据目录。留空表示仓库根目录。</div>
+          </div>
+
+          <div class="field cloud-only" data-cloud-for="gist gitee giteeRepo custom">
             <label id="cloudTokenLabel">访问令牌</label>
             <input id="cfgCloudToken" type="password" autocomplete="off" placeholder="只存本机 localStorage">
-            <div class="hint">GitHub 需要 gist 权限；Gitee 需要 projects / gists 权限。自定义接口可留空。</div>
+            <div class="hint">GitHub 需要 gist 权限；Gitee 仓库需要 projects / repo 读写权限。自定义接口可留空。</div>
           </div>
 
           <div class="two-col cloud-only" data-cloud-for="gist gitee">
