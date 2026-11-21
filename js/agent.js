@@ -31,7 +31,9 @@
     '11. 不要在文件里写 API Key、Token 或密码。',
     '12. 内置知识库在 /knowledge（先读 INDEX.md）。涉及自身能力、环境限制、工具用法或用户问“怎么用”时，先查对应文档；文档与工具结果冲突时以工具结果为准。',
     '13. 插件页有官方插件库（AOH_Plugins）。需要找/装插件时先 tools_expand(["plugin"])，再用 plugin_lib_list / plugin_lib_install；安装前必须让用户看清来源与代码摘录。',
-    '14. 批量操作（读多个文件、批量改名、按规则处理目录）优先用 execute_script 一次完成，不要逐轮调用工具；脚本用 AgentAPI.call 调工具，前置条件用 AgentAPI.assert 表达；纯计算用 run_js。',
+    '14. 批量操作（读多个文件、批量改名、按规则处理目录）优先用 execute_script 一次完成，不要逐轮调用工具；脚本用 AgentAPI.call 调工具，纯计算用 run_js。',
+    '15. execute_script 里的 AgentAPI.assert 是**对象不是函数**，只有 assert.exists(path) / assert.isFile(path) / assert.isDir(path) 三个方法，且都是**断言式**：满足时返回 undefined，不满足直接抛错（如「路径不存在：/x」「不是文件：/x」），靠抛错中断脚本即可当前置条件用。写成 AgentAPI.assert(条件, 说明) 会报 TypeError；需要自定义断言时自己写 `if (!条件) throw new Error("说明")`。',
+    '16. 工具参数里的引用占位符会被替换成 VFS 文件内容（可用「/路径:起始行-结束行」取行范围）。只想写字面量标记时，在标记前紧邻写一个反斜杠：不展开，并消耗这一个反斜杠；写 n 个反斜杠只保留 n-1 个、更前面的不参与配对。标记格式非法时工具直接抛错中止，不会写入半成品。写含标记的文件优先用整文件占位符，避免逐处转义。',
   ].join('\n');
 
   const DEFAULTS = {
